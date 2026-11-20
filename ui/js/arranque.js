@@ -16,6 +16,7 @@ async function carregarBase() {
   }
   S.base = 'pronto';
   try { await analisarLimpeza(); } catch (e) { mostrarErro(e); }
+  try { await carregarInicializacao(); } catch (e) { mostrarErro(e); }
   renderAtual();
   await carregarSessaoEQuarentena();
   // A vista aberta durante o arranque pode ter pulado a carga automática (S.ocupado): re-renderiza.

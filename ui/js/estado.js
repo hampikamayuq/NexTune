@@ -16,6 +16,8 @@ const S = {
   // da última desinstalação (cartão com restos) até o usuário fechar.
   programas: { lista: null, filtro: '', aba: 'todos', ordem: 'nome', carregando: false, erro: null, ultimo: null, prog: null },
   quarentena: { entradas: null, sel: new Set(), erro: null, carregando: false, ultimo: null },
+  inicio: { itens: null, carregando: false, erro: null, filtro: 'todos', avancadoListado: null },
+  ajustesWin: { lista: null, carregando: false, erro: null, avancadoListado: null },
   sessaoOk: null,      // null = ainda não verificado; false = usuário elevado difere do usuário do console
 };
 

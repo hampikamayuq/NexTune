@@ -11,6 +11,8 @@ const demo = {
   _cats: null,
   _programas: null,
   _quarentena: null,
+  _inicio: null,
+  _ajustesWin: null,
   _protecao: false,   // Proteção do Sistema desligada até ligarProtecao (PC de fábrica com disco pequeno)
   _ponto: false,      // criarPonto ainda não rodou nesta sessão
   _seq: 0,
@@ -177,9 +179,112 @@ const demo = {
       return { liberadoBytes: liberado, pulados: detalhes.reduce((s, d) => s + d.pulados, 0), falhas: [], detalhes };
     }
     if (modulo === 'programas') return this._executarProgramas(acao, params, onProgresso);
+    if (modulo === 'inicializacao') return this._executarInicializacao(acao, params || {});
+    if (modulo === 'ajusteswin') return this._executarAjustesWin(acao, params || {});
     if (modulo === 'quarentena') return this._executarQuarentena(acao, params, onProgresso);
     if (modulo === 'sistema') return this._executarSistema(acao, params, onProgresso);
     throw new Error('Ação não disponível na demonstração: ' + modulo + '/' + acao);
+  },
+
+  _inicioInicial() {
+    const i = (id, nome, editor, comando, extra) => Object.assign({
+      id, nome, editor, comando, exe: comando, origem: 'run', escopo: 'usuario', ativo: true, cor: null, motivoCor: null,
+      protegido: false, motivoProtegido: null, tamanhoBytes: -1, ramBytes: 0, rodando: false, avancado: false,
+    }, extra || {});
+    return [
+      i('run:hklm:PositivoUpdater', 'Positivo Updater', 'Positivo Tecnologia', 'C:\\Program Files\\Positivo\\Updater.exe', {
+        escopo: 'todos', cor: 'verde', motivoCor: 'Atualizador de fábrica: só mostra avisos e propaganda.', tamanhoBytes: 24 * MB, rodando: true, ramBytes: 38 * MB }),
+      i('run:hklm:MultilaserHelper', 'Multilaser', 'Multilaser', 'C:\\Program Files (x86)\\Multilaser\\Helper.exe', {
+        escopo: 'todos', cor: 'verde', motivoCor: 'Atalhos e propaganda da fábrica.', tamanhoBytes: 12 * MB }),
+      i('run:hkcu:Spotify', 'Spotify', 'Spotify AB', 'C:\\Users\\Maria\\AppData\\Roaming\\Spotify\\Spotify.exe --autostart', {
+        cor: 'amarelo', motivoCor: 'Abre o tocador na partida; desligue se não usa todo dia.', tamanhoBytes: 98 * MB, rodando: true, ramBytes: 210 * MB }),
+      i('run:hkcu:Discord', 'Discord', 'Discord Inc.', 'C:\\Users\\Maria\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe', {
+        ativo: false, cor: 'amarelo', motivoCor: 'Abre o chat na partida; desligue se não usa todo dia.', tamanhoBytes: 2 * MB }),
+      i('run:hkcu:OneDrive', 'Microsoft OneDrive', 'Microsoft Corporation', 'C:\\Users\\Maria\\AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe /background', {
+        cor: 'amarelo', motivoCor: 'Sincroniza arquivos; desligue se não usa o OneDrive.', tamanhoBytes: 45 * MB, rodando: true, ramBytes: 95 * MB }),
+      i('run:hklm:SecurityHealth', 'Segurança do Windows', 'Microsoft Corporation', 'C:\\Windows\\System32\\SecurityHealthSystray.exe', {
+        escopo: 'todos', cor: 'vermelho', protegido: true, motivoProtegido: 'Ícone do Windows Defender: fica ligado.', rodando: true, ramBytes: 6 * MB }),
+      i('run:hklm:RtkAudUService', 'Realtek HD Audio', 'Realtek Semiconductor', 'C:\\Windows\\System32\\RtkAudUService64.exe', {
+        escopo: 'todos', cor: 'vermelho', protegido: true, motivoProtegido: 'Controla o som do PC: fica ligado.', rodando: true, ramBytes: 12 * MB }),
+      i('tarefa:\\Positivo\\PositivoUpdate', 'PositivoUpdate', 'Positivo Tecnologia', 'C:\\Program Files\\Positivo\\Update.exe /check', {
+        origem: 'tarefa', escopo: 'todos', cor: 'verde', motivoCor: 'Procura atualizações da fábrica ao ligar.', avancado: true }),
+    ];
+  },
+
+  async _executarInicializacao(acao, params) {
+    if (!this._inicio) this._inicio = this._inicioInicial();
+    await this._dormir(200);
+    if (acao === 'listar') {
+      const av = params.avancado === true;
+      return { itens: this._inicio.filter((x) => av || !x.avancado).map((x) => Object.assign({}, x)) };
+    }
+    if (acao === 'alternar') {
+      const it = this._inicio.find((x) => x.id === params.id);
+      if (!it) throw new Error('Item não encontrado: ' + params.id);
+      if (it.protegido) throw new Error('Item protegido: ' + it.motivoProtegido);
+      if (params.confirmado !== true) throw new Error('É preciso confirmar.');
+      if (typeof params.ativar !== 'boolean') throw new Error('ativar deve ser verdadeiro ou falso.');
+      if (it.origem === 'tarefa' && params.avancado !== true) throw new Error('Tarefas agendadas exigem o modo avançado.');
+      it.ativo = params.ativar;
+      return { id: it.id, ativo: it.ativo };
+    }
+    throw new Error('Ação não disponível na demonstração: inicializacao/' + acao);
+  },
+
+  // Demo simula Windows 11: tudo disponível. Só 'sugestoes_inicio' começa aplicado.
+  _ajustesWinIniciais() {
+    const a = (id, grupo, extra) => Object.assign({
+      id, grupo, politica: false, avancado: false, recomendado: false, disponivel: true, motivoIndisponivel: null,
+      aplicado: false, temBackup: false, reiniciarExplorer: false,
+    }, extra || {});
+    return [
+      a('sugestoes_inicio', 'anuncios', { recomendado: true, aplicado: true, temBackup: true }),
+      a('dicas_windows', 'anuncios', { recomendado: true }),
+      a('sugestoes_configuracoes', 'anuncios', { recomendado: true }),
+      a('apps_sugeridos', 'anuncios', { recomendado: true }),
+      a('avisos_onedrive_explorador', 'anuncios', { recomendado: true }),
+      a('id_publicidade', 'privacidade', { recomendado: true }),
+      a('experiencias_personalizadas', 'privacidade', { recomendado: true }),
+      a('telemetria_minima', 'privacidade', { recomendado: true }),
+      a('digitacao_personalizada', 'privacidade', { recomendado: true }),
+      a('historico_atividades', 'privacidade', { politica: true, avancado: true }),
+      a('widgets_barra', 'copilot', { recomendado: true }),
+      a('copilot_barra', 'copilot', { recomendado: true }),
+      a('chat_teams_barra', 'copilot', { recomendado: true }),
+      a('destaques_pesquisa', 'copilot', { recomendado: true }),
+      a('noticias_barra_win10', 'copilot'),
+      a('copilot_desligar', 'copilot', { politica: true, avancado: true }),
+      a('extensoes_visiveis', 'explorador', { reiniciarExplorer: true }),
+      a('abrir_este_computador', 'explorador', { reiniciarExplorer: true }),
+      a('recentes_inicio_rapido', 'explorador', { reiniciarExplorer: true }),
+      a('efeitos_visuais', 'desempenho', { recomendado: true, reiniciarExplorer: true }),
+      a('transparencia', 'desempenho', { recomendado: true }),
+    ];
+  },
+
+  async _executarAjustesWin(acao, params) {
+    if (!this._ajustesWin) this._ajustesWin = this._ajustesWinIniciais();
+    await this._dormir(200);
+    if (acao === 'listar') {
+      const av = params.avancado === true;
+      return { ajustes: this._ajustesWin.filter((x) => av || !x.avancado).map((x) => Object.assign({}, x)) };
+    }
+    if (acao !== 'aplicar' && acao !== 'restaurar') throw new Error('Ação não disponível na demonstração: ajusteswin/' + acao);
+    if (params.confirmado !== true) throw new Error('É preciso confirmar.');
+    const feitos = [];
+    const falhas = [];
+    let precisaReiniciar = false;
+    for (const id of params.ids || []) {
+      const x = this._ajustesWin.find((y) => y.id === id);
+      if (!x) { falhas.push({ id, erro: 'ajuste desconhecido' }); continue; }
+      if (acao === 'aplicar' && x.avancado && params.avancado !== true) { falhas.push({ id, erro: 'exige o modo avançado' }); continue; }
+      if (acao === 'restaurar' && !x.temBackup) { falhas.push({ id, erro: 'sem backup para este ajuste' }); continue; }
+      x.aplicado = acao === 'aplicar';
+      x.temBackup = acao === 'aplicar';
+      if (x.reiniciarExplorer) precisaReiniciar = true;
+      feitos.push(id);
+    }
+    return acao === 'aplicar' ? { aplicados: feitos, falhas, precisaReiniciar } : { restaurados: feitos, falhas, precisaReiniciar };
   },
 
   async _executarProgramas(acao, params, onProgresso) {

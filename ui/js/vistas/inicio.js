@@ -54,8 +54,17 @@ VISTAS.inicio = {
           h('div', { class: 'tamanho', text: fmtBytes(lixo) }),
           h('div', { class: 'texto', text: t('inicio.lixo') })),
         h('button', { type: 'button', class: 'btn acao', text: t('inicio.limpar'), onclick: () => { limpezaMarcarVerdes(); irPara('limpeza'); } })));
-    } else {
+    } else if (!inicioRecomendados().length) {
       v.append(h('p', { class: 'suave', text: t('inicio.nadaAgora') }));
+    }
+
+    const nInicio = inicioRecomendados().length;
+    if (nInicio) {
+      v.append(h('div', { class: 'cartao recomendado card-inicio' },
+        h('div', {},
+          h('div', { class: 'titulo-card', text: t(nInicio === 1 ? 'inicio.inicializacaoUm' : 'inicio.inicializacao', { n: nInicio }) }),
+          h('div', { class: 'texto', text: t('inicio.inicializacaoTexto') })),
+        h('button', { type: 'button', class: 'btn acao', text: t('inicio.ver'), onclick: () => irPara('inicializacao') })));
     }
 
     v.append(
