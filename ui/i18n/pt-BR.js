@@ -1,4 +1,5 @@
-{
+window.I18N = window.I18N || {};
+window.I18N['pt-BR'] = {
   "app.nome": "Otimizador",
   "app.versao": "versão {v}",
   "app.demo": "Modo demonstração: os dados são de exemplo e nada é alterado no seu PC.",
@@ -171,4 +172,4 @@
   "opcoes.dias": "dias",
   "opcoes.salvo": "Opção salva.",
   "opcoes.ocupado": "Aguarde a ação em andamento terminar para mudar o modo leve."
-}
+};

@@ -33,13 +33,27 @@ pub fn pastas_dev() -> Pastas {
     pastas_de_ambiente(raiz.join("scripts"), raiz.join("data"))
 }
 
+/// O Tauri devolve `resource_dir` com o prefixo verbatim (duas barras invertidas e `?`); o PowerShell 5.1
+/// falha em Join-Path/Test-Path com ele (argumento "drive" nulo). Remove o prefixo de caminhos com
+/// letra de unidade e deixa os demais como estão.
+fn sem_prefixo_verbatim(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(resto) if resto.as_bytes().get(1) == Some(&b':') => PathBuf::from(resto),
+        _ => p,
+    }
+}
+
 /// Pastas do aplicativo: empacotado usa os recursos do bundle; em desenvolvimento, a raiz do repositório.
 pub fn pastas(app: &tauri::AppHandle) -> Pastas {
     if cfg!(debug_assertions) {
         return pastas_dev();
     }
     match app.path().resource_dir() {
-        Ok(r) => pastas_de_ambiente(r.join("scripts"), r.join("data")),
+        Ok(r) => {
+            let r = sem_prefixo_verbatim(r);
+            pastas_de_ambiente(r.join("scripts"), r.join("data"))
+        }
         Err(_) => pastas_dev(),
     }
 }
@@ -206,6 +220,22 @@ mod testes {
         assert!(!caminho_protegido(Path::new(
             "C:\\Program Files\\Qualquer."
         )));
+    }
+
+    #[test]
+    fn remove_prefixo_verbatim_so_com_letra_de_unidade() {
+        assert_eq!(
+            sem_prefixo_verbatim(PathBuf::from(r"\\?\C:\Program Files\Otimizador")),
+            PathBuf::from(r"C:\Program Files\Otimizador")
+        );
+        assert_eq!(
+            sem_prefixo_verbatim(PathBuf::from(r"C:\x")),
+            PathBuf::from(r"C:\x")
+        );
+        assert_eq!(
+            sem_prefixo_verbatim(PathBuf::from(r"\\?\UNC\srv\p")),
+            PathBuf::from(r"\\?\UNC\srv\p")
+        );
     }
 
     #[test]

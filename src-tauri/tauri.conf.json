@@ -28,13 +28,28 @@
       "../scripts/*.ps1": "scripts/",
       "../data": "data/"
     },
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "publisher": "Otimizador (nome provisório)",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": [
+          "PortugueseBR"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

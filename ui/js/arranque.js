@@ -54,5 +54,5 @@ async function arranque() {
 arranque().catch((e) => {
   const main = document.getElementById('principal');
   main.textContent = '';
-  main.append(h('p', { text: (I18N['comum.erro'] ? t('comum.erro', { erro: e && e.message ? e.message : String(e) }) : String(e)) }));
+  main.append(h('p', { text: (textos['comum.erro'] ? t('comum.erro', { erro: e && e.message ? e.message : String(e) }) : String(e)) }));
 });
