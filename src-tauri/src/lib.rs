@@ -1,3 +1,6 @@
+pub mod acoes;
+pub mod protocolo;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
