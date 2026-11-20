@@ -95,6 +95,29 @@ fn evento_json(modulo: &str, ev: Evento) -> Option<Value> {
     }
 }
 
+/// DecisÃ£o pura: o host precisa ser recriado quando o modo leve calculado difere da prioridade atual.
+pub fn precisa_trocar(atual: bool, perfil: &Perfil, ajustes: &Ajustes) -> bool {
+    perfil::modo_leve(perfil, ajustes) != atual
+}
+
+/// RelÃª perfil e ajustes e, se o modo leve mudou, substitui o host (devolve `true` ao trocar).
+///
+/// AtenÃ§Ã£o: trocar o host chama `encerrar()` no antigo e cancela qualquer aÃ§Ã£o em andamento.
+/// A UI (Task 9) nÃ£o deve oferecer o alternador de modo leve enquanto houver aÃ§Ã£o rodando.
+pub async fn trocar_host_se_mudou(estado: &Estado) -> bool {
+    let perfil = perfil::ler(&estado.pastas);
+    let ajustes = ajustes::ler(&estado.pastas);
+    let mut guarda = estado.host.lock().await;
+    if !precisa_trocar(guarda.prioridade_baixa(), &perfil, &ajustes) {
+        return false;
+    }
+    let leve = perfil::modo_leve(&perfil, &ajustes);
+    let antigo = std::mem::replace(&mut *guarda, Arc::new(criar_host(&estado.pastas, leve)));
+    drop(guarda);
+    antigo.encerrar().await;
+    true
+}
+
 #[tauri::command]
 pub async fn executar(
     modulo: String,
@@ -114,9 +137,15 @@ pub async fn executar(
             let _ = window.emit("progresso", v);
         }
     };
-    host.executar(&modulo, &acao, params, false, progresso)
+    let r = host
+        .executar(&modulo, &acao, params, false, progresso)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+    if r.is_ok() && modulo == "diagnostico" && acao == "coletar" {
+        // O diagnÃ³stico grava um perfil.json novo; reavalia a prioridade do host.
+        trocar_host_se_mudou(&estado).await;
+    }
+    r
 }
 
 #[tauri::command]
@@ -176,6 +205,25 @@ mod testes {
         std::fs::write(d.join("ajustes.json"), "{}").unwrap();
         std::fs::write(d.join("outro.json"), "{}").unwrap();
         d
+    }
+
+    #[test]
+    fn tabela_precisa_trocar() {
+        let p = |c: &str, d: &str| Perfil {
+            classe: c.into(),
+            disco: d.into(),
+            manual: false,
+        };
+        let a = |m: &str| Ajustes {
+            modo_leve: m.into(),
+            ..Ajustes::default()
+        };
+        assert!(!precisa_trocar(true, &p("basico", "hdd"), &a("auto")));
+        assert!(precisa_trocar(false, &p("basico", "hdd"), &a("auto")));
+        assert!(precisa_trocar(true, &p("gamer", "ssd"), &a("auto")));
+        assert!(!precisa_trocar(false, &p("gamer", "ssd"), &a("auto")));
+        assert!(precisa_trocar(false, &p("gamer", "ssd"), &a("on")));
+        assert!(precisa_trocar(true, &p("basico", "hdd"), &a("off")));
     }
 
     #[test]

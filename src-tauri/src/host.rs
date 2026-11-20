@@ -294,6 +294,11 @@ impl HostPowerShell {
         }
     }
 
+    /// Prioridade baixa configurada para o processo.
+    pub fn prioridade_baixa(&self) -> bool {
+        self.interno.prioridade_baixa
+    }
+
     /// PID do processo vivo, se houver.
     pub async fn pid(&self) -> Option<u32> {
         self.interno.proc.lock().await.pid

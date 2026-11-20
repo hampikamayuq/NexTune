@@ -69,7 +69,12 @@ pub fn ler(pastas: &Pastas) -> Ajustes {
 pub fn gravar(pastas: &Pastas, a: &Ajustes) -> std::io::Result<()> {
     std::fs::create_dir_all(&pastas.appdata)?;
     let texto = serde_json::to_string_pretty(a).map_err(std::io::Error::other)?;
-    std::fs::write(arquivo(pastas), texto)
+    let destino = arquivo(pastas);
+    let tmp = destino.with_extension("json.tmp");
+    std::fs::write(&tmp, texto)?;
+    std::fs::rename(&tmp, &destino).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
 }
 
 #[cfg(test)]
@@ -108,6 +113,19 @@ mod testes {
         assert_eq!(ler(&p), a);
         let texto = std::fs::read_to_string(p.appdata.join("ajustes.json")).unwrap();
         assert!(texto.contains("\"diasQuarentena\": 30"));
+    }
+
+    #[test]
+    fn gravar_substitui_arquivo_existente_sem_deixar_tmp() {
+        let p = pastas_tmp("atomico");
+        gravar(&p, &Ajustes::default()).unwrap();
+        let b = Ajustes {
+            tour_visto: true,
+            ..Ajustes::default()
+        };
+        gravar(&p, &b).unwrap();
+        assert_eq!(ler(&p), b);
+        assert!(!p.appdata.join("ajustes.json.tmp").exists());
     }
 
     #[test]
