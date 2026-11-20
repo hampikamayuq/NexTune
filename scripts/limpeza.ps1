@@ -33,18 +33,19 @@ function Test-ParamVerdadeiro {
 }
 
 function Test-RaizSegura {
-    # Recusa raizes que nunca devem ser esvaziadas.
+    # Recusa raizes que nunca devem ser esvaziadas (vazias, relativas, rasas ou de sistema).
     param([string]$Raiz)
     if ([string]::IsNullOrWhiteSpace($Raiz)) { return $false }
-    $n = $Raiz.TrimEnd('\').ToLowerInvariant()
-    if ($n.Length -le 2) { return $false }
-    foreach ($p in @($env:SystemDrive, $env:windir, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:USERPROFILE)) {
+    if ($Raiz -notmatch '^[A-Za-z]:\\[^\\]+') { return $false }
+    try { $n = [IO.Path]::GetFullPath($Raiz).TrimEnd('\').ToLowerInvariant() } catch { return $false }
+    $partes = @($n.Substring(3) -split '\\' | Where-Object { $_ -ne '' })
+    if ($partes.Count -lt 2) { return $false }
+    foreach ($p in @($env:SystemDrive, $env:windir, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:USERPROFILE, $env:ProgramData, $env:APPDATA, $env:LOCALAPPDATA)) {
         if ([string]::IsNullOrEmpty($p)) { continue }
         if ($n -eq $p.TrimEnd('\').ToLowerInvariant()) { return $false }
     }
     return $true
 }
-
 function Get-DirNavegador {
     $dirs = New-Object System.Collections.Generic.List[string]
     $bases = @(
@@ -282,35 +283,64 @@ function Invoke-LimparDism {
     return 0
 }
 
+function Invoke-CleanmgrSomente {
+    # Roda o cleanmgr /sagerun apenas para UM handler: remove StateFlags<Flag> dos demais
+    # (guardando os valores), define so no handler pedido e restaura tudo no final.
+    param([string]$Handler, [int]$Flag, [string]$Base, [bool]$Teste)
+    $nome = 'StateFlags{0:D4}' -f $Flag
+    $guardados = @{}
+    try {
+        foreach ($k in @(Get-ChildItem -LiteralPath $Base -ErrorAction Stop)) {
+            if ($k.PSChildName -eq $Handler) { continue }
+            $v = (Get-ItemProperty -LiteralPath $k.PSPath -Name $nome -ErrorAction SilentlyContinue).$nome
+            if ($null -ne $v) {
+                $guardados[$k.PSPath] = $v
+                Remove-ItemProperty -LiteralPath $k.PSPath -Name $nome -ErrorAction Stop
+            }
+        }
+        Set-ItemProperty -LiteralPath (Join-Path $Base $Handler) -Name $nome -Value 2 -Type DWord -ErrorAction Stop
+        if (-not $Teste) {
+            Start-Process -FilePath 'cleanmgr.exe' -ArgumentList "/sagerun:$Flag" -Wait -WindowStyle Hidden
+        }
+    } finally {
+        Remove-ItemProperty -LiteralPath (Join-Path $Base $Handler) -Name $nome -ErrorAction SilentlyContinue
+        foreach ($p in $guardados.Keys) {
+            Set-ItemProperty -LiteralPath $p -Name $nome -Value $guardados[$p] -Type DWord -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Invoke-LimparWindowsOld {
     param([bool]$Teste)
     if ($Teste) { return 0 }
-    $chave = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches\Previous Installations'
-    try {
-        Set-ItemProperty -LiteralPath $chave -Name 'StateFlags0099' -Value 2 -Type DWord -ErrorAction Stop
-        Start-Process -FilePath 'cleanmgr.exe' -ArgumentList '/sagerun:99' -Wait -WindowStyle Hidden
-    } finally {
-        Remove-ItemProperty -LiteralPath $chave -Name 'StateFlags0099' -ErrorAction SilentlyContinue
-    }
+    Invoke-CleanmgrSomente 'Previous Installations' 99 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches' $false
     return 0
 }
 
+function Get-SombraParaApagar {
+    # Puro: de todas as sombras, so as do volume do sistema (e acessiveis ao cliente);
+    # devolve os GUIDs de todas menos a mais recente DESSE conjunto.
+    param($Sombras, [string]$VolumeId)
+    $meu = @($Sombras | Where-Object { $_.VolumeName -eq $VolumeId -and $_.ClientAccessible -eq $true } | Sort-Object InstallDate -Descending)
+    return @($meu | Select-Object -Skip 1 | ForEach-Object { [string]$_.ID })
+}
+
 function Invoke-LimparPonto {
-    # Apaga todos os pontos de restauracao/sombra exceto o mais recente.
+    # Apaga os pontos de restauracao do volume do sistema exceto o mais recente.
     # Lista via CIM (independe do idioma do Windows); apaga via vssadmin.
     param([bool]$Teste)
     if ($Teste) { return 0 }
-    $copias = @(Get-CimInstance -ClassName Win32_ShadowCopy -ErrorAction Stop | Sort-Object InstallDate -Descending)
+    $vol = Get-CimInstance -ClassName Win32_Volume -Filter "DriveLetter='$env:SystemDrive'" -ErrorAction Stop | Select-Object -First 1
+    if ($null -eq $vol -or [string]::IsNullOrEmpty([string]$vol.DeviceID)) { throw 'volume do sistema nÃ£o identificado' }
+    $copias = @(Get-CimInstance -ClassName Win32_ShadowCopy -ErrorAction Stop)
     $pulados = 0
-    foreach ($c in ($copias | Select-Object -Skip 1)) {
-        $guid = [string]$c.ID
+    foreach ($guid in @(Get-SombraParaApagar $copias ([string]$vol.DeviceID))) {
         if ($guid -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { $pulados++; continue }
         & vssadmin.exe delete shadows "/Shadow=$guid" /Quiet | Out-Null
         if ($LASTEXITCODE -ne 0) { $pulados++ }
     }
     return $pulados
 }
-
 function Invoke-LimparCategoria {
     # Executa a limpeza de UMA categoria; devolve pulados.
     param([string]$Id, $Params, [bool]$Teste)

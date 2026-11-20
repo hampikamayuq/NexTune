@@ -149,9 +149,70 @@ Describe 'limpeza.ps1' {
         It 'recusa raiz perigosa' {
             Test-RaizSegura "$env:SystemDrive\" | Should -BeFalse
             Test-RaizSegura $env:windir | Should -BeFalse
+            Test-RaizSegura "$env:windir\" | Should -BeFalse
             Test-RaizSegura $env:USERPROFILE | Should -BeFalse
+            Test-RaizSegura $env:ProgramFiles | Should -BeFalse
+            Test-RaizSegura $env:LOCALAPPDATA | Should -BeFalse
+            Test-RaizSegura $env:ProgramData | Should -BeFalse
             Test-RaizSegura '' | Should -BeFalse
+            Test-RaizSegura '\Temp' | Should -BeFalse
+            Test-RaizSegura 'Temp' | Should -BeFalse
+            Test-RaizSegura "$env:LOCALAPPDATA\D3DSCache" | Should -BeTrue
             Test-RaizSegura (Join-Path $Script:Raiz 'temp_usuario') | Should -BeTrue
+        }
+    }
+
+    Context 'pontos_antigos (selecao pura)' {
+        BeforeAll {
+            function Get-SombraFalsa { param($Id, $Vol, $Data, $Acessivel = $true) return [pscustomobject]@{ ID = $Id; VolumeName = $Vol; InstallDate = $Data; ClientAccessible = $Acessivel } }
+        }
+        It 'dois volumes: so as mais antigas do volume do sistema' {
+            $s = @(
+                (Get-SombraFalsa '{A}' 'C' ([datetime]'2026-01-01')), (Get-SombraFalsa '{B}' 'C' ([datetime]'2026-02-01')),
+                (Get-SombraFalsa '{C}' 'C' ([datetime]'2026-03-01')), (Get-SombraFalsa '{D}' 'D' ([datetime]'2026-04-01')),
+                (Get-SombraFalsa '{E}' 'D' ([datetime]'2025-01-01')))
+            @(Get-SombraParaApagar $s 'C') | Should -Be @('{B}', '{A}')
+        }
+        It 'uma unica sombra no sistema: nada' {
+            @(Get-SombraParaApagar @((Get-SombraFalsa '{A}' 'C' (Get-Date)), (Get-SombraFalsa '{D}' 'D' (Get-Date))) 'C').Count | Should -Be 0
+        }
+        It 'sombras so de outro volume: nada' {
+            @(Get-SombraParaApagar @((Get-SombraFalsa '{A}' 'D' (Get-Date)), (Get-SombraFalsa '{B}' 'D' (Get-Date).AddDays(-5))) 'C').Count | Should -Be 0
+        }
+        It 'ignora sombras nao acessiveis ao cliente' {
+            @(Get-SombraParaApagar @((Get-SombraFalsa '{A}' 'C' (Get-Date)), (Get-SombraFalsa '{B}' 'C' (Get-Date).AddDays(-1) $false)) 'C').Count | Should -Be 0
+        }
+    }
+
+    Context 'cleanmgr somente um handler' {
+        It 'define a flag so no handler pedido e restaura as dos outros' {
+            $base = 'HKCU:\Software\OtimizadorTeste\VolumeCaches'
+            try {
+                New-Item -Path "$base\Previous Installations" -Force | Out-Null
+                New-Item -Path "$base\DownloadsFolder" -Force | Out-Null
+                New-Item -Path "$base\Outro" -Force | Out-Null
+                Set-ItemProperty -LiteralPath "$base\DownloadsFolder" -Name 'StateFlags0099' -Value 2 -Type DWord
+                Set-ItemProperty -LiteralPath "$base\Outro" -Name 'StateFlags0042' -Value 2 -Type DWord
+                Invoke-CleanmgrSomente 'Previous Installations' 99 $base $true
+                (Get-ItemProperty -LiteralPath "$base\DownloadsFolder").StateFlags0099 | Should -Be 2
+                (Get-ItemProperty -LiteralPath "$base\Outro").StateFlags0042 | Should -Be 2
+                (Get-ItemProperty -LiteralPath "$base\Previous Installations").StateFlags0099 | Should -BeNullOrEmpty
+            } finally { Remove-Item -LiteralPath 'HKCU:\Software\OtimizadorTeste' -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        It 'remove a flag dos outros antes da execucao (observado no ponto do cleanmgr)' {
+            $base = 'HKCU:\Software\OtimizadorTeste\VolumeCaches'
+            try {
+                New-Item -Path "$base\Previous Installations" -Force | Out-Null
+                New-Item -Path "$base\DownloadsFolder" -Force | Out-Null
+                Set-ItemProperty -LiteralPath "$base\DownloadsFolder" -Name 'StateFlags0099' -Value 2 -Type DWord
+                $Script:Obs = $null
+                $Script:Chamou = $false
+                Mock Start-Process { $Script:Obs = (Get-ItemProperty -LiteralPath 'HKCU:\Software\OtimizadorTeste\VolumeCaches\DownloadsFolder').StateFlags0099; $Script:Chamou = $true }
+                Invoke-CleanmgrSomente 'Previous Installations' 99 $base $false
+                $Script:Chamou | Should -BeTrue
+                $Script:Obs | Should -BeNullOrEmpty
+                (Get-ItemProperty -LiteralPath "$base\DownloadsFolder").StateFlags0099 | Should -Be 2
+            } finally { Remove-Item -LiteralPath 'HKCU:\Software\OtimizadorTeste' -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }
 }
