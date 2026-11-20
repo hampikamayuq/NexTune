@@ -5,7 +5,7 @@ const TAURI = window.__TAURI__ || null;
 const _progresso = {}; // modulo -> callback do evento 'progresso'
 
 const AJUSTES_PADRAO = {
-  idioma: 'pt-BR', modoAvancado: false, pontoRestauracao: 'perguntar', diasQuarentena: 30,
+  idioma: 'pt-BR', modoAvancado: false, pontoRestauracao: 'perguntar', diasQuarentena: 7,
   modoLeve: 'auto', tourVisto: false, ultimaVersao: '',
 };
 const PERFIS_PADRAO = {
@@ -28,8 +28,14 @@ const api = {
   },
 
   async info() {
-    if (!TAURI) return { versao: '0.1.0', demo: true, esAdmin: true, perfil: { classe: 'basico', disco: 'hdd', manual: false }, modoLeve: false, equipo: 'Demonstração' };
+    if (!TAURI) return { versao: '0.1.0', demo: true, esAdmin: true, perfil: { classe: 'basico', disco: 'hdd', manual: false }, modoLeve: false, equipo: 'Demonstração', sessaoOk: true };
     return _invoke('info');
+  },
+
+  // true se `sistema/criarPonto` já devolveu `criado:true` neste processo (um ponto por sessão).
+  async pontoSessao() {
+    if (!TAURI) return !!demo._ponto;
+    return _invoke('ponto_sessao');
   },
 
   ajustes: {

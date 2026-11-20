@@ -98,6 +98,8 @@ async function limpar() {
     if (!ok2) return;
     confirmado = true;
   }
+  // Ponto de restauração antes da primeira escrita da sessão (spec §9.1); só o cancelamento interrompe.
+  if (!(await garantirPonto())) return;
 
   const L = S.limpeza;
   L.rodando = true; L.log = []; L.pct = 0; L.msg = t('limpeza.progresso'); L.resultado = null;
@@ -108,7 +110,7 @@ async function limpar() {
   try {
     L.resultado = await api.executar('limpeza', 'limpar', params, limpezaProgresso);
   } catch (e) {
-    mostrarErro(e);
+    mostrarErroEscrita(e);
   }
   L.rodando = false;
   try { await analisarLimpeza(); } catch (e) { mostrarErro(e); }
@@ -179,7 +181,7 @@ VISTAS.limpeza = {
 
     v.append(h('div', { class: 'rodape-limpeza' },
       h('span', { class: 'total', id: 'lp-total' }),
-      h('button', { type: 'button', class: 'btn acao', id: 'lp-limpar', text: t('limpeza.limpar'), onclick: () => limpar() })));
+      h('button', { type: 'button', class: 'btn acao escrita', id: 'lp-limpar', text: t('limpeza.limpar'), onclick: () => limpar() })));
     limpezaAtualizarTotal();
 
   },

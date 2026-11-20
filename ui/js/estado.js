@@ -12,6 +12,11 @@ const S = {
   vista: 'inicio',
   ocupado: false,
   limpeza: { sel: new Set(), log: [], pct: 0, msg: '', rodando: false, resultado: null, avancadoAnalisado: null, falhou: null },
+  // Programas: lista de programas/listar, filtros da barra, progresso da ação em curso e o resultado
+  // da última desinstalação (cartão com restos) até o usuário fechar.
+  programas: { lista: null, filtro: '', aba: 'todos', ordem: 'nome', carregando: false, erro: null, ultimo: null, prog: null },
+  quarentena: { entradas: null, sel: new Set(), erro: null, carregando: false, ultimo: null },
+  sessaoOk: null,      // null = ainda não verificado; false = usuário elevado difere do usuário do console
 };
 
 const VISTAS = {}; // inicio, diagnostico, limpeza, opcoes: cada uma com render(main)
@@ -32,6 +37,14 @@ function fmtBytes(n) {
 
 function fmtGb(bytes) {
   return (bytes / 1073741824).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' GB';
+}
+
+// Data curta em pt-BR (dd/mm/aaaa); ISO inválido ou vazio vira travessão.
+function fmtData(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function simNao(v) {
@@ -57,8 +70,19 @@ function irPara(nome) {
 }
 
 // ---- estado ocupado ----
+// Botões de escrita (`.escrita`) ficam desabilitados também quando a sessão está bloqueada (spec §9.1).
 function aplicarOcupado() {
-  document.querySelectorAll('.acao').forEach((el) => { el.disabled = S.ocupado || el.hasAttribute('data-bloq'); });
+  const bloqSessao = S.sessaoOk === false;
+  document.querySelectorAll('.acao, .escrita').forEach((el) => {
+    el.disabled = S.ocupado || el.hasAttribute('data-bloq') || (bloqSessao && el.classList.contains('escrita'));
+  });
+}
+
+// Faixa fixa de sessão bloqueada + desabilita a escrita.
+function aplicarSessao() {
+  const faixa = document.getElementById('faixa-sessao');
+  if (faixa) faixa.hidden = S.sessaoOk !== false;
+  aplicarOcupado();
 }
 
 function setOcupado(b) {
@@ -89,6 +113,19 @@ function toast(msg, tipo) {
 function mostrarErro(e) {
   const msg = e && e.message ? e.message : String(e);
   toast(t('comum.erro', { erro: msg }), 'erro');
+}
+
+// Erro de uma ação de escrita: `sessao_diferente` vem do Rust quando o usuário elevado não é o do
+// console; vira a mensagem própria, marca a sessão como bloqueada e mostra a faixa.
+function mostrarErroEscrita(e) {
+  const msg = e && e.message ? e.message : String(e);
+  if (msg === 'sessao_diferente' || msg.endsWith('sessao_diferente')) {
+    S.sessaoOk = false;
+    aplicarSessao();
+    toast(t('sessao.bloqueado'), 'erro');
+    return;
+  }
+  mostrarErro(e);
 }
 
 // ---- modal ----
