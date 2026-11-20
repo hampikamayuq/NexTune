@@ -64,10 +64,13 @@ function linhaAjuste(a) {
   if (a.reiniciarExplorer) selos.push(h('span', { class: 'selo', text: t('ajustes.selo.reiniciar') }));
   const lado = h('div', { class: 'ajuste-lado' });
   if (a.disponivel) {
-    lado.append(
-      h('span', { class: 'suave pequeno', text: t(a.aplicado ? 'ajustes.estado.aplicado' : 'ajustes.estado.original') }),
-      h('button', { type: 'button', class: 'btn sec acao escrita', text: t(a.aplicado ? 'ajustes.restaurar' : 'ajustes.aplicar'),
+    // Aplicado sem backup (já era assim antes do NexTune): não há o que restaurar, então só mostra o estado.
+    const semBackup = a.aplicado && !a.temBackup;
+    lado.append(h('span', { class: 'suave pequeno', text: t(semBackup ? 'ajustes.estado.aplicadoSemBackup' : (a.aplicado ? 'ajustes.estado.aplicado' : 'ajustes.estado.original')) }));
+    if (!semBackup) {
+      lado.append(h('button', { type: 'button', class: 'btn sec acao escrita', text: t(a.aplicado ? 'ajustes.restaurar' : 'ajustes.aplicar'),
         onclick: () => executarAjustes(a.aplicado ? 'restaurar' : 'aplicar', [a.id]) }));
+    }
   }
   return h('div', { class: 'ajuste' + (a.disponivel ? '' : ' indisp') },
     h('div', { class: 'ajuste-info' },

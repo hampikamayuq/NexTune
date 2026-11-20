@@ -357,6 +357,7 @@ window.I18N['pt-BR'] = {
   "ajustes.selo.reiniciar": "pede reiniciar o Explorador",
   "ajustes.estado.aplicado": "aplicado",
   "ajustes.estado.original": "original",
+  "ajustes.estado.aplicadoSemBackup": "já estava assim antes do NexTune",
   "ajustes.aplicar": "Aplicar",
   "ajustes.restaurar": "Restaurar",
   "ajustes.aplicarTituloUm": "Aplicar este ajuste?",

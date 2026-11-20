@@ -254,7 +254,7 @@ const demo = {
       a('destaques_pesquisa', 'copilot', { recomendado: true }),
       a('noticias_barra_win10', 'copilot'),
       a('copilot_desligar', 'copilot', { politica: true, avancado: true }),
-      a('extensoes_visiveis', 'explorador', { reiniciarExplorer: true }),
+      a('extensoes_visiveis', 'explorador', { reiniciarExplorer: true, aplicado: true }), // aplicado sem backup: sem botão Restaurar
       a('abrir_este_computador', 'explorador', { reiniciarExplorer: true }),
       a('recentes_inicio_rapido', 'explorador', { reiniciarExplorer: true }),
       a('efeitos_visuais', 'desempenho', { recomendado: true, reiniciarExplorer: true }),
