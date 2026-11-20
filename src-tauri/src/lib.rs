@@ -1,4 +1,6 @@
 pub mod acoes;
+pub mod caminhos;
+pub mod host;
 pub mod protocolo;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
