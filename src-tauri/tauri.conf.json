@@ -11,8 +11,11 @@
     "windows": [
       {
         "title": "Otimizador",
-        "width": 900,
-        "height": 640
+        "width": 1240,
+        "height": 800,
+        "minWidth": 760,
+        "minHeight": 500,
+        "decorations": false
       }
     ],
     "security": {
@@ -21,6 +24,10 @@
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "../scripts/*.ps1": "scripts/",
+      "../data": "data/"
+    },
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
