@@ -523,7 +523,7 @@ function Add-Enriquecimento {
         try { $servicos = @(Get-CimInstance -ClassName Win32_Service -ErrorAction Stop | Where-Object { -not [string]::IsNullOrEmpty($_.PathName) }) } catch { $servicos = @() }
         try { $processos = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { -not [string]::IsNullOrEmpty($_.Path) }) } catch { $processos = @() }
     }
-    $n = [math]::Max(1, @($Lista).Count)
+    $n = [math]::Max(1, [int]$Lista.Count)   # @($Lista) sobre List[object] de [ordered] lança no PS 5.1 (19041)
     $i = 0
     foreach ($p in $Lista) {
         if (($i % 10) -eq 0) { Send-Progress $Id (70 + [int](30 * $i / $n)) "Medindo $($p.nome)" }
