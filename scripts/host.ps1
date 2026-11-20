@@ -10,6 +10,8 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } c
 $Allowlist = @('diagnostico', 'limpeza') + @($AllowlistExtra)
 $Fila = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
 $Ativos = New-Object System.Collections.ArrayList
+# Ids que ja receberam seu @@RESULT final (garante resultado unico por acao).
+$Finalizados = New-Object 'System.Collections.Concurrent.ConcurrentDictionary[string,byte]'
 $Relogio = [Diagnostics.Stopwatch]::StartNew()
 $UltimaAtividade = [int64]0
 
@@ -21,13 +23,19 @@ Set-Saida $SaidaHost
 
 # Corpo executado em cada runspace: recebe Id, Acao, Params, Teste, Fila, caminho do common e do modulo.
 $CorpoRunspace = @'
-param($Id, $Acao, $Params, $Teste, $Fila, $Common, $Modulo)
+param($Id, $Acao, $Params, $Teste, $Fila, $Finalizados, $Common, $Modulo)
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 . $Common
 $w = New-Object PSObject
 $w | Add-Member -MemberType NoteProperty -Name Fila -Value $Fila
-$w | Add-Member -MemberType ScriptMethod -Name WriteLine -Value { param($s) $this.Fila.Enqueue([string]$s) }
+$w | Add-Member -MemberType NoteProperty -Name Fin -Value $Finalizados
+$w | Add-Member -MemberType NoteProperty -Name AcaoId -Value $Id
+$w | Add-Member -MemberType ScriptMethod -Name WriteLine -Value {
+    param($s)
+    if ($s.StartsWith('@@RESULT ') -and -not $this.Fin.TryAdd($this.AcaoId, [byte]1)) { return }
+    $this.Fila.Enqueue([string]$s)
+}
 try {
     . $Modulo
     Set-Saida $w
@@ -39,11 +47,21 @@ try {
 '@
 
 function Invoke-MatarFilho {
-    # v1: mata TODOS os processos filhos diretos do host (nao rastreia por acao).
+    # Mata os filhos diretos do host criados a partir de $Desde (inicio da acao), exceto conhost.exe
+    # (console do proprio host: matar quebra todo comando nativo seguinte).
+    param([DateTime]$Desde)
     try {
         Get-CimInstance Win32_Process -Filter "ParentProcessId = $PID" -ErrorAction Stop |
+            Where-Object { $_.Name -ne 'conhost.exe' -and $_.CreationDate -ge $Desde } |
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     } catch { $null = $_ }
+}
+
+function Send-ResultUnico {
+    # Emite o @@RESULT do host para a acao somente se ela ainda nao foi finalizada.
+    param([string]$Id, $Dados, [bool]$Ok, [string]$Erro)
+    if ($Finalizados.TryAdd($Id, [byte]1)) { Send-Result $Id $Dados $Ok $Erro; return $true }
+    return $false
 }
 
 function Remove-Ativo {
@@ -59,15 +77,18 @@ function Start-Acao {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
     param([string]$Id, [string]$Modulo, [string]$Acao, $Params, [bool]$Teste)
+    $b = [byte]0
+    $null = $Finalizados.TryRemove($Id, [ref]$b)
     $rs = [RunspaceFactory]::CreateRunspace()
     $rs.Open()
     $ps = [PowerShell]::Create()
     $ps.Runspace = $rs
     $null = $ps.AddScript($CorpoRunspace).AddArgument($Id).AddArgument($Acao).AddArgument($Params).
-        AddArgument($Teste).AddArgument($Fila).AddArgument("$PSScriptRoot\common.ps1").
+        AddArgument($Teste).AddArgument($Fila).AddArgument($Finalizados).AddArgument("$PSScriptRoot\common.ps1").
         AddArgument("$PSScriptRoot\$Modulo.ps1")
+    $inicio = Get-Date
     $handle = $ps.BeginInvoke()
-    $null = $Ativos.Add([pscustomobject]@{ Id = $Id; Ps = $ps; Rs = $rs; Handle = $handle; Inicio = $Relogio.ElapsedMilliseconds })
+    $null = $Ativos.Add([pscustomobject]@{ Id = $Id; Ps = $ps; Rs = $rs; Handle = $handle; Inicio = $inicio; Cancelado = $false })
 }
 
 function Stop-AcaoAtiva {
@@ -77,10 +98,12 @@ function Stop-AcaoAtiva {
     # Retorna $true se cancelou uma acao ainda em curso.
     $e = @($Ativos | Where-Object { $_.Id -eq $Alvo -and -not $_.Handle.IsCompleted }) | Select-Object -First 1
     if ($null -eq $e) { return $false }
-    try { $e.Ps.Stop() } catch { $null = $_ }
-    Invoke-MatarFilho
-    Remove-Ativo $e
-    Send-Result $Alvo $null $false 'cancelado'
+    # 1) reserva o resultado (se a acao ja finalizou, nao ha o que cancelar)
+    if (-not (Send-ResultUnico $Alvo $null $false 'cancelado')) { return $false }
+    # 2) mata os filhos (destrava acao bloqueada esperando processo) e 3) para sem bloquear o loop
+    $e.Cancelado = $true
+    Invoke-MatarFilho $e.Inicio
+    try { $null = $e.Ps.BeginStop($null, $null) } catch { $null = $_ }
     return $true
 }
 
@@ -158,7 +181,16 @@ try {
         Write-FilaParaSaida
         foreach ($e in @($Ativos)) {
             if ($e.Handle.IsCompleted) {
-                try { $null = $e.Ps.EndInvoke($e.Handle) } catch { [Console]::Error.WriteLine("erro na acao $($e.Id): $($_.Exception.Message)") }
+                $erro = ''
+                try { $null = $e.Ps.EndInvoke($e.Handle) } catch { $erro = $_.Exception.Message }
+                if (-not $e.Cancelado) {
+                    foreach ($er in @($e.Ps.Streams.Error)) {
+                        [Console]::Error.WriteLine("acao $($e.Id): $er")
+                        if ([string]::IsNullOrEmpty($erro)) { $erro = [string]$er }
+                    }
+                    if ([string]::IsNullOrEmpty($erro)) { $erro = 'ação terminou sem resultado' }
+                    $null = Send-ResultUnico $e.Id $null $false $erro
+                }
                 Remove-Ativo $e
                 $UltimaAtividade = $Relogio.ElapsedMilliseconds
             }
@@ -168,10 +200,15 @@ try {
             ($Relogio.ElapsedMilliseconds - $UltimaAtividade) -gt ($OciosoSegundos * 1000)) { $continuar = $false }
     }
 } finally {
+    # Saindo (sair/EOF): finaliza cada acao ainda em curso como cancelada.
     foreach ($e in @($Ativos)) {
-        try { $e.Ps.Stop() } catch { $null = $_ }
-        Remove-Ativo $e
+        $null = Send-ResultUnico $e.Id $null $false 'cancelado'
+        $e.Cancelado = $true
     }
     Write-FilaParaSaida
+    foreach ($e in @($Ativos)) {
+        Invoke-MatarFilho $e.Inicio
+        try { $null = $e.Ps.BeginStop($null, $null) } catch { $null = $_ }
+    }
 }
 exit 0

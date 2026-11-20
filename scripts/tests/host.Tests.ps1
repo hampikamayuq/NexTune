@@ -85,6 +85,15 @@ Describe 'host.ps1' {
             $r.ok | Should -BeFalse
             $r.erro | Should -Match 'falha de proposito'
         }
+
+        It 'acao que termina sem Send-Result vira ok=false em ate 5 s' {
+            $Script:Proc = Start-HostTeste
+            Send-Comando $Script:Proc @{ id = 'x1'; modulo = 'eco'; acao = 'semResultado'; params = @{}; teste = $true }
+            $r = Read-Resultado $Script:Proc 'x1' 5000
+            $r | Should -Not -BeNullOrEmpty
+            $r.ok | Should -BeFalse
+            $r.erro | Should -Not -BeNullOrEmpty
+        }
     }
 
     Context 'Concorrencia e cancelamento' {
@@ -100,6 +109,36 @@ Describe 'host.ps1' {
             $r.erro | Should -Be 'cancelado'
             $sw.Elapsed.TotalSeconds | Should -BeLessThan 5
             (Read-Resultado $Script:Proc 'c1' 5000).ok | Should -BeTrue
+        }
+
+        It 'cancelar emite um unico resultado para o alvo e nao quebra comandos nativos depois' {
+            $Script:Proc = Start-HostTeste
+            Send-Comando $Script:Proc @{ id = 'n0'; modulo = 'eco'; acao = 'nativo'; params = @{}; teste = $true }
+            (Read-Resultado $Script:Proc 'n0' 20000).dados.saida | Should -Be 'ola'
+            Send-Comando $Script:Proc @{ id = 'd2'; modulo = 'eco'; acao = 'demorar'; params = @{ segundos = 30 }; teste = $true }
+            Send-Comando $Script:Proc @{ id = 'c2'; modulo = 'host'; acao = 'cancelar'; params = @{ alvo = 'd2' }; teste = $true }
+            $vistos = @()
+            $limite = [DateTime]::UtcNow.AddSeconds(2)
+            while ([DateTime]::UtcNow -lt $limite) {
+                $linha = Read-Linha $Script:Proc 300
+                if ($linha -and $linha.StartsWith('@@RESULT ')) { $vistos += ($linha.Substring(9) | ConvertFrom-Json).id }
+            }
+            @($vistos | Where-Object { $_ -eq 'd2' }).Count | Should -Be 1
+            Send-Comando $Script:Proc @{ id = 'n1'; modulo = 'eco'; acao = 'nativo'; params = @{}; teste = $true }
+            $r = Read-Resultado $Script:Proc 'n1' 20000
+            $r.ok | Should -BeTrue
+            $r.dados.saida | Should -Be 'ola'
+        }
+
+        It 'sair com acao em curso responde cancelado e termina com ExitCode 0' {
+            $Script:Proc = Start-HostTeste
+            Send-Comando $Script:Proc @{ id = 'd3'; modulo = 'eco'; acao = 'demorar'; params = @{ segundos = 30 }; teste = $true }
+            Send-Comando $Script:Proc @{ id = 's3'; modulo = 'host'; acao = 'sair'; params = @{}; teste = $true }
+            $r = Read-Resultado $Script:Proc 'd3' 10000
+            $r.ok | Should -BeFalse
+            $r.erro | Should -Be 'cancelado'
+            $Script:Proc.WaitForExit(10000) | Should -BeTrue
+            $Script:Proc.ExitCode | Should -Be 0
         }
 
         It 'duas acoes rodam em paralelo (a de 0,5 s responde antes da de 2 s)' {

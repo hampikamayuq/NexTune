@@ -14,6 +14,8 @@ function Invoke-Acao {
         }
         'teste' { Send-Result $Id @{ teste = $Teste } }
         'falhar' { throw 'falha de proposito' }
+        'nativo' { $s = cmd.exe /c echo ola; Send-Result $Id @{ saida = (($s | Out-String).Trim()) } }
+        'semResultado' { return }
         default { Send-Result $Id $null $false 'acao desconhecida' }
     }
 }
