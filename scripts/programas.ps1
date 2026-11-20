@@ -3,7 +3,8 @@
 # limparRestos {itens:[{tipo, caminho}], confirmado, nome?}.
 # Dados: data\bloatware.json e data\protegidos.json na pasta 'data' ao lado de 'scripts' (repositorio e bundle).
 # Classificacao, nesta ordem: protegidos.json (nome/editor/packageFamilyName) -> InstallLocation sob
-# Test-ProtectedPath -> Store com SignatureKind 'System' ou NonRemovable -> bloatware.json (primeira entrada
+# Test-ProtectedPath (so classicos; a Store mora em WindowsApps) -> Store com SignatureKind 'System' ou
+# NonRemovable -> bloatware.json (primeira entrada
 # que casa vence; 'editor' da entrada so e exigido quando o programa informa editor). Fora das listas: cor $null.
 # Store em bloatware.json casa por igualdade (sem diferenciar caixa) do PackageFamilyName.
 # Tamanho: EstimatedSize (KB) quando houver; senao Get-TamanhoComTeto do InstallLocation (10 s por programa,
@@ -34,7 +35,7 @@ $Script:TetoDesinstalarMs = 600000
 $Script:MaxItensRestos = 500
 $Script:PadraoGuid = '\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}'
 $Script:PadraoAtualizacao = '^(Security Update|Update|Hotfix) for|KB\d{6,}'
-# Primeiro segmento de chave de registro que nunca vira candidato a resto (sob HKCU\Software ou HKLM\SOFTWARE).
+# Segmentos de chave de registro (abaixo de HKCU\Software ou HKLM\SOFTWARE) que nunca viram candidato a resto.
 $Script:SegmentosProibidos = @('microsoft', 'classes', 'policies', 'wow6432node', 'clients', 'registeredapplications', 'odbc', 'windows', 'windows nt')
 
 # ---------- dados ----------
@@ -111,7 +112,9 @@ function Get-Classificacao {
         [string]$SignatureKind = '', [bool]$NonRemovable = $false)
     $r = @{ cor = $null; motivoCor = ''; protegido = $false; motivoProtegido = ''; siteReinstalar = $null; productId = $null }
     $motivo = Get-MotivoProtegido $Nome $Editor $PackageFamilyName
-    if ($null -eq $motivo -and -not [string]::IsNullOrWhiteSpace($Local) -and (Test-ProtectedPath $Local)) {
+    # Apps da Store moram em Program Files\WindowsApps (sempre protegida): para elas valem so protegidos.json,
+    # SignatureKind e NonRemovable; a regra da pasta e so para programas classicos.
+    if ($null -eq $motivo -and $Tipo -ne 'store' -and -not [string]::IsNullOrWhiteSpace($Local) -and (Test-ProtectedPath $Local)) {
         $motivo = 'Instalado numa pasta protegida do Windows: faz parte do sistema ou de componentes compartilhados.'
     }
     if ($null -eq $motivo -and $Tipo -eq 'store' -and ($SignatureKind -eq 'System' -or $NonRemovable)) {
@@ -194,7 +197,8 @@ function Split-UninstallString {
 function Test-MarcaNullsoft {
     # O arquivo existe e seus primeiros 512 KB contem 'Nullsoft'?
     param([string]$Arquivo)
-    if ([string]::IsNullOrWhiteSpace($Arquivo) -or -not (Test-Path -LiteralPath $Arquivo -PathType Leaf)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($Arquivo) -or $Arquivo -notmatch '^[A-Za-z]:\\') { return $false }   # nunca UNC ou \\.\pipe
+    if (-not (Test-Path -LiteralPath $Arquivo -PathType Leaf)) { return $false }
     $fs = $null
     try {
         $fs = [IO.File]::OpenRead($Arquivo)
@@ -351,6 +355,19 @@ function Get-EditorDoCertificado {
     return $Publisher.Trim()
 }
 
+function Get-LocalNormalizado {
+    # InstallLocation sem aspas nem barra final; vazio quando e raiz de unidade ou uma pasta-base do sistema
+    # (Program Files, ProgramData, AppData...), que nunca identificam um programa.
+    param([string]$Local)
+    $l = ([string]$Local).Trim().Trim('"').TrimEnd('\')
+    if ($l.Length -le 3) { return '' }
+    foreach ($raiz in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData, $env:LOCALAPPDATA, $env:APPDATA, $env:USERPROFILE)) {
+        if ([string]::IsNullOrWhiteSpace($raiz)) { continue }
+        if ([string]::Equals($l, $raiz.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { return '' }
+    }
+    return $l
+}
+
 function New-Programa {
     # Registro interno de um programa (ja classificado). Tamanho -1 = ainda desconhecido (medido em listar).
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
@@ -358,7 +375,7 @@ function New-Programa {
     param([string]$Id, [string]$Tipo, [string]$Nome, [string]$Versao = '', [string]$Editor = '', [string]$Local = '',
         [string]$UninstallString = '', [string]$QuietUninstallString = '', $WindowsInstaller = $null, $EstimatedSizeKb = $null,
         $InstallDate = $null, [string]$PackageFullName = '', [string]$PackageFamilyName = '', [string]$SignatureKind = '', [bool]$NonRemovable = $false)
-    $local = ([string]$Local).Trim().Trim('"').TrimEnd('\')
+    $local = Get-LocalNormalizado $Local
     $tam = [int64]-1
     if ($null -ne $EstimatedSizeKb) {
         try { $tam = [int64]$EstimatedSizeKb * 1024 } catch { $tam = [int64]-1 }
@@ -614,9 +631,11 @@ function Add-Candidato {
 }
 
 function Test-PastaCandidata {
-    # Pasta existente, fora de links, sem .exe/.dll/.sys e (se $ExigirIdade) sem alteracao ha 30 dias.
+    # Pasta existente, sem link/juncao nela, acima dela ou dentro dela (Add-ItemQuarentena recusaria), sem
+    # .exe/.dll/.sys e (se $ExigirIdade) sem alteracao ha 30 dias.
     param([string]$Caminho, [bool]$ExigirIdade)
     if (Test-ProtectedPath $Caminho) { return $false }
+    if (-not (Test-CadeiaSemLink $Caminho) -or -not (Test-ArvoreSemLink $Caminho)) { return $false }
     $r = Get-ResumoPasta $Caminho
     if (-not $r.ok -or $r.temExecutavel) { return $false }
     if ($ExigirIdade -and $r.maisRecente -gt (Get-Date).AddDays(-$Script:DiasResto)) { return $false }
@@ -639,10 +658,26 @@ function Test-ContemNome {
 }
 
 function Test-SubchaveProibida {
-    # Primeiro segmento de '<editor>\<nome>' em area que nunca vira candidato (Microsoft, Classes, Policies...).
+    # Puro: algum segmento do subcaminho ('<editor>\<nome>' ou o resto de uma chave) e area que nunca vira
+    # candidato (Microsoft, Classes, Policies, Windows...)?
     param([string]$Sub)
-    $primeiro = @($Sub -split '\\', 2)[0].Trim().ToLowerInvariant()
-    return ($Script:SegmentosProibidos -contains $primeiro)
+    foreach ($seg in @($Sub -split '\\')) {
+        if ($Script:SegmentosProibidos -contains $seg.Trim().ToLowerInvariant()) { return $true }
+    }
+    return $false
+}
+
+function Test-ChaveRestoPermitida {
+    # Puro: chave que pode ser resto: raiz HKCU\Software ou HKLM\SOFTWARE (sem diferenciar caixa), pelo menos
+    # 3 segmentos e nenhum segmento abaixo da raiz proibido. Vale fora e dentro do modo teste.
+    param([string]$Chave)
+    if (-not (Test-ChaveRegistro $Chave)) { return $false }
+    $partes = @($Chave.TrimEnd('\') -split '\\')
+    if ($partes.Count -lt 3) { return $false }
+    $raiz = $partes[0].ToLowerInvariant()
+    if ($raiz -ne 'hkcu' -and $raiz -ne 'hkey_current_user' -and $raiz -ne 'hklm' -and $raiz -ne 'hkey_local_machine') { return $false }
+    if ($partes[1].ToLowerInvariant() -ne 'software') { return $false }
+    return (-not (Test-SubchaveProibida ($partes[2..($partes.Count - 1)] -join '\')))
 }
 
 function Get-CandidatoResto {
@@ -654,8 +689,9 @@ function Get-CandidatoResto {
     if ($null -ne (Get-MotivoProtegido $nome $Editor '')) { return @() }
     $raizes = Get-RaizResto $Teste
 
+    # A pasta de instalacao so e resto quando o programa ja nao esta na lista (spec: "sem programa instalado correspondente").
     $local = ([string]$Local).Trim().Trim('"').TrimEnd('\')
-    if (-not [string]::IsNullOrWhiteSpace($local) -and $local -match '^[A-Za-z]:\\.' -and (Test-Path -LiteralPath $local -PathType Container)) {
+    if (-not $AindaInstalado -and -not [string]::IsNullOrWhiteSpace($local) -and $local -match '^[A-Za-z]:\\.' -and (Test-Path -LiteralPath $local -PathType Container)) {
         if (Test-PastaCandidata $local $false) {
             Add-Candidato $lista 'pasta' ([IO.Path]::GetFullPath($local)) (Get-PathSize $local) 'Pasta de instalação que ficou depois da desinstalação (sem programas dentro).'
         }
@@ -677,6 +713,7 @@ function Get-CandidatoResto {
     }
 
     foreach ($raiz in $raizes.atalhos) {
+        if ($nome.Length -lt 3) { break }   # nome curto casaria com atalhos de qualquer programa
         if ([string]::IsNullOrWhiteSpace($raiz) -or -not (Test-Path -LiteralPath $raiz -PathType Container)) { continue }
         $raizFull = [IO.Path]::GetFullPath($raiz).TrimEnd('\')
         foreach ($lnk in @(Get-ArquivoSemLink $raizFull '.lnk')) {
@@ -692,9 +729,8 @@ function Get-CandidatoResto {
     if (-not $AindaInstalado) {
         foreach ($raiz in $raizes.registro) {
             foreach ($sub in $subs) {
-                if (Test-SubchaveProibida $sub) { continue }
                 $chave = $raiz + '\' + $sub
-                if (-not (Test-ChaveRegistro $chave)) { continue }
+                if (-not (Test-ChaveRestoPermitida $chave)) { continue }
                 if ($Teste -and -not (Test-ChaveTeste $chave)) { continue }
                 $prov = $null
                 try { $prov = ConvertTo-CaminhoRegistro $chave } catch { $prov = $null }
@@ -729,18 +765,16 @@ function Get-PlanoDesinstalacao {
 }
 
 function Resolve-Desinstalador {
-    # Caminho completo do executavel: 'msiexec.exe' -> System32; nome sem pasta -> Get-Command; demais -> GetFullPath.
+    # Caminho completo do executavel: 'msiexec.exe' -> System32; caminho absoluto com letra de unidade -> GetFullPath;
+    # relativo, nome solto ou UNC -> $null (a UninstallString vem do registro, que o usuario consegue escrever).
     param([string]$Exe)
     if ([string]::IsNullOrWhiteSpace($Exe)) { return $null }
     if ($Exe -eq 'msiexec.exe') { return (Join-Path $env:windir 'System32\msiexec.exe') }
-    $dir = $null
-    try { $dir = [IO.Path]::GetDirectoryName($Exe) } catch { return $null }
-    if ([string]::IsNullOrEmpty($dir)) {
-        $cmd = Get-Command $Exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($null -ne $cmd) { return [string]$cmd.Source }
-        return $null
-    }
-    try { return [IO.Path]::GetFullPath($Exe) } catch { return $null }
+    if ($Exe -notmatch '^[A-Za-z]:\\') { return $null }
+    try {
+        if (-not [IO.Path]::IsPathRooted($Exe)) { return $null }
+        return [IO.Path]::GetFullPath($Exe)
+    } catch { return $null }
 }
 
 function Test-ExeSobTeste {
@@ -919,6 +953,7 @@ function Invoke-LimparResto {
             if ([string]::IsNullOrWhiteSpace($caminho)) { throw 'caminho não informado' }
             if ($tipo -eq 'chave') {
                 if (-not (Test-ChaveRegistro $caminho)) { throw "chave de registro inválida: $caminho" }
+                if (-not (Test-ChaveRestoPermitida $caminho)) { throw "chave não permitida como resto (só HKCU\Software e HKLM\SOFTWARE, fora das áreas do Windows): $caminho" }
                 if ($Teste -and -not (Test-ChaveTeste $caminho)) { throw "em modo teste só chaves sob HKCU\Software\NexTuneTeste são aceitas: $caminho" }
                 Add-ItemQuarentena -Entrada $entrada -Caminho $caminho -Tipo 'chave' | Out-Null
             } else {

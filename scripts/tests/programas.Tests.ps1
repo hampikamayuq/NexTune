@@ -204,6 +204,37 @@ Describe 'programas.ps1' {
             $outro.editor | Should -Be 'Fabricante Ltda'
             @($r.dados.programas).Count | Should -Be 7
         }
+        It 'app da Store instalado em WindowsApps nao e protegido pela pasta (so por lista, System ou NonRemovable)' {
+            $loja = New-StoreFalsa
+            $loja[0].InstallLocation = Join-Path $env:ProgramFiles 'WindowsApps\Microsoft.BingNews_x'
+            $loja[5].InstallLocation = Join-Path $env:ProgramFiles 'WindowsApps\Fabricante.AppQualquer_x'
+            $r = Invoke-P 'listar' @{ simular = @{ store = $loja } }
+            $news = Get-Prog $r 'st:Microsoft.BingNews_4.2.27001.0_x64__8wekyb3d8bbwe'
+            $news.protegido | Should -BeFalse
+            $news.cor | Should -Be 'verde'
+            $news.local | Should -Be (Join-Path $env:ProgramFiles 'WindowsApps\Microsoft.BingNews_x')
+            $outro = Get-Prog $r 'st:Fabricante.AppQualquer_1.0.0.0_x64__abcdefghijklm'
+            $outro.protegido | Should -BeFalse
+            $outro.cor | Should -BeNullOrEmpty
+            # programa classico na mesma pasta continua protegido pela regra da pasta
+            (Get-Classificacao 'Coisa' 'Alguem' '' (Join-Path $env:ProgramFiles 'WindowsApps\Coisa') 'classico').protegido | Should -BeTrue
+        }
+        It 'InstallLocation em raiz de unidade ou pasta-base do sistema vira vazio e nao protege' {
+            New-ProgramaFalso 'RaizC' @{ DisplayName = 'Programa Raiz'; InstallLocation = 'C:\' }
+            New-ProgramaFalso 'EmPF' @{ DisplayName = 'Programa Em PF'; InstallLocation = ($env:ProgramFiles + '\') }
+            New-ProgramaFalso 'EmLocal' @{ DisplayName = 'Programa Em Local'; InstallLocation = ('"' + $env:LOCALAPPDATA + '"') }
+            $r = Invoke-P 'listar'
+            foreach ($id in @('cl:hkcu:RaizC', 'cl:hkcu:EmPF', 'cl:hkcu:EmLocal')) {
+                $p = Get-Prog $r $id
+                $p.local | Should -Be ''
+                $p.protegido | Should -BeFalse
+                $p.tamanhoBytes | Should -Be -1
+            }
+            Get-LocalNormalizado 'C:\' | Should -Be ''
+            Get-LocalNormalizado 'c:' | Should -Be ''
+            Get-LocalNormalizado ($env:ProgramData.ToUpperInvariant() + '\') | Should -Be ''
+            Get-LocalNormalizado ('"' + (Join-Path $Script:Apps 'Qualquer') + '\"') | Should -Be (Join-Path $Script:Apps 'Qualquer')
+        }
         It 'sem simular.store a lista da Store e vazia' {
             $r = Invoke-P 'listar'
             @($r.dados.programas | Where-Object { $_.tipo -eq 'store' }).Count | Should -Be 0
@@ -315,6 +346,43 @@ Describe 'programas.ps1' {
             (Get-PlanoDesinstalacao $prog 'nsis').args | Should -Be '--uninstall /S'
             (Get-PlanoDesinstalacao $prog 'invencao').modo | Should -Be 'assistente'
         }
+        It 'Test-ChaveRestoPermitida aceita so HKCU\Software e HKLM\SOFTWARE com 3+ segmentos fora das areas do Windows' {
+            Test-ChaveRestoPermitida 'HKCU\Software\Editor Teste\Programa Qualquer' | Should -BeTrue
+            Test-ChaveRestoPermitida 'hklm\software\Editor Teste' | Should -BeTrue
+            Test-ChaveRestoPermitida 'HKEY_CURRENT_USER\Software\Editor' | Should -BeTrue
+            Test-ChaveRestoPermitida $Script:ChaveOrfa | Should -BeTrue
+            Test-ChaveRestoPermitida 'HKCU\Software' | Should -BeFalse
+            Test-ChaveRestoPermitida 'HKCU\Software\' | Should -BeFalse
+            Test-ChaveRestoPermitida 'HKLM\SYSTEM\X' | Should -BeFalse
+            Test-ChaveRestoPermitida 'HKLM\SOFTWARE\Microsoft\Windows' | Should -BeFalse
+            Test-ChaveRestoPermitida 'HKCU\Software\NexTuneTeste\Restos\HKCU\Microsoft\X' | Should -BeFalse
+            Test-ChaveRestoPermitida 'HKCU\Software\Classes\X' | Should -BeFalse
+            Test-ChaveRestoPermitida 'HKCU\Software\Editor\Policies' | Should -BeFalse
+            Test-ChaveRestoPermitida 'HKLM\SOFTWARE\WOW6432Node\Editor' | Should -BeFalse
+            Test-ChaveRestoPermitida 'HKU\S-1-5-18\Software\X' | Should -BeFalse
+            Test-ChaveRestoPermitida 'C:\Software\X' | Should -BeFalse
+            Test-ChaveRestoPermitida '' | Should -BeFalse
+            Test-SubchaveProibida 'Editor\Windows' | Should -BeTrue
+            Test-SubchaveProibida 'Editor Teste\Programa Qualquer' | Should -BeFalse
+        }
+        It 'Get-SegmentoSeguro e Get-SubcaminhoResto nunca produzem separadores nem . e ..' {
+            Get-SegmentoSeguro '..\..\Programa Qualquer' | Should -Not -Match '[\\/:*?"<>|]'
+            Get-SegmentoSeguro 'a:b*c' | Should -Be 'abc'
+            Get-SegmentoSeguro '..' | Should -Be ''
+            Get-SegmentoSeguro ' . ' | Should -Be ''
+            Get-SegmentoSeguro 'Nome.' | Should -Be 'Nome'
+            Get-SegmentoSeguro '' | Should -Be ''
+            $subs = @(Get-SubcaminhoResto '..\..\Programa Qualquer' '..')
+            $subs.Count | Should -Be 1
+            foreach ($seg in @($subs -split '\\')) {
+                $seg | Should -Not -Match '[/:*?"<>|]'
+                $seg | Should -Not -Match '^\.{1,2}$'
+                $seg | Should -Not -BeNullOrEmpty
+            }
+            @(Get-SubcaminhoResto 'Programa Qualquer' 'Editor Teste') | Should -Be @('Editor Teste\Programa Qualquer', 'Programa Qualquer')
+            @(Get-SubcaminhoResto 'Programa Qualquer' 'programa qualquer') | Should -Be @('Programa Qualquer')
+            @(Get-SubcaminhoResto '..' 'Editor').Count | Should -Be 0
+        }
         It 'Get-Classificacao segue a ordem: protegidos, pasta protegida, pacote de sistema, bloatware' {
             $c = Get-Classificacao 'Positivo Utilities' 'Positivo Tecnologia S.A.' '' '' 'classico'
             $c.cor | Should -Be 'verde'
@@ -331,6 +399,9 @@ Describe 'programas.ps1' {
             (Get-Classificacao 'Fabricante.X' 'Fabricante' 'Fabricante.X_abc' '' 'store' 'System' $false).protegido | Should -BeTrue
             (Get-Classificacao 'Fabricante.X' 'Fabricante' 'Fabricante.X_abc' '' 'store' 'Store' $true).protegido | Should -BeTrue
             (Get-Classificacao 'Fabricante.X' 'Fabricante' 'Fabricante.X_abc' '' 'store' 'Store' $false).protegido | Should -BeFalse
+            $c = Get-Classificacao 'Microsoft.BingNews' 'Microsoft Corporation' 'Microsoft.BingNews_8wekyb3d8bbwe' (Join-Path $env:ProgramFiles 'WindowsApps\Microsoft.BingNews_x') 'store' 'Store' $false
+            $c.protegido | Should -BeFalse
+            $c.cor | Should -Be 'verde'
             $c = Get-Classificacao 'Programa Qualquer' 'Editor Teste' '' '' 'classico'
             $c.cor | Should -BeNullOrEmpty
             $c.protegido | Should -BeFalse
@@ -427,6 +498,21 @@ Describe 'programas.ps1' {
             New-ProgramaFalso 'ProgVazio' @{ DisplayName = 'Programa Vazio'; UninstallString = '' }
             (Invoke-P 'desinstalar' @{ id = 'cl:hkcu:ProgVazio'; confirmado = $true }).ok | Should -BeFalse
         }
+        It 'desinstalador relativo, nome solto ou UNC e recusado antes de rodar' {
+            New-ProgramaFalso 'ProgRel' @{ DisplayName = 'Programa Relativo'; UninstallString = 'prog\desinstalador.cmd "x" 0' }
+            New-ProgramaFalso 'ProgSolto' @{ DisplayName = 'Programa Solto'; UninstallString = 'desinstalador.cmd "x" 0' }
+            New-ProgramaFalso 'ProgUnc' @{ DisplayName = 'Programa UNC'; UninstallString = '"\\servidor\share\desinstalador.cmd" "x" 0' }
+            foreach ($id in @('cl:hkcu:ProgRel', 'cl:hkcu:ProgSolto', 'cl:hkcu:ProgUnc')) {
+                $r = Invoke-P 'desinstalar' @{ id = $id; confirmado = $true }
+                $r.ok | Should -BeFalse
+                $r.erro | Should -Match 'desinstalador'
+            }
+            Test-Path -LiteralPath $Script:Marcador | Should -BeFalse
+            Resolve-Desinstalador 'msiexec.exe' | Should -Be (Join-Path $env:windir 'System32\msiexec.exe')
+            Resolve-Desinstalador 'C:\X\..\Y\u.exe' | Should -Be 'C:\Y\u.exe'
+            Resolve-Desinstalador '\\.\pipe\x' | Should -BeNullOrEmpty
+            Resolve-Desinstalador '' | Should -BeNullOrEmpty
+        }
         It 'app da Store em modo teste devolve modo loja e codigo 0 sem executar nada' {
             Mock Remove-AppxPackage { throw 'não deve ser chamado' }
             $r = Invoke-P 'desinstalar' @{ id = 'st:Microsoft.BingNews_4.2.27001.0_x64__8wekyb3d8bbwe'; confirmado = $true; avancado = $true; desprovisionar = $true; simular = @{ store = (New-StoreFalsa) } }
@@ -441,9 +527,9 @@ Describe 'programas.ps1' {
         It 'sem nome recusa' {
             (Invoke-P 'restos' @{ id = 'cl:hkcu:Qualquer' }).ok | Should -BeFalse
         }
-        It 'local sem executaveis e candidato; com .dll dentro nao' {
+        It 'local sem executaveis e candidato (programa fora da lista); com .dll dentro nao' {
             $local = Join-Path $Script:Apps 'Qualquer'
-            $r = Invoke-P 'restos' @{ id = 'cl:hkcu:Qualquer'; nome = 'Programa Qualquer'; editor = 'Editor Teste'; local = $local }
+            $r = Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer'; editor = 'Editor Teste'; local = $local }
             $r.ok | Should -BeTrue
             $c = @($r.dados.candidatos)
             $c.Count | Should -Be 1
@@ -452,10 +538,33 @@ Describe 'programas.ps1' {
             $c[0].tamanhoBytes | Should -Be 300
             $c[0].confianca | Should -Be 'media'
             New-ArquivoTeste (Join-Path $local 'sub\x.dll') 5
-            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Qualquer'; nome = 'Programa Qualquer'; local = $local }).dados.candidatos).Count | Should -Be 0
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer'; local = $local }).dados.candidatos).Count | Should -Be 0
             # local inexistente ou relativo: nada
-            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Qualquer'; nome = 'Programa Qualquer'; local = (Join-Path $Script:Apps 'Nada') }).dados.candidatos).Count | Should -Be 0
-            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Qualquer'; nome = 'Programa Qualquer'; local = 'apps\Qualquer' }).dados.candidatos).Count | Should -Be 0
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer'; local = (Join-Path $Script:Apps 'Nada') }).dados.candidatos).Count | Should -Be 0
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer'; local = 'apps\Qualquer' }).dados.candidatos).Count | Should -Be 0
+        }
+        It 'pasta de instalacao de programa ainda na lista nao e resto' {
+            $local = Join-Path $Script:Apps 'Qualquer'
+            $r = Invoke-P 'restos' @{ id = 'cl:hkcu:Qualquer'; nome = 'Programa Qualquer'; editor = 'Editor Teste'; local = $local }
+            $r.ok | Should -BeTrue
+            @($r.dados.candidatos).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $local 'config.txt') | Should -BeTrue
+        }
+        It 'pasta com juncao dentro (ou acima) nao e candidata' {
+            $pasta = Join-Path $Script:Restos 'LocalAppData\Programa Qualquer'
+            New-ArquivoTeste (Join-Path $pasta 'dados.txt') 10 40
+            $jn = Join-Path $pasta 'jn'
+            New-Juncao $jn $Script:Apps
+            try {
+                (Get-Item -LiteralPath $pasta).LastWriteTime = (Get-Date).AddDays(-40)
+                Test-PastaCandidata $pasta $true | Should -BeFalse
+                @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer' }).dados.candidatos).Count | Should -Be 0
+                # local que e a propria juncao tambem nao
+                @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer'; local = $jn }).dados.candidatos).Count | Should -Be 0
+            } finally { Remove-Juncao $jn }
+            (Get-Item -LiteralPath $pasta).LastWriteTime = (Get-Date).AddDays(-40)
+            Test-PastaCandidata $pasta $true | Should -BeTrue
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer' }).dados.candidatos).Count | Should -Be 1
         }
         It 'pastas de dados <editor>\<nome> e <nome> so com mais de 30 dias e sem executaveis' {
             New-ArquivoTeste (Join-Path $Script:Restos 'LocalAppData\Editor Teste\Programa Qualquer\dados.txt') 70 40
@@ -490,6 +599,10 @@ Describe 'programas.ps1' {
             foreach ($x in $c) { $x.tipo | Should -Be 'atalho' }
             @($c | ForEach-Object { $_.caminho } | Sort-Object) | Should -Be @((Join-Path $Script:Restos 'Desktop\Atalho qualquer.lnk'), (Join-Path $Script:Restos 'Menu\Programa Qualquer\Programa Qualquer.lnk'))
             $c[0].tamanhoBytes | Should -BeGreaterThan 0
+            # nome com menos de 3 caracteres casaria com qualquer atalho: nenhum e oferecido
+            New-AtalhoTeste (Join-Path $Script:Restos 'Menu\Xyz.lnk') 'C:\nao-existe-nextune\q.exe'
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Xy' }).dados.candidatos | Where-Object { $_.tipo -eq 'atalho' }).Count | Should -Be 0
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Xyz' }).dados.candidatos | Where-Object { $_.tipo -eq 'atalho' }).Count | Should -Be 1
         }
         It 'chave orfa vira candidato chave so quando o programa nao esta mais na lista' {
             New-ChaveOrfa
@@ -502,6 +615,14 @@ Describe 'programas.ps1' {
             $c[0].caminho | Should -Be $Script:ChaveOrfa
             $c[0].tamanhoBytes | Should -Be 0
             $c[0].confianca | Should -Be 'media'
+        }
+        It 'chave em area proibida (Microsoft, Windows...) nunca vira candidato, mesmo dentro da area de teste' {
+            foreach ($sub in @('HKCU\Microsoft\Programa Qualquer', 'HKCU\Editor Teste\Windows', 'HKLM\Classes\Programa Qualquer')) {
+                New-Item -Path (Join-Path $Script:RestosReg $sub) -Force | Out-Null
+            }
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer'; editor = 'Microsoft' }).dados.candidatos | Where-Object { $_.tipo -eq 'chave' }).Count | Should -Be 0
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Windows'; editor = 'Editor Teste' }).dados.candidatos | Where-Object { $_.tipo -eq 'chave' }).Count | Should -Be 0
+            @((Invoke-P 'restos' @{ id = 'cl:hkcu:Removido'; nome = 'Programa Qualquer'; editor = 'Classes' }).dados.candidatos | Where-Object { $_.tipo -eq 'chave' }).Count | Should -Be 0
         }
         It 'Review Focus 7: nunca devolve caminho protegido' {
             $r = Invoke-P 'restos' @{ id = 'cl:hkcu:X'; nome = 'Common Files'; local = (Join-Path $env:ProgramFiles 'Common Files') }
@@ -524,12 +645,6 @@ Describe 'programas.ps1' {
             $r = Invoke-P 'restos' @{ id = 'cl:hkcu:X'; nome = 'Microsoft Edge'; editor = 'Microsoft Corporation'; local = (Join-Path $Script:Apps 'Qualquer') }
             $r.ok | Should -BeTrue
             @($r.dados.candidatos).Count | Should -Be 0
-        }
-        It 'nome com caracteres invalidos de caminho nao escapa das raizes' {
-            New-ArquivoTeste (Join-Path $Script:Restos 'LocalAppData\Programa Qualquer\dados.txt') 70 40
-            $r = Invoke-P 'restos' @{ id = 'cl:hkcu:X'; nome = '..\..\Programa Qualquer'; editor = '..' }
-            $r.ok | Should -BeTrue
-            foreach ($x in @($r.dados.candidatos)) { $x.caminho | Should -Match 'NexTuneTeste' }
         }
     }
 
@@ -589,14 +704,31 @@ Describe 'programas.ps1' {
             $m.itens[0].tipo | Should -Be 'chave'
             $m.itens[0].origem | Should -Be $Script:ChaveOrfa
         }
-        It 'chave fora da area de teste e recusada em modo teste' {
-            $r = Invoke-P 'limparRestos' @{ itens = @(@{ tipo = 'chave'; caminho = 'HKCU\Software\Microsoft\Windows' }); confirmado = $true }
+        It 'chave permitida mas fora da area de teste e recusada em modo teste' {
+            $r = Invoke-P 'limparRestos' @{ itens = @(@{ tipo = 'chave'; caminho = 'HKCU\Software\Editor Teste\Programa Qualquer' }); confirmado = $true }
             $r.ok | Should -BeTrue
             $r.dados.movidos | Should -Be 0
             $r.dados.quarentenaId | Should -BeNullOrEmpty
             @($r.dados.falhas).Count | Should -Be 1
             $r.dados.falhas[0].erro | Should -Match 'NexTuneTeste'
-            Test-Path -LiteralPath 'HKCU:\Software\Microsoft\Windows' | Should -BeTrue
+            Test-Path -LiteralPath 'HKCU:\Software\Editor Teste' | Should -BeFalse
+        }
+        It 'chave fora de HKCU\Software ou HKLM\SOFTWARE, rasa ou em area proibida e recusada mesmo com confirmado' {
+            $sub = Join-Path $Script:RestosReg 'HKCU\Microsoft\X'
+            New-Item -Path $sub -Force | Out-Null
+            $itens = @(
+                @{ tipo = 'chave'; caminho = 'HKCU\Software\NexTuneTeste\Restos\HKCU\Microsoft\X' },
+                @{ tipo = 'chave'; caminho = 'HKLM\SYSTEM\X' },
+                @{ tipo = 'chave'; caminho = 'HKCU\Software' }
+            )
+            $r = Invoke-P 'limparRestos' @{ itens = $itens; confirmado = $true }
+            $r.ok | Should -BeTrue
+            $r.dados.movidos | Should -Be 0
+            $r.dados.quarentenaId | Should -BeNullOrEmpty
+            @($r.dados.falhas).Count | Should -Be 3
+            foreach ($f in @($r.dados.falhas)) { $f.erro | Should -Match 'não permitida' }
+            Test-Path -LiteralPath $sub | Should -BeTrue
+            @(Get-ChildItem -LiteralPath $Script:Quar -Directory).Count | Should -Be 0
         }
         It 'tipo invalido, caminho relativo e atalho que nao e .lnk vao para falhas' {
             $r = Invoke-P 'limparRestos' @{ itens = @(@{ tipo = 'x'; caminho = 'C:\a' }, @{ tipo = 'pasta'; caminho = 'relativo\x' }, @{ tipo = 'atalho'; caminho = (Join-Path $Script:Apps 'Qualquer\config.txt') }); confirmado = $true }
