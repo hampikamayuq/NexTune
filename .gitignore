@@ -6,3 +6,5 @@ dist/
 TestResults/
 .superpowers/
 testResults.xml
+
+scripts/eco.ps1
