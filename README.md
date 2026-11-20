@@ -4,7 +4,7 @@ Aplicativo de desktop para Windows que diagnostica o computador e faz limpeza e 
 
 Especificação: [docs/superpowers/specs/2026-11-20-otimizador-design.md](docs/superpowers/specs/2026-11-20-otimizador-design.md)
 
-Planos de implementação: [Plano 1 (fundação, diagnóstico, limpeza)](docs/superpowers/plans/2026-11-20-fundacao-diagnostico-limpeza.md) · [Plano 2 (programas, quarentena, ponto de restauração)](docs/superpowers/plans/2026-11-20-programas-quarentena.md)
+Planos de implementação: [Plano 1 (fundação, diagnóstico, limpeza)](docs/superpowers/plans/2026-11-20-fundacao-diagnostico-limpeza.md) · [Plano 2 (programas, quarentena, ponto de restauração)](docs/superpowers/plans/2026-11-20-programas-quarentena.md) · [Plano 3 (inicialização, ajustes do Windows)](docs/superpowers/plans/2026-11-20-inicializacao-ajustes-windows.md)
 
 Status: em desenvolvimento. Ainda não há versão utilizável.
 
@@ -16,6 +16,8 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 - Quarentena: tudo que o programa remove de você fica em `%ProgramData%\NexTune\Quarentena` por N dias (padrão 7), com restauração atômica por entrada e chaves de registro exportadas em `.reg`.
 - Ponto de restauração antes da primeira ação de escrita da sessão; Proteção do Sistema desligada é tratada com uma pergunta, nunca com recusa.
 - Bloqueio das ações de escrita quando o usuário elevado não é o usuário da sessão.
+- Inicialização: lista o que abre com o Windows (chaves Run, pasta Inicializar e tarefas agendadas), com impacto medido em RAM e tamanho do executável, e liga ou desliga cada item de forma reversível; tarefas de fabricante só no modo avançado.
+- Ajustes do Windows: cinco grupos de ajustes com backup antes da escrita e restauração exata do valor anterior; os recomendados para perfil fraco vêm marcados, e os de Política levam selo de aviso.
 
 ## Verificação
 
@@ -28,6 +30,7 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 - RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB). O número é a soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; tratado no Plano 5. Para medir de novo: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1` (veja as opções no topo do script).
 - Os scripts do Plano 2 (`quarentena.ps1`, `sistema.ps1`, `programas.ps1`) foram escritos e revisados fora do Windows; a primeira rodada do Pester e do PSScriptAnalyzer acontece no Actions ou com `tools/ci-local.ps1`.
 - `protegidos.json` cobre drivers NVIDIA, AMD, Intel e Realtek; Synaptics, ELAN, Qualcomm, Conexant e MediaTek ainda aparecem "sem classificação".
+- A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário não estava nesta máquina e entra depois.
 - Abrir links (loja, site do fabricante) a partir da interface depende de um comando Rust `abrir_url` (só HTTPS e `ms-windows-store:`), previsto para o Plano 5; hoje a tela mostra o endereço para copiar.
 
 ## Créditos
