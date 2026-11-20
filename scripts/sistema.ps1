@@ -75,7 +75,7 @@ function Get-DescricaoPonto {
     # Puro: "NexTune dd/MM HH:mm" mais a descricao do usuario (sem caracteres de controle,
     # ate $Script:MaxDescricao caracteres), se houver.
     param($Params, [DateTime]$Agora = (Get-Date))
-    $d = 'NexTune ' + $Agora.ToString('dd/MM HH:mm')
+    $d = 'NexTune ' + $Agora.ToString('dd/MM HH:mm', [Globalization.CultureInfo]::InvariantCulture)
     if ($null -ne $Params -and $null -ne $Params.descricao) {
         $extra = (([string]$Params.descricao) -replace '[\p{Cc}]', '').Trim()
         if ($extra.Length -gt $Script:MaxDescricao) { $extra = $extra.Substring(0, $Script:MaxDescricao) }
@@ -105,10 +105,10 @@ function Restore-FrequenciaPonto {
             return $true
         }
         if ($null -eq $Original) {
-            if ($null -ne (Get-ValorRegistro $Chave $Script:NomeFrequencia)) {
-                Remove-ItemProperty -LiteralPath $Chave -Name $Script:NomeFrequencia -ErrorAction Stop
-            }
-            return $true
+            # Remocao incondicional: um erro de leitura (ou o runspace sendo parado) nao pode
+            # deixar a frequencia em 0 para sempre. O sucesso vem dos nomes de valor da chave.
+            Remove-ItemProperty -LiteralPath $Chave -Name $Script:NomeFrequencia -ErrorAction SilentlyContinue
+            return ((Get-Item -LiteralPath $Chave -ErrorAction Stop).GetValueNames() -notcontains $Script:NomeFrequencia)
         }
         Set-ItemProperty -LiteralPath $Chave -Name $Script:NomeFrequencia -Value ([int]$Original) -Type DWord -ErrorAction Stop
         return $true

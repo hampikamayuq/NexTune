@@ -88,7 +88,7 @@ README.md                     pendências atualizadas
 - `criarPonto { descricao? }` → `{ criado, mensagem }`. Nunca lança: falha vira `criado:false` com mensagem. Zera `SystemRestorePointCreationFrequency` antes e restaura no `finally`.
 - `ligarProtecao {}` → `{ ligada, mensagem }` (`Enable-ComputerRestore -Drive <SystemDrive>` + `vssadmin resize shadowstorage /for=C: /on=C: /maxsize=3%` com lista de argumentos).
 - `sessao {}` → `{ usuarioProcesso, usuarioConsole (string|null), mesmo (bool), desconhecido (bool) }`. `mesmo` compara sem diferenciar caixa; console sem usuário (RDP, serviço) → `desconhecido:true, mesmo:true`.
-- Em modo teste: registro em `HKCU\Software\NexTuneTeste\SystemRestore`, nenhum `Checkpoint-Computer`/`vssadmin`/`Enable-ComputerRestore` real (grava marcador em `%TEMP%\NexTuneTeste\sistema\`), e `simular { ativa?, falharCriar?, usuarioConsole? }` aceito só em teste.
+- Em modo teste: registro em `HKCU\Software\NexTuneTeste\SystemRestore`, nenhum `Checkpoint-Computer`/`vssadmin`/`Enable-ComputerRestore` real (grava marcador em `%TEMP%\NexTuneTeste\sistema\`), e `simular { falharCriar?, usuarioConsole?, usuarioProcesso? }` aceito só em teste (o estado da proteção em teste vem da chave `HKCU\Software\NexTuneTeste\SystemRestore` semeada pelo teste).
 
 ### programas
 - `listar {}` → `{ programas: [{ id, nome, versao, editor, tipo: 'classico'|'store', tamanhoBytes (-1 desconhecido), instaladoEm (ISO|null), local, cor (verde|amarelo|vermelho|null), motivoCor, protegido, motivoProtegido, instalador: 'msi'|'inno'|'nsis'|'installshield'|'quiet'|'loja'|'desconhecido', servicos: [nome], ramBytes, packageFamilyName, productId, siteReinstalar }] }`.
