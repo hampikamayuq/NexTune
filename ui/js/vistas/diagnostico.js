@@ -107,8 +107,8 @@ VISTAS.diagnostico = {
 
     const r = d.ram;
     grade.append(cartaoInfo(t('diagnostico.ram'), [
-      [t('diagnostico.ramTotal'), val(r.totalBytes, fmtBytes)],
-      [t('diagnostico.ramLivre'), val(r.livreBytes, fmtBytes)],
+      [t('diagnostico.ramTotal'), val(r.totalBytes, fmtGb)],
+      [t('diagnostico.ramLivre'), val(r.livreBytes, fmtGb)],
       [t('diagnostico.ramModulos'), val(r.modulos)],
     ]));
 

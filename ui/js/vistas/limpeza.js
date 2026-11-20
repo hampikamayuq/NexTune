@@ -13,11 +13,18 @@ function limpezaMarcarVerdes() {
 }
 
 async function analisarLimpeza() {
+  const L = S.limpeza;
   const av = !!S.ajustes.modoAvancado;
-  const r = await api.executar('limpeza', 'analisar', av ? { avancado: true } : {}, null);
-  S.analise = r;
-  S.limpeza.avancadoAnalisado = av;
-  limpezaMarcarVerdes();
+  // Marca a tentativa antes de rodar: uma falha não pode disparar nova análise automática.
+  L.avancadoAnalisado = av;
+  try {
+    S.analise = await api.executar('limpeza', 'analisar', av ? { avancado: true } : {}, null);
+    L.falhou = null;
+    limpezaMarcarVerdes();
+  } catch (e) {
+    L.falhou = e.message || String(e);
+    throw e;
+  }
 }
 
 function limpezaSelecionadas() {
@@ -114,16 +121,24 @@ VISTAS.limpeza = {
     const v = h('section', { class: 'vista' }, h('h1', { text: t('limpeza.titulo') }));
     main.append(v);
 
-    const precisa = S.base !== 'carregando' && !L.rodando && !S.ocupado &&
+    const precisa = S.base !== 'carregando' && !L.rodando && !S.ocupado && !L.falhou &&
       (!S.analise || L.avancadoAnalisado !== !!S.ajustes.modoAvancado);
     if (precisa) {
       setTimeout(async () => {
-        try { await analisarLimpeza(); } catch (e) { mostrarErro(e); S.analise = S.analise || { categorias: [] }; }
+        try { await analisarLimpeza(); } catch (e) { mostrarErro(e); }
         if (S.vista === 'limpeza') renderAtual();
       }, 0);
     }
+    if (L.falhou) {
+      v.append(h('div', { class: 'cartao' },
+        h('p', { text: t('limpeza.erro', { erro: L.falhou }) }),
+        h('button', { type: 'button', class: 'btn acao', text: t('comum.tentarDeNovo'), onclick: async () => {
+          try { await analisarLimpeza(); } catch (e) { mostrarErro(e); }
+          renderAtual();
+        } })));
+    }
     if (!S.analise) {
-      v.append(h('div', { class: 'carregando' }, h('span', { class: 'giro' }), h('span', { text: t('limpeza.analisando') })));
+      if (!L.falhou) v.append(h('div', { class: 'carregando' }, h('span', { class: 'giro' }), h('span', { text: t('limpeza.analisando') })));
       return;
     }
 

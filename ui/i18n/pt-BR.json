@@ -101,6 +101,7 @@
   "diagnostico.perfilSalvo": "Perfil atualizado.",
   "limpeza.titulo": "Limpeza",
   "limpeza.intro": "Marque o que quer limpar. Itens verdes são seguros e já vêm marcados; os amarelos pedem mais atenção.",
+  "limpeza.erro": "Não foi possível medir o que pode ser limpo. {erro}",
   "limpeza.analisando": "Medindo o que pode ser limpo…",
   "limpeza.verde": "seguro",
   "limpeza.amarelo": "atenção",

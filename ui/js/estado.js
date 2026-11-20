@@ -11,7 +11,7 @@ const S = {
   baseErro: '',
   vista: 'inicio',
   ocupado: false,
-  limpeza: { sel: new Set(), log: [], pct: 0, msg: '', rodando: false, resultado: null, avancadoAnalisado: null },
+  limpeza: { sel: new Set(), log: [], pct: 0, msg: '', rodando: false, resultado: null, avancadoAnalisado: null, falhou: null },
 };
 
 const VISTAS = {}; // inicio, diagnostico, limpeza, opcoes: cada uma com render(main)
@@ -31,7 +31,7 @@ function fmtBytes(n) {
 }
 
 function fmtGb(bytes) {
-  return Math.round(bytes / 1073741824).toLocaleString('pt-BR') + ' GB';
+  return (bytes / 1073741824).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' GB';
 }
 
 function simNao(v) {
