@@ -12,6 +12,17 @@ function Invoke-Acao {
             Start-Sleep -Milliseconds ([int]($seg * 1000))
             Send-Result $Id @{ terminou = $true }
         }
+        'comFinally' {
+            # Simula a limpeza que religa servicos no finally: o finally demora (sleep .NET, que o
+            # Stop do pipeline nao interrompe) e no fim grava um marcador.
+            Send-Progress $Id 0 'iniciado'
+            try { Start-Sleep -Seconds 30; Send-Result $Id @{ terminou = $true } }
+            finally {
+                [Threading.Thread]::Sleep([int]$Params.esperaFinal)
+                [IO.File]::WriteAllText([string]$Params.arquivo, 'restaurado')
+            }
+        }
+        'modulos' { Send-Result $Id @{ psModulePath = $env:PSModulePath } }
         'teste' { Send-Result $Id @{ teste = $Teste } }
         'falhar' { throw 'falha de proposito' }
         'nativo' { $s = cmd.exe /c echo ola; Send-Result $Id @{ saida = (($s | Out-String).Trim()) } }

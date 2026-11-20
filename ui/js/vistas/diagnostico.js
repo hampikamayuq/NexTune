@@ -40,10 +40,21 @@ async function trocarPerfil() {
     grupo('classe', t('diagnostico.classe'), ['basico', 'medio', 'gamer'], 'inicio.perfil.', atual.classe),
     grupo('disco', t('diagnostico.disco'), ['hdd', 'ssd'], 'inicio.disco.', atual.disco),
   ];
-  const ok = await perguntar({ titulo: t('diagnostico.trocarTitulo'), corpo, ok: t('diagnostico.salvar') });
+  // Perfil definido à mão: oferece voltar à detecção automática.
+  const extra = atual.manual ? t('diagnostico.voltarAuto') : undefined;
+  const ok = await perguntar({ titulo: t('diagnostico.trocarTitulo'), corpo, ok: t('diagnostico.salvar'), extra });
   if (!ok) return;
+  if (ok === 'extra') { await voltarPerfilAutomatico(); return; }
   const lido = (lista, padrao) => { const r = lista.find((x) => x.checked); return r ? r.value : padrao; };
   await aplicarPerfil(lido(radios.classe, atual.classe), lido(radios.disco, atual.disco));
+}
+
+async function voltarPerfilAutomatico() {
+  try {
+    await recoletar({ resetarPerfil: true });
+    renderAtual();
+    toast(t('diagnostico.perfilAuto'), 'ok');
+  } catch (e) { mostrarErro(e); }
 }
 
 async function aplicarPerfil(classe, disco) {

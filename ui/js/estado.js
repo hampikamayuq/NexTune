@@ -93,7 +93,8 @@ function mostrarErro(e) {
 
 // ---- modal ----
 // Devolve Promise<boolean>. `corpo` é um array de nós; `exigeCheck` é o texto do checkbox obrigatório.
-function perguntar({ titulo, corpo, ok, okClasse, cancelar, exigeCheck }) {
+// `extra` (texto) acrescenta um terceiro botão; clicar nele resolve com a string 'extra'.
+function perguntar({ titulo, corpo, ok, okClasse, cancelar, exigeCheck, extra }) {
   return new Promise((resolver) => {
     const raiz = document.getElementById('modal-raiz');
     const anterior = document.activeElement;
@@ -116,7 +117,12 @@ function perguntar({ titulo, corpo, ok, okClasse, cancelar, exigeCheck }) {
       check.addEventListener('change', () => { btnOk.disabled = !check.checked; });
       filhos.push(h('label', { class: 'opcao', for: 'modal-check' }, check, h('span', { text: exigeCheck })));
     }
-    filhos.push(h('div', { class: 'acoes' }, btnNao, btnOk));
+    let btnExtra = null;
+    if (extra) {
+      btnExtra = h('button', { type: 'button', class: 'btn sec', text: extra });
+      btnExtra.addEventListener('click', () => fim('extra'));
+    }
+    filhos.push(h('div', { class: 'acoes' }, btnExtra, btnNao, btnOk));
     const fundo = h('div', { class: 'fundo-modal' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' }, filhos));
     fundo.addEventListener('mousedown', (e) => { if (e.target === fundo) fim(false); });
     raiz.textContent = '';

@@ -23,6 +23,7 @@ $Script:Categorias = @(
 $Script:CategoriasDuplas = @('windows_old', 'pontos_antigos')
 $Script:MaxAvisos = 20
 $Script:AvisosEmitidos = 0
+$Script:FalhasCat = $null   # mensagens de falha da categoria em curso (Invoke-Limpar)
 
 function Test-ParamVerdadeiro {
     # Somente o booleano $true vale (a string 'true' NAO vale).
@@ -38,6 +39,7 @@ function Test-RaizSegura {
     if ([string]::IsNullOrWhiteSpace($Raiz)) { return $false }
     if ($Raiz -notmatch '^[A-Za-z]:\\[^\\]+') { return $false }
     try { $n = [IO.Path]::GetFullPath($Raiz).TrimEnd('\').ToLowerInvariant() } catch { return $false }
+    if ($n.Length -le 3) { return $false }   # normalizou para a raiz da unidade
     $partes = @($n.Substring(3) -split '\\' | Where-Object { $_ -ne '' })
     if ($partes.Count -lt 2) { return $false }
     foreach ($p in @($env:SystemDrive, $env:windir, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:USERPROFILE, $env:ProgramData, $env:APPDATA, $env:LOCALAPPDATA)) {
@@ -46,6 +48,57 @@ function Test-RaizSegura {
     }
     return $true
 }
+
+function Test-CadeiaSemLink {
+    # $true se a rota e cada pasta acima dela (que exista) nao forem junction, link simbolico ou
+    # ponto de montagem. GetFullPath nao resolve junctions; por isso a subida item a item.
+    param([string]$Caminho)
+    try {
+        $atual = [IO.Path]::GetFullPath($Caminho)
+        while (-not [string]::IsNullOrEmpty($atual)) {
+            if (Test-Path -LiteralPath $atual) {
+                if (Test-Reparse (Get-Item -LiteralPath $atual -Force -ErrorAction Stop)) { return $false }
+            }
+            $pai = [IO.Path]::GetDirectoryName($atual)
+            if ($pai -eq $atual) { break }
+            $atual = $pai
+        }
+        return $true
+    } catch { return $false }
+}
+
+function Test-DonoRaiz {
+    # Sob %ProgramData% qualquer usuario cria pastas: ali a raiz e as pastas entre ela e a base
+    # precisam ter dono SYSTEM, Administradores ou TrustedInstaller.
+    param([string]$Caminho, [string]$Base = $env:ProgramData)
+    try {
+        $b = [IO.Path]::GetFullPath($Base).TrimEnd('\')
+        $atual = [IO.Path]::GetFullPath($Caminho).TrimEnd('\')
+        if (-not $atual.StartsWith($b + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        while ($atual.Length -gt $b.Length) {
+            if ((Test-Path -LiteralPath $atual) -and -not (Test-SidConfiavel (Get-DonoSid $atual))) { return $false }
+            $atual = [IO.Path]::GetDirectoryName($atual)
+        }
+        return $true
+    } catch { return $false }
+}
+
+function Get-CorteIdade {
+    # So entram itens com LastWriteTime anterior ao corte (mesma regra da Limpeza de Disco do Windows).
+    param([string]$Id)
+    switch ($Id) {
+        'temp_usuario' { return (Get-Date).AddHours(-24) }
+        'temp_windows' { return (Get-Date).AddDays(-7) }
+        default { return [DateTime]::MaxValue }
+    }
+}
+
+function Add-FalhaRaiz {
+    param([string]$Id, [string]$Msg, [string]$Raiz)
+    Send-Log $Id 'aviso' $Msg $Raiz
+    if ($null -ne $Script:FalhasCat) { $Script:FalhasCat.Add($Msg) }
+}
+
 function Get-DirNavegador {
     $dirs = New-Object System.Collections.Generic.List[string]
     $bases = @(
@@ -117,11 +170,15 @@ function Get-FiltroCategoria {
 }
 
 function Get-TamanhoRaiz {
-    param([string]$Raiz, [string]$Filtro)
-    if ([string]::IsNullOrEmpty($Filtro)) { return (Get-PathSize $Raiz) }
+    # Mede so o que a limpeza apagaria: raiz atras de junction conta 0, e vale o corte de idade.
+    param([string]$Raiz, [string]$Filtro, [DateTime]$AntesDe = [DateTime]::MaxValue)
+    if (-not (Test-Path -LiteralPath $Raiz) -or -not (Test-CadeiaSemLink $Raiz)) { return [int64]0 }
+    if ([string]::IsNullOrEmpty($Filtro)) { return (Get-PathSize $Raiz $AntesDe) }
     if (-not (Test-Path -LiteralPath $Raiz -PathType Container)) { return [int64]0 }
     $t = [int64]0
-    foreach ($f in @(Get-ChildItem -LiteralPath $Raiz -Filter $Filtro -File -Force -ErrorAction SilentlyContinue)) { $t += $f.Length }
+    foreach ($f in @(Get-ChildItem -LiteralPath $Raiz -Filter $Filtro -File -Force -ErrorAction SilentlyContinue)) {
+        if (-not (Test-Reparse $f) -and $f.LastWriteTime -lt $AntesDe) { $t += $f.Length }
+    }
     return $t
 }
 
@@ -144,8 +201,9 @@ function Get-TamanhoCategoria {
         return (Get-PathSize (Join-Path $env:SystemDrive 'Windows.old'))
     }
     $filtro = Get-FiltroCategoria $Id $Teste
+    $corte = Get-CorteIdade $Id
     $total = [int64]0
-    foreach ($r in @(Get-RotasCategoria $Id $Teste)) { $total += (Get-TamanhoRaiz $r $filtro) }
+    foreach ($r in @(Get-RotasCategoria $Id $Teste)) { $total += (Get-TamanhoRaiz $r $filtro $corte) }
     return $total
 }
 
@@ -192,8 +250,8 @@ function Write-AvisoPulado {
 
 function Clear-Conteudo {
     # Apaga o conteudo de uma pasta (nao a propria pasta). Junctions/links nao sao seguidos nem apagados.
-    # Devolve a quantidade de itens pulados.
-    param([string]$Id, [string]$Pasta, [string]$Filtro = '')
+    # Itens com LastWriteTime >= $AntesDe ficam. Devolve a quantidade de itens pulados.
+    param([string]$Id, [string]$Pasta, [string]$Filtro = '', [DateTime]$AntesDe = [DateTime]::MaxValue)
     $pulados = 0
     $filhos = @()
     try {
@@ -201,14 +259,19 @@ function Clear-Conteudo {
         else { $filhos = @(Get-ChildItem -LiteralPath $Pasta -Filter $Filtro -File -Force -ErrorAction Stop) }
     } catch { return 0 }
     foreach ($f in $filhos) {
-        if (($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+        if (Test-Reparse $f) { continue }
         if ($f.PSIsContainer) {
-            $pulados += Clear-Conteudo $Id $f.FullName
+            # Reconfere logo antes de entrar: a pasta pode ter virado junction depois da listagem.
+            $agora = Get-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+            if ($null -eq $agora -or (Test-Reparse $agora)) { continue }
+            $velha = $agora.LastWriteTime -lt $AntesDe
+            $pulados += Clear-Conteudo $Id $f.FullName '' $AntesDe
             $resta = @(Get-ChildItem -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue).Count
-            if ($resta -eq 0) {
+            if ($resta -eq 0 -and $velha) {
                 try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { $null = $_ }
             }
         } else {
+            if ($f.LastWriteTime -ge $AntesDe) { continue }
             try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop }
             catch { $pulados++; Write-AvisoPulado $Id $f.FullName }
         }
@@ -218,26 +281,37 @@ function Clear-Conteudo {
 
 function Clear-Raiz {
     # Esvazia uma raiz de categoria (ou apaga o arquivo, se a rota for um arquivo). Devolve pulados.
+    # Raiz recusada vai para as falhas da categoria (Add-FalhaRaiz), nunca para os pulados.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
-    param([string]$Id, [string]$Raiz, [string]$Filtro)
+    param([string]$Id, [string]$Raiz, [string]$Filtro, [DateTime]$AntesDe = [DateTime]::MaxValue)
     if (-not (Test-RaizSegura $Raiz)) {
-        Send-Log $Id 'aviso' 'Raiz recusada por segurança' $Raiz
+        Add-FalhaRaiz $Id "pasta recusada por segurança: $Raiz" $Raiz
         return 0
     }
     if (-not (Test-Path -LiteralPath $Raiz)) { return 0 }
+    if (-not (Test-CadeiaSemLink $Raiz)) {
+        Add-FalhaRaiz $Id "pasta deixada intacta por segurança (é ou está dentro de um link/junção): $Raiz" $Raiz
+        return 0
+    }
+    if (-not (Test-DonoRaiz $Raiz)) {
+        Add-FalhaRaiz $Id "pasta deixada intacta por segurança (o dono não é o sistema): $Raiz" $Raiz
+        return 0
+    }
     if (Test-Path -LiteralPath $Raiz -PathType Leaf) {
+        if ((Get-Item -LiteralPath $Raiz -Force).LastWriteTime -ge $AntesDe) { return 0 }
         try { Remove-Item -LiteralPath $Raiz -Force -ErrorAction Stop; return 0 }
         catch { Write-AvisoPulado $Id $Raiz; return 1 }
     }
-    return (Clear-Conteudo $Id $Raiz $Filtro)
+    return (Clear-Conteudo $Id $Raiz $Filtro $AntesDe)
 }
 
 function Invoke-LimparPasta {
     param([string]$Id, [bool]$Teste)
     $filtro = Get-FiltroCategoria $Id $Teste
+    $corte = Get-CorteIdade $Id
     $pulados = 0
-    foreach ($r in @(Get-RotasCategoria $Id $Teste)) { $pulados += (Clear-Raiz $Id $r $filtro) }
+    foreach ($r in @(Get-RotasCategoria $Id $Teste)) { $pulados += (Clear-Raiz $Id $r $filtro $corte) }
     return $pulados
 }
 
@@ -278,7 +352,7 @@ function Invoke-LimparDism {
     if ($Teste) { return 0 }
     $args1 = '/Online /Cleanup-Image /StartComponentCleanup'
     if ((Test-ParamVerdadeiro $Params 'avancado') -and (Test-ParamVerdadeiro $Params 'resetBase')) { $args1 += ' /ResetBase' }
-    $p = Start-Process -FilePath 'Dism.exe' -ArgumentList $args1 -Wait -WindowStyle Hidden -PassThru
+    $p = Start-Process -FilePath "$env:windir\System32\Dism.exe" -ArgumentList $args1 -Wait -WindowStyle Hidden -PassThru
     if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw "DISM terminou com código $($p.ExitCode)" }
     return 0
 }
@@ -300,7 +374,7 @@ function Invoke-CleanmgrSomente {
         }
         Set-ItemProperty -LiteralPath (Join-Path $Base $Handler) -Name $nome -Value 2 -Type DWord -ErrorAction Stop
         if (-not $Teste) {
-            Start-Process -FilePath 'cleanmgr.exe' -ArgumentList "/sagerun:$Flag" -Wait -WindowStyle Hidden
+            Start-Process -FilePath "$env:windir\System32\cleanmgr.exe" -ArgumentList "/sagerun:$Flag" -Wait -WindowStyle Hidden
         }
     } finally {
         Remove-ItemProperty -LiteralPath (Join-Path $Base $Handler) -Name $nome -ErrorAction SilentlyContinue
@@ -331,12 +405,12 @@ function Invoke-LimparPonto {
     param([bool]$Teste)
     if ($Teste) { return 0 }
     $vol = Get-CimInstance -ClassName Win32_Volume -Filter "DriveLetter='$env:SystemDrive'" -ErrorAction Stop | Select-Object -First 1
-    if ($null -eq $vol -or [string]::IsNullOrEmpty([string]$vol.DeviceID)) { throw 'volume do sistema nÃ£o identificado' }
+    if ($null -eq $vol -or [string]::IsNullOrEmpty([string]$vol.DeviceID)) { throw 'volume do sistema não identificado' }
     $copias = @(Get-CimInstance -ClassName Win32_ShadowCopy -ErrorAction Stop)
     $pulados = 0
     foreach ($guid in @(Get-SombraParaApagar $copias ([string]$vol.DeviceID))) {
         if ($guid -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { $pulados++; continue }
-        & vssadmin.exe delete shadows "/Shadow=$guid" /Quiet | Out-Null
+        & "$env:windir\System32\vssadmin.exe" delete shadows "/Shadow=$guid" /Quiet | Out-Null
         if ($LASTEXITCODE -ne 0) { $pulados++ }
     }
     return $pulados
@@ -402,6 +476,7 @@ function Invoke-Limpar {
 
     $Script:AvisosEmitidos = 0
     $detalhes = New-Object System.Collections.Generic.List[object]
+    $falhas = New-Object System.Collections.Generic.List[object]
     $somaAntes = [int64]0
     $somaDepois = [int64]0
     $totalPulados = 0
@@ -411,28 +486,35 @@ function Invoke-Limpar {
         $antes = [int64]0
         $depois = [int64]0
         $pulados = 0
+        $Script:FalhasCat = New-Object System.Collections.Generic.List[string]
         if ($c -ne 'dism_componentes' -and $c -ne 'windows_old' -and $c -ne 'pontos_antigos') { $antes = Get-TamanhoCategoria $c $Teste }
         elseif ($c -eq 'windows_old' -and -not $Teste) { $antes = Get-TamanhoCategoria $c $Teste }
         try {
             $pulados = Invoke-LimparCategoria $c $Params $Teste
         } catch {
-            Send-Log $Id 'aviso' ("Falha em ${c}: " + $_.Exception.Message)
-            $pulados++
+            $Script:FalhasCat.Add($_.Exception.Message)
         }
+        $erro = $null
+        if ($Script:FalhasCat.Count -gt 0) {
+            $erro = ($Script:FalhasCat.ToArray() -join '; ')
+            Send-Log $Id 'aviso' ("Falha em ${c}: " + $erro)
+            $falhas.Add([ordered]@{ id = $c; erro = $erro })
+        }
+        $Script:FalhasCat = $null
         if ($c -ne 'dism_componentes' -and $c -ne 'pontos_antigos') { $depois = Get-TamanhoCategoria $c $Teste }
         $somaAntes += $antes
         $somaDepois += $depois
         $totalPulados += $pulados
-        $detalhes.Add([ordered]@{ id = $c; antes = $antes; depois = $depois; pulados = $pulados })
+        $detalhes.Add([ordered]@{ id = $c; antes = $antes; depois = $depois; pulados = $pulados; erro = $erro })
         $i++
     }
     if ($Script:AvisosEmitidos -gt $Script:MaxAvisos) {
         Send-Log $Id 'aviso' ("{0} arquivos pulados no total (mostrados os primeiros {1})" -f $Script:AvisosEmitidos, $Script:MaxAvisos)
     }
     $liberado = [math]::Max([int64]0, $somaAntes - $somaDepois)
-    Write-AppLog ("limpeza: liberado {0} bytes, {1} pulados" -f $liberado, $totalPulados) $Teste
+    Write-AppLog ("limpeza: liberado {0} bytes, {1} pulados, {2} falhas" -f $liberado, $totalPulados, $falhas.Count) $Teste
     Send-Progress $Id 100 'Concluído'
-    Send-Result $Id ([ordered]@{ liberadoBytes = $liberado; pulados = $totalPulados; detalhes = $detalhes.ToArray() })
+    Send-Result $Id ([ordered]@{ liberadoBytes = $liberado; pulados = $totalPulados; falhas = $falhas.ToArray(); detalhes = $detalhes.ToArray() })
 }
 
 function Invoke-Acao {

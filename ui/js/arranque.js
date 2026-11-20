@@ -25,6 +25,24 @@ function ligarJanela() {
   document.getElementById('jan-min').addEventListener('click', () => w.minimize());
   document.getElementById('jan-max').addEventListener('click', () => w.toggleMaximize());
   document.getElementById('jan-fechar').addEventListener('click', () => w.close());
+  // Fechar no meio de uma ação mata o host antes de ele religar serviços: pede confirmação.
+  let perguntando = false;
+  w.onCloseRequested(async (e) => {
+    if (!S.ocupado) return;
+    if (perguntando) { e.preventDefault(); return; }
+    perguntando = true;
+    try {
+      const fechar = await perguntar({
+        titulo: t('janela.fecharOcupadoTitulo'),
+        corpo: [h('p', { class: 'aviso', text: t('janela.fecharOcupado') })],
+        ok: t('janela.fecharMesmoAssim'),
+        okClasse: 'perigo',
+      });
+      if (!fechar) e.preventDefault();
+    } finally {
+      perguntando = false;
+    }
+  });
 }
 
 async function arranque() {

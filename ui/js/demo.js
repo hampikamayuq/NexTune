@@ -53,6 +53,8 @@ const demo = {
   _coletar(params) {
     if (params && params.forcarPerfil) {
       this._perfil = { classe: params.forcarPerfil.classe, disco: params.forcarPerfil.disco, manual: true };
+    } else if (params && params.resetarPerfil === true) {
+      this._perfil = { classe: 'basico', disco: 'hdd', manual: false };
     }
     return {
       equipo: { fabricante: 'Positivo', modelo: 'C6400', nome: 'PC-DA-SALA' },
@@ -90,10 +92,10 @@ const demo = {
         const antes = Math.max(c.tamanhoBytes, 0);
         const sobra = Math.round(antes * 0.02);
         liberado += antes - sobra;
-        detalhes.push({ id: c.id, antes, depois: sobra, pulados: sobra > 0 ? 1 : 0 });
+        detalhes.push({ id: c.id, antes, depois: sobra, pulados: sobra > 0 ? 1 : 0, erro: null });
         c.tamanhoBytes = c.tamanhoBytes < 0 ? 0 : sobra;
       }
-      return { liberadoBytes: liberado, pulados: detalhes.reduce((s, d) => s + d.pulados, 0), detalhes };
+      return { liberadoBytes: liberado, pulados: detalhes.reduce((s, d) => s + d.pulados, 0), falhas: [], detalhes };
     }
     throw new Error('Ação não disponível na demonstração: ' + modulo + '/' + acao);
   },

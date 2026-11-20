@@ -2,6 +2,11 @@
 # modulos em runspaces proprios e escreve somente linhas @@PROGRESS/@@LOG/@@RESULT no stdout.
 param([int]$OciosoSegundos = 120, [string[]]$AllowlistExtra = @())
 
+# Antes de qualquer autoload: o host roda elevado e nao pode carregar modulos de pastas que o
+# usuario (ou um processo sem elevacao) consegue gravar, como Documentos\WindowsPowerShell\Modules.
+# Os runspaces das acoes herdam esta variavel do processo.
+$env:PSModulePath = "$PSHOME\Modules;$env:ProgramFiles\WindowsPowerShell\Modules"
+
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { $null = $_ }
@@ -210,5 +215,15 @@ try {
         Invoke-MatarFilho $e.Inicio
         try { $null = $e.Ps.BeginStop($null, $null) } catch { $null = $_ }
     }
+    # Espera (no maximo $EsperaFimMs no total) os finally das acoes rodarem: e ali que a limpeza
+    # religa servicos e restaura o registro. Sair antes mataria a thread no meio deles.
+    $EsperaFimMs = 10000
+    $relogioFim = [Diagnostics.Stopwatch]::StartNew()
+    foreach ($e in @($Ativos)) {
+        $resta = $EsperaFimMs - [int]$relogioFim.ElapsedMilliseconds
+        if ($resta -le 0) { break }
+        try { $null = $e.Handle.AsyncWaitHandle.WaitOne($resta) } catch { $null = $_ }
+    }
+    Write-FilaParaSaida
 }
 exit 0

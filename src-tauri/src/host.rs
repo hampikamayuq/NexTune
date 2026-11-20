@@ -19,7 +19,35 @@ use tokio::sync::{Mutex, oneshot};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const ESPERA_CANCELAR: Duration = Duration::from_secs(5);
-const ESPERA_SAIR: Duration = Duration::from_secs(3);
+/// Depois de um cancelamento confirmado, quanto esperar o host ficar ocioso (os `finally` das
+/// ações religam serviços e restauram o registro) antes de matar o processo.
+const ESPERA_OCIOSO: Duration = Duration::from_secs(10);
+/// O host espera até 10 s pelos `finally` antes de sair; damos uma folga antes de matar.
+const ESPERA_SAIR: Duration = Duration::from_secs(12);
+
+/// `powershell.exe` por caminho absoluto em System32 (nunca pela busca do PATH).
+#[cfg(windows)]
+fn caminho_powershell() -> PathBuf {
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+    let mut buf = [0u16; 260];
+    // SAFETY: `buf` é válido e o tamanho passado é o do buffer.
+    let n = unsafe { GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    let sistema = if n > 0 && n < buf.len() {
+        PathBuf::from(String::from_utf16_lossy(&buf[..n]))
+    } else {
+        let raiz = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        PathBuf::from(raiz).join("System32")
+    };
+    sistema
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe")
+}
+
+#[cfg(not(windows))]
+fn caminho_powershell() -> PathBuf {
+    PathBuf::from("powershell.exe")
+}
 
 /// Mensagem de progresso/log de uma ação em curso.
 #[derive(Debug, Clone, PartialEq)]
@@ -138,7 +166,7 @@ impl Interno {
     }
 
     fn iniciar(self: &Arc<Self>, proc: &mut Proc) -> Result<(), ErroHost> {
-        let mut cmd = Command::new("powershell.exe");
+        let mut cmd = Command::new(caminho_powershell());
         cmd.args([
             "-NoLogo",
             "-NoProfile",
@@ -370,17 +398,54 @@ impl HostPowerShell {
         Ok(())
     }
 
-    /// Cancela todos os pendentes (melhor esforço) e encerra o processo.
+    /// Cancela todos os pendentes e espera (até `ESPERA_OCIOSO`) o host ficar ocioso, para os
+    /// `finally` das ações rodarem (religar serviços, restaurar o registro). Só mata o processo
+    /// se ele não ficar ocioso a tempo; ocioso, o host continua vivo para a próxima ação.
     pub async fn cancelar_tudo(&self) {
+        self.cancelar_tudo_com(ESPERA_OCIOSO).await;
+    }
+
+    async fn cancelar_tudo_com(&self, limite: Duration) {
         let ids: Vec<String> = self.interno.pendentes().keys().cloned().collect();
         for id in ids {
             let _ = self.cancelar(&id).await;
         }
-        let mut proc = self.interno.proc.lock().await;
-        self.interno.matar(&mut proc).await;
+        if !self.esperar_ocioso(limite).await {
+            let mut proc = self.interno.proc.lock().await;
+            self.interno.matar(&mut proc).await;
+        }
     }
 
-    /// Pede ao host que saia (`host/sair`); se não sair em 3 s, mata.
+    /// Faz `host/ping` até `dados.ocioso == true` ou estourar `limite`. Sem processo vivo, já está
+    /// ocioso. Não relança o host.
+    async fn esperar_ocioso(&self, limite: Duration) -> bool {
+        let i = &self.interno;
+        let fim = tokio::time::Instant::now() + limite;
+        loop {
+            let Ok((cid, rx)) = i
+                .enviar(("host", "ping", &json!({}), false), Box::new(|_| {}), false)
+                .await
+            else {
+                return true;
+            };
+            match tokio::time::timeout_at(fim, rx).await {
+                Ok(Ok(Ok(dados))) if dados["ocioso"] == json!(true) => return true,
+                Ok(Ok(Ok(_))) => {}
+                // O processo morreu enquanto esperávamos: nada mais para esperar.
+                Ok(_) => return true,
+                Err(_) => {
+                    i.pendentes().remove(&cid);
+                    return false;
+                }
+            }
+            if tokio::time::Instant::now() >= fim {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// Pede ao host que saia (`host/sair`); se não sair em `ESPERA_SAIR` (12 s), mata.
     pub async fn encerrar(&self) {
         let i = &self.interno;
         let mut proc = i.proc.lock().await;
@@ -460,10 +525,19 @@ mod testes {
 
     /// Dispara `demorar` e devolve (id, tarefa) depois do primeiro progresso.
     async fn iniciar_demorar(h: &Arc<HostPowerShell>) -> (String, Tarefa) {
+        iniciar_acao(h, "demorar", json!({"segundos": 30})).await
+    }
+
+    /// Dispara uma ação do `eco` que emite progresso ao começar e devolve (id, tarefa).
+    async fn iniciar_acao(
+        h: &Arc<HostPowerShell>,
+        acao: &'static str,
+        params: serde_json::Value,
+    ) -> (String, Tarefa) {
         let (tx, mut rx) = mpsc::unbounded_channel::<Evento>();
         let h2 = h.clone();
         let tarefa = tokio::spawn(async move {
-            h2.executar("eco", "demorar", json!({"segundos": 30}), true, move |e| {
+            h2.executar("eco", acao, params, true, move |e| {
                 let _ = tx.send(e);
             })
             .await
@@ -597,11 +671,69 @@ mod testes {
     }
 
     #[tokio::test]
-    async fn cancelar_tudo_encerra_pendentes() {
+    async fn cancelar_tudo_encerra_pendentes_e_mantem_host_ocioso() {
         let _eco = eco().await;
         let h = novo_host(120);
         let (_id, tarefa) = iniciar_demorar(&h).await;
+        let pid = h.pid().await;
         h.cancelar_tudo().await;
+        let r = tokio::time::timeout(Duration::from_secs(10), tarefa)
+            .await
+            .expect("nao resolveu")
+            .unwrap();
+        assert!(matches!(r, Err(ErroHost::Cancelado)), "{r:?}");
+        // Cancelamento confirmado e host ocioso: o processo não é morto.
+        assert_eq!(h.pid().await, pid);
+        assert_eq!(ping(&h).await.unwrap()["ocioso"], true);
+        h.encerrar().await;
+    }
+
+    fn marcador(nome: &str) -> PathBuf {
+        let d = std::env::temp_dir().join("OtimizadorTesteRust");
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join(format!("{nome}-{}.txt", std::process::id()));
+        let _ = std::fs::remove_file(&f);
+        f
+    }
+
+    #[tokio::test]
+    async fn cancelar_tudo_espera_o_finally_da_acao() {
+        let _eco = eco().await;
+        let h = novo_host(120);
+        let arq = marcador("finally");
+        let (_id, tarefa) = iniciar_acao(
+            &h,
+            "comFinally",
+            json!({"esperaFinal": 1500, "arquivo": arq.to_string_lossy()}),
+        )
+        .await;
+        let pid = h.pid().await;
+        let t0 = Instant::now();
+        h.cancelar_tudo().await;
+        assert!(arq.exists(), "cancelar_tudo voltou antes do finally");
+        assert!(t0.elapsed() < ESPERA_OCIOSO, "{:?}", t0.elapsed());
+        assert_eq!(h.pid().await, pid, "host foi morto apesar de ocioso");
+        let r = tarefa.await.unwrap();
+        assert!(matches!(r, Err(ErroHost::Cancelado)), "{r:?}");
+        h.encerrar().await;
+        let _ = std::fs::remove_file(&arq);
+    }
+
+    #[tokio::test]
+    async fn cancelar_tudo_mata_se_o_host_nao_ficar_ocioso_a_tempo() {
+        let _eco = eco().await;
+        let h = novo_host(120);
+        let arq = marcador("teimoso");
+        let (_id, tarefa) = iniciar_acao(
+            &h,
+            "comFinally",
+            json!({"esperaFinal": 20000, "arquivo": arq.to_string_lossy()}),
+        )
+        .await;
+        let t0 = Instant::now();
+        h.cancelar_tudo_com(Duration::from_secs(2)).await;
+        assert!(t0.elapsed() < Duration::from_secs(8), "{:?}", t0.elapsed());
+        assert!(h.pid().await.is_none());
         let r = tokio::time::timeout(Duration::from_secs(10), tarefa)
             .await
             .expect("nao resolveu")
@@ -610,6 +742,19 @@ mod testes {
             matches!(r, Err(ErroHost::Cancelado) | Err(ErroHost::Timeout)),
             "{r:?}"
         );
-        assert!(h.pid().await.is_none());
+        assert!(!arq.exists());
+    }
+
+    #[test]
+    fn powershell_por_caminho_absoluto() {
+        let p = caminho_powershell();
+        assert!(p.is_absolute(), "{p:?}");
+        // %SystemRoot% pode vir como C:\WINDOWS\system32: compara sem caixa.
+        let s = p.to_string_lossy().to_ascii_lowercase();
+        assert!(
+            s.ends_with(r"\system32\windowspowershell\v1.0\powershell.exe"),
+            "{p:?}"
+        );
+        assert!(p.exists(), "{p:?}");
     }
 }

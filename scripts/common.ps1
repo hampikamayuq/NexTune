@@ -21,12 +21,90 @@ function Write-Linha {
     else { [Console]::Out.WriteLine($Linha) }
 }
 
+$Script:SidsConfiaveis = @(
+    'S-1-5-18',                                                       # SYSTEM
+    'S-1-5-32-544',                                                   # BUILTIN\Administradores
+    'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'  # TrustedInstaller
+)
+$Script:BaseVerificada = $false
+
+function Test-SidConfiavel {
+    # Puro: o dono informado e SYSTEM, Administradores ou TrustedInstaller?
+    param([string]$Sid)
+    return ($Script:SidsConfiaveis -contains $Sid)
+}
+
+function Get-DonoSid {
+    # SID do dono de um arquivo/pasta ou $null se nao der para ler.
+    param([string]$Path)
+    try { return (Get-Acl -LiteralPath $Path -ErrorAction Stop).GetOwner([Security.Principal.SecurityIdentifier]).Value }
+    catch { return $null }
+}
+
+function New-SegurancaPastaApp {
+    # DACL protegida da pasta de dados: SYSTEM e Administradores com controle total, Usuarios so leitura.
+    # So monta o objeto; quem aplica e Set-SegurancaPastaApp.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param()
+    $sec = New-Object System.Security.AccessControl.DirectorySecurity
+    $heranca = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    $prop = [Security.AccessControl.PropagationFlags]::None
+    $permitir = [Security.AccessControl.AccessControlType]::Allow
+    $sistema = New-Object Security.Principal.SecurityIdentifier 'S-1-5-18'
+    $admins = New-Object Security.Principal.SecurityIdentifier 'S-1-5-32-544'
+    $usuarios = New-Object Security.Principal.SecurityIdentifier 'S-1-5-32-545'
+    $sec.SetOwner($admins)
+    $sec.SetAccessRuleProtection($true, $false)
+    $total = [Security.AccessControl.FileSystemRights]::FullControl
+    $leitura = [Security.AccessControl.FileSystemRights]::ReadAndExecute
+    $sec.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sistema, $total, $heranca, $prop, $permitir)))
+    $sec.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($admins, $total, $heranca, $prop, $permitir)))
+    $sec.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($usuarios, $leitura, $heranca, $prop, $permitir)))
+    return $sec
+}
+
+function Set-SegurancaPastaApp {
+    # Cria a pasta com a DACL protegida ou reaplica dono + DACL numa pasta existente.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param([string]$Path)
+    $sec = New-SegurancaPastaApp
+    if (-not (Test-Path -LiteralPath $Path)) { $null = [IO.Directory]::CreateDirectory($Path, $sec); return }
+    [IO.Directory]::SetAccessControl($Path, $sec)
+}
+
+function Add-LinhaLog {
+    param([string]$PastaLogs, [string]$Msg)
+    $arq = Join-Path $PastaLogs ((Get-Date).ToString('yyyy-MM') + '.log')
+    $linha = '{0} {1}' -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $Msg
+    try { Add-Content -LiteralPath $arq -Value $linha -Encoding UTF8 } catch { $null = $_ }
+}
+
 function Get-AppPastas {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
     [CmdletBinding()]
     param([bool]$Teste = $false)
+    $aviso = $null
     if ($Teste) { $base = Join-Path $env:TEMP 'OtimizadorTeste' }
-    else { $base = Join-Path $env:ProgramData 'Otimizador' }
+    else {
+        $base = Join-Path $env:ProgramData 'Otimizador'
+        # %ProgramData% deixa qualquer usuario criar pastas: a nossa precisa de dono e DACL proprios.
+        if (-not $Script:BaseVerificada) {
+            try {
+                if (-not (Test-Path -LiteralPath $base)) { Set-SegurancaPastaApp $base }
+                else {
+                    $acl = Get-Acl -LiteralPath $base -ErrorAction Stop
+                    $dono = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+                    if (-not (Test-SidConfiavel $dono) -or -not $acl.AreAccessRulesProtected) {
+                        Set-SegurancaPastaApp $base
+                        $aviso = "aviso: permissões de $base corrigidas (dono anterior $dono)"
+                    }
+                }
+                $Script:BaseVerificada = $true
+            } catch { $aviso = "aviso: não foi possível proteger ${base}: $($_.Exception.Message)" }
+        }
+    }
     $p = @{
         Base       = $base
         Quarentena = Join-Path $base 'Quarentena'
@@ -40,6 +118,7 @@ function Get-AppPastas {
             New-Item -ItemType Directory -Path $p[$k] -Force -ErrorAction SilentlyContinue | Out-Null
         }
     }
+    if ($null -ne $aviso) { Add-LinhaLog $p.Logs $aviso }
     return $p
 }
 
@@ -64,19 +143,35 @@ function Send-Result {
 function Write-AppLog {
     param([string]$Msg, [bool]$Teste = $false)
     $p = Get-AppPastas $Teste
-    $arq = Join-Path $p.Logs ((Get-Date).ToString('yyyy-MM') + '.log')
-    $linha = '{0} {1}' -f (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'), $Msg
-    try { Add-Content -LiteralPath $arq -Value $linha -Encoding UTF8 } catch { $null = $_ }
+    Add-LinhaLog $p.Logs $Msg
+}
+
+function Test-Reparse {
+    param($Item)
+    return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
 }
 
 function Get-PathSize {
-    param([string]$Path)
+    # Soma o tamanho dos arquivos sem seguir junctions/links (nem a propria raiz, se for um).
+    # -AntesDe: conta so arquivos com LastWriteTime anterior a essa data.
+    param([string]$Path, [DateTime]$AntesDe = [DateTime]::MaxValue)
     if ([string]::IsNullOrEmpty($Path) -or -not (Test-Path -LiteralPath $Path)) { return [int64]0 }
-    $total = [int64]0
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-    if ($null -eq $item) { return [int64]0 }
-    if (-not $item.PSIsContainer) { return [int64]$item.Length }
-    Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object { $total += $_.Length }
+    if ($null -eq $item -or (Test-Reparse $item)) { return [int64]0 }
+    if (-not $item.PSIsContainer) {
+        if ($item.LastWriteTime -ge $AntesDe) { return [int64]0 }
+        return [int64]$item.Length
+    }
+    $total = [int64]0
+    $pilha = New-Object System.Collections.Generic.Stack[string]
+    $pilha.Push($item.FullName)
+    while ($pilha.Count -gt 0) {
+        foreach ($f in @(Get-ChildItem -LiteralPath $pilha.Pop() -Force -ErrorAction SilentlyContinue)) {
+            if (Test-Reparse $f) { continue }
+            if ($f.PSIsContainer) { $pilha.Push($f.FullName) }
+            elseif ($f.LastWriteTime -lt $AntesDe) { $total += $f.Length }
+        }
+    }
     return [int64]$total
 }
 

@@ -93,8 +93,12 @@ pub fn validar(
         }
         ("diagnostico", "coletar") => {
             let m = como_objeto(params)?;
-            so_chaves(&m, &["simular", "forcarPerfil"])?;
+            so_chaves(&m, &["simular", "forcarPerfil", "resetarPerfil"])?;
+            if m.contains_key("forcarPerfil") && m.contains_key("resetarPerfil") {
+                return Err(erro("forcarPerfil e resetarPerfil não podem vir juntos"));
+            }
             let mut saida = Map::new();
+            copiar_bool(&m, &mut saida, "resetarPerfil")?;
             if let Some(s) = m.get("simular") {
                 if !teste {
                     return Err(erro("simular só é aceito em modo teste"));
@@ -316,6 +320,36 @@ mod testes {
             false,
         ));
         assert!(validar("diagnostico", "coletar", &json!({}), false).is_ok());
+    }
+
+    #[test]
+    fn coletar_resetar_perfil() {
+        let p = json!({"resetarPerfil": true});
+        assert_eq!(validar("diagnostico", "coletar", &p, false).unwrap(), p);
+        parametro(validar(
+            "diagnostico",
+            "coletar",
+            &json!({"resetarPerfil": "true"}),
+            false,
+        ));
+        parametro(validar(
+            "diagnostico",
+            "coletar",
+            &json!({"resetarPerfil": 1}),
+            false,
+        ));
+        parametro(validar(
+            "diagnostico",
+            "coletar",
+            &json!({"resetarPerfil": true, "forcarPerfil": {"classe": "gamer", "disco": "ssd"}}),
+            false,
+        ));
+        parametro(validar(
+            "diagnostico",
+            "coletar",
+            &json!({"resetarPerfil": false, "forcarPerfil": {"classe": "gamer", "disco": "ssd"}}),
+            false,
+        ));
     }
 
     #[test]

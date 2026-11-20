@@ -270,7 +270,16 @@ function Get-Coleta {
 function Invoke-Coletar {
     param([string]$Id, $Params, [bool]$Teste)
     $forcar = $null
-    if ($null -ne $Params) { $forcar = $Params.forcarPerfil }
+    $resetar = $false
+    if ($null -ne $Params) {
+        $forcar = $Params.forcarPerfil
+        # Somente o booleano $true vale (mesma regra do Rust).
+        $resetar = ($Params.resetarPerfil -is [bool] -and $Params.resetarPerfil)
+    }
+    if ($null -ne $forcar -and $null -ne $Params.resetarPerfil) {
+        Send-Result $Id $null $false 'forcarPerfil e resetarPerfil não podem vir juntos'
+        return
+    }
     if ($null -ne $forcar) {
         # Normaliza para minusculas antes de validar e gravar (Rust so aceita minusculas).
         $c = ([string]$forcar.classe).ToLowerInvariant()
@@ -311,7 +320,7 @@ function Invoke-Coletar {
     if ($null -ne $forcar) {
         $perfil = [pscustomobject]@{ classe = $c; disco = $d; manual = $true }
         Set-Perfil $perfil $Teste
-    } elseif ($null -ne $existente -and $existente.manual -and
+    } elseif (-not $resetar -and $null -ne $existente -and $existente.manual -and
               $Script:ClassesValidas -ccontains $existente.classe -and $Script:DiscosValidos -ccontains $existente.disco) {
         $perfil = $existente
     } else {

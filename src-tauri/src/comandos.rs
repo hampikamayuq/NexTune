@@ -95,15 +95,15 @@ fn evento_json(modulo: &str, ev: Evento) -> Option<Value> {
     }
 }
 
-/// DecisÃ£o pura: o host precisa ser recriado quando o modo leve calculado difere da prioridade atual.
+/// Decisão pura: o host precisa ser recriado quando o modo leve calculado difere da prioridade atual.
 pub fn precisa_trocar(atual: bool, perfil: &Perfil, ajustes: &Ajustes) -> bool {
     perfil::modo_leve(perfil, ajustes) != atual
 }
 
-/// RelÃª perfil e ajustes e, se o modo leve mudou, substitui o host (devolve `true` ao trocar).
+/// Relê perfil e ajustes e, se o modo leve mudou, substitui o host (devolve `true` ao trocar).
 ///
-/// AtenÃ§Ã£o: trocar o host chama `encerrar()` no antigo e cancela qualquer aÃ§Ã£o em andamento.
-/// A UI (Task 9) nÃ£o deve oferecer o alternador de modo leve enquanto houver aÃ§Ã£o rodando.
+/// Atenção: trocar o host chama `encerrar()` no antigo e cancela qualquer ação em andamento.
+/// A UI (Task 9) não deve oferecer o alternador de modo leve enquanto houver ação rodando.
 pub async fn trocar_host_se_mudou(estado: &Estado) -> bool {
     let perfil = perfil::ler(&estado.pastas);
     let ajustes = ajustes::ler(&estado.pastas);
@@ -142,12 +142,13 @@ pub async fn executar(
         .await
         .map_err(|e| e.to_string());
     if r.is_ok() && modulo == "diagnostico" && acao == "coletar" {
-        // O diagnÃ³stico grava um perfil.json novo; reavalia a prioridade do host.
+        // O diagnóstico grava um perfil.json novo; reavalia a prioridade do host.
         trocar_host_se_mudou(&estado).await;
     }
     r
 }
 
+/// Cancela a ação em curso e espera (até 10 s) os `finally` dela restaurarem serviços e registro.
 #[tauri::command]
 pub async fn cancelar(estado: State<'_, Estado>) -> Result<(), String> {
     let host = estado.host.lock().await.clone();

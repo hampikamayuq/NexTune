@@ -20,6 +20,26 @@
         Set-Perfil ([pscustomobject]@{ classe = $Classe; disco = 'hdd'; manual = $true }) $true
     }
     function Get-Cat { param($R, [string]$Id) return @($R.dados.categorias | Where-Object { $_.id -eq $Id })[0] }
+    function New-ArquivoIdade {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+        [CmdletBinding()]
+        param([string]$Caminho, [int]$Bytes, [DateTime]$Data)
+        [IO.File]::WriteAllBytes($Caminho, (New-Object byte[] $Bytes))
+        (Get-Item -LiteralPath $Caminho).LastWriteTime = $Data
+    }
+    # Junction criada/removida pelo cmd: Remove-Item -Recurse do PS 5.1 entraria no alvo.
+    function New-Juncao {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+        [CmdletBinding()]
+        param([string]$Link, [string]$Alvo)
+        cmd /c mklink /J "$Link" "$Alvo" | Out-Null
+    }
+    function Remove-Juncao {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+        [CmdletBinding()]
+        param([string]$Link)
+        if (Test-Path -LiteralPath $Link) { cmd /c rmdir "$Link" | Out-Null }
+    }
 }
 
 AfterAll {
@@ -31,8 +51,9 @@ Describe 'limpeza.ps1' {
     BeforeEach {
         if (Test-Path -LiteralPath $Script:Raiz) { Remove-Item -LiteralPath $Script:Raiz -Recurse -Force -ErrorAction SilentlyContinue }
         foreach ($id in $Script:Ids) { New-Item -ItemType Directory -Path (Join-Path $Script:Raiz $id) -Force | Out-Null }
-        1..3 | ForEach-Object { [IO.File]::WriteAllBytes((Join-Path $Script:Raiz "temp_usuario\f$_.tmp"), (New-Object byte[] 100)) }
-        1..2 | ForEach-Object { [IO.File]::WriteAllBytes((Join-Path $Script:Raiz "temp_windows\g$_.tmp"), (New-Object byte[] 50)) }
+        # Temporarios so saem depois de uma idade minima (24 h / 7 dias): as sementes nascem "velhas".
+        1..3 | ForEach-Object { New-ArquivoIdade (Join-Path $Script:Raiz "temp_usuario\f$_.tmp") 100 (Get-Date).AddDays(-2) }
+        1..2 | ForEach-Object { New-ArquivoIdade (Join-Path $Script:Raiz "temp_windows\g$_.tmp") 50 (Get-Date).AddDays(-10) }
         Use-PerfilTeste 'medio'
     }
 
@@ -142,9 +163,105 @@ Describe 'limpeza.ps1' {
             [IO.File]::WriteAllBytes((Join-Path $alvo 'preciso.txt'), (New-Object byte[] 10))
             $j = Join-Path $Script:Raiz 'temp_usuario\jn'
             cmd /c mklink /J "$j" "$alvo" | Out-Null
+            try {
+                $r = Invoke-Limp 'limpar' @{ categorias = @('temp_usuario') }
+                $r.ok | Should -BeTrue
+                Test-Path -LiteralPath (Join-Path $alvo 'preciso.txt') | Should -BeTrue
+            } finally { Remove-Juncao $j }
+        }
+        It 'raiz da categoria que e junction: alvo intacto e categoria em falhas' {
+            $alvo = Join-Path $env:TEMP 'OtimizadorTeste\foraRaiz'
+            New-Item -ItemType Directory -Path $alvo -Force | Out-Null
+            New-ArquivoIdade (Join-Path $alvo 'preciso.txt') 18 (Get-Date).AddDays(-30)
+            $j = Join-Path $Script:Raiz 'informes'
+            Remove-Item -LiteralPath $j -Force
+            New-Juncao $j $alvo
+            try {
+                (Get-Cat (Invoke-Limp 'analisar') 'informes').tamanhoBytes | Should -Be 0
+                $r = Invoke-Limp 'limpar' @{ categorias = @('informes') }
+                $r.ok | Should -BeTrue
+                Test-Path -LiteralPath (Join-Path $alvo 'preciso.txt') | Should -BeTrue
+                $r.dados.liberadoBytes | Should -Be 0
+                $r.dados.pulados | Should -Be 0
+                @($r.dados.falhas).Count | Should -Be 1
+                $r.dados.falhas[0].id | Should -Be 'informes'
+                $r.dados.falhas[0].erro | Should -Match 'segurança'
+                $r.dados.detalhes[0].erro | Should -Not -BeNullOrEmpty
+            } finally { Remove-Juncao $j }
+        }
+        It 'pasta acima da raiz que e junction: alvo intacto e categoria em falhas' {
+            $alvo = Join-Path $env:TEMP 'OtimizadorTeste\foraPai'
+            New-Item -ItemType Directory -Path (Join-Path $alvo 'temp_usuario') -Force | Out-Null
+            New-ArquivoIdade (Join-Path $alvo 'temp_usuario\preciso.tmp') 10 (Get-Date).AddDays(-30)
+            Remove-Item -LiteralPath $Script:Raiz -Recurse -Force
+            New-Juncao $Script:Raiz $alvo
+            try {
+                $r = Invoke-Limp 'limpar' @{ categorias = @('temp_usuario') }
+                $r.ok | Should -BeTrue
+                Test-Path -LiteralPath (Join-Path $alvo 'temp_usuario\preciso.tmp') | Should -BeTrue
+                @($r.dados.falhas | ForEach-Object { $_.id }) | Should -Be @('temp_usuario')
+            } finally { Remove-Juncao $Script:Raiz }
+        }
+        It 'temp_usuario so apaga itens com mais de 24 h (e analisar mede igual)' {
+            $novo = Join-Path $Script:Raiz 'temp_usuario\novo.tmp'
+            New-ArquivoIdade $novo 1000 (Get-Date).AddHours(-1)
+            (Get-Cat (Invoke-Limp 'analisar') 'temp_usuario').tamanhoBytes | Should -Be 300
             $r = Invoke-Limp 'limpar' @{ categorias = @('temp_usuario') }
+            $r.dados.liberadoBytes | Should -Be 300
+            Test-Path -LiteralPath $novo | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $Script:Raiz 'temp_usuario\f1.tmp') | Should -BeFalse
+        }
+        It 'temp_windows so apaga itens com mais de 7 dias' {
+            $recente = Join-Path $Script:Raiz 'temp_windows\recente.tmp'
+            New-ArquivoIdade $recente 70 (Get-Date).AddDays(-2)
+            (Get-Cat (Invoke-Limp 'analisar') 'temp_windows').tamanhoBytes | Should -Be 100
+            $r = Invoke-Limp 'limpar' @{ categorias = @('temp_windows') }
+            $r.dados.liberadoBytes | Should -Be 100
+            Test-Path -LiteralPath $recente | Should -BeTrue
+            @(Get-ChildItem -LiteralPath (Join-Path $Script:Raiz 'temp_windows') -Force).Count | Should -Be 1
+        }
+        It 'pasta velha esvaziada sai; pasta nova vazia fica' {
+            $velha = Join-Path $Script:Raiz 'temp_usuario\velha'
+            $nova = Join-Path $Script:Raiz 'temp_usuario\nova'
+            New-Item -ItemType Directory -Path $velha, $nova -Force | Out-Null
+            New-ArquivoIdade (Join-Path $velha 'x.tmp') 5 (Get-Date).AddDays(-3)
+            (Get-Item -LiteralPath $velha).LastWriteTime = (Get-Date).AddDays(-3)
+            Invoke-Limp 'limpar' @{ categorias = @('temp_usuario') } | Out-Null
+            Test-Path -LiteralPath $velha | Should -BeFalse
+            Test-Path -LiteralPath $nova | Should -BeTrue
+        }
+        It 'falha de ferramenta externa vai para falhas, nao para pulados' {
+            Mock Invoke-LimparDism { throw 'DISM terminou com código 5' }
+            $r = Invoke-Limp 'limpar' @{ categorias = @('dism_componentes', 'temp_usuario') }
             $r.ok | Should -BeTrue
-            Test-Path -LiteralPath (Join-Path $alvo 'preciso.txt') | Should -BeTrue
+            $r.dados.pulados | Should -Be 0
+            @($r.dados.falhas).Count | Should -Be 1
+            $r.dados.falhas[0].id | Should -Be 'dism_componentes'
+            $r.dados.falhas[0].erro | Should -Match 'DISM'
+            $r.dados.detalhes[1].erro | Should -BeNullOrEmpty
+        }
+        It 'sem falhas devolve falhas vazia' {
+            $r = Invoke-Limp 'limpar' @{ categorias = @('temp_usuario') }
+            @($r.dados.falhas).Count | Should -Be 0
+            $Script:UltimaSaida | Should -Match '"falhas":\[\]'
+        }
+        It 'dono nao confiavel sob a base protegida e recusado' {
+            $base = Join-Path $env:TEMP 'OtimizadorTeste\pd'
+            $fab = Join-Path $base 'Fabricante'
+            $pasta = Join-Path $fab 'Cache'
+            New-Item -ItemType Directory -Path $pasta -Force | Out-Null
+            $admins = New-Object Security.Principal.SecurityIdentifier 'S-1-5-32-544'
+            $acl = Get-Acl -LiteralPath $fab
+            $acl.SetOwner($admins)
+            Set-Acl -LiteralPath $fab -AclObject $acl
+            $acl = Get-Acl -LiteralPath $pasta
+            $acl.SetOwner([Security.Principal.WindowsIdentity]::GetCurrent().User)
+            Set-Acl -LiteralPath $pasta -AclObject $acl
+            Test-DonoRaiz $pasta $base | Should -BeFalse
+            $acl.SetOwner($admins)
+            Set-Acl -LiteralPath $pasta -AclObject $acl
+            Test-DonoRaiz $pasta $base | Should -BeTrue
+            Test-DonoRaiz (Join-Path $Script:Raiz 'temp_usuario') $base | Should -BeTrue
         }
         It 'recusa raiz perigosa' {
             Test-RaizSegura "$env:SystemDrive\" | Should -BeFalse
@@ -155,6 +272,8 @@ Describe 'limpeza.ps1' {
             Test-RaizSegura $env:LOCALAPPDATA | Should -BeFalse
             Test-RaizSegura $env:ProgramData | Should -BeFalse
             Test-RaizSegura '' | Should -BeFalse
+            Test-RaizSegura 'C:\.' | Should -BeFalse
+            Test-RaizSegura 'C:\x\..' | Should -BeFalse
             Test-RaizSegura '\Temp' | Should -BeFalse
             Test-RaizSegura 'Temp' | Should -BeFalse
             Test-RaizSegura "$env:LOCALAPPDATA\D3DSCache" | Should -BeTrue

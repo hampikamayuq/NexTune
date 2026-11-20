@@ -72,6 +72,16 @@ Describe 'host.ps1' {
             $r.dados.n | Should -Be 5
         }
 
+        It 'PSModulePath das acoes so tem pastas de sistema (nada em Documentos do usuario)' {
+            $Script:Proc = Start-HostTeste
+            Send-Comando $Script:Proc @{ id = 'mp'; modulo = 'eco'; acao = 'modulos'; params = @{}; teste = $true }
+            $r = Read-Resultado $Script:Proc 'mp' 20000
+            $partes = @($r.dados.psModulePath -split ';' | Where-Object { $_ -ne '' })
+            $partes | Should -Contain "$PSHOME\Modules"
+            foreach ($p in $partes) { $p | Should -Not -BeLike "$env:USERPROFILE*" }
+            $partes.Count | Should -Be 2
+        }
+
         It 'passa o flag teste para Invoke-Acao' {
             $Script:Proc = Start-HostTeste
             Send-Comando $Script:Proc @{ id = 't1'; modulo = 'eco'; acao = 'teste'; params = @{}; teste = $true }
@@ -139,6 +149,38 @@ Describe 'host.ps1' {
             $r.erro | Should -Be 'cancelado'
             $Script:Proc.WaitForExit(10000) | Should -BeTrue
             $Script:Proc.ExitCode | Should -Be 0
+        }
+
+        It 'sair espera o finally da acao em curso terminar antes de sair' {
+            $marca = Join-Path (New-PastaTeste 'hostFinally') 'sair.txt'
+            $Script:Proc = Start-HostTeste
+            Send-Comando $Script:Proc @{ id = 'f3'; modulo = 'eco'; acao = 'comFinally'; params = @{ esperaFinal = 1500; arquivo = $marca }; teste = $true }
+            $null = Read-Linha $Script:Proc 20000   # @@PROGRESS iniciado
+            Send-Comando $Script:Proc @{ id = 's4'; modulo = 'host'; acao = 'sair'; params = @{}; teste = $true }
+            $Script:Proc.WaitForExit(15000) | Should -BeTrue
+            $Script:Proc.ExitCode | Should -Be 0
+            Test-Path -LiteralPath $marca | Should -BeTrue
+        }
+
+        It 'apos cancelar, ping so fica ocioso depois do finally da acao' {
+            $marca = Join-Path (New-PastaTeste 'hostOcioso') 'cancelar.txt'
+            $Script:Proc = Start-HostTeste
+            Send-Comando $Script:Proc @{ id = 'f4'; modulo = 'eco'; acao = 'comFinally'; params = @{ esperaFinal = 1500; arquivo = $marca }; teste = $true }
+            $null = Read-Linha $Script:Proc 20000
+            Send-Comando $Script:Proc @{ id = 'c4'; modulo = 'host'; acao = 'cancelar'; params = @{ alvo = 'f4' }; teste = $true }
+            (Read-Resultado $Script:Proc 'f4' 5000).erro | Should -Be 'cancelado'
+            Send-Comando $Script:Proc @{ id = 'p4'; modulo = 'host'; acao = 'ping'; params = @{}; teste = $true }
+            (Read-Resultado $Script:Proc 'p4' 5000).dados.ocioso | Should -BeFalse
+            $limite = [DateTime]::UtcNow.AddSeconds(10)
+            $ocioso = $false
+            $n = 0
+            while (-not $ocioso -and [DateTime]::UtcNow -lt $limite) {
+                $n++
+                Send-Comando $Script:Proc @{ id = "q$n"; modulo = 'host'; acao = 'ping'; params = @{}; teste = $true }
+                $ocioso = [bool](Read-Resultado $Script:Proc "q$n" 5000).dados.ocioso
+            }
+            $ocioso | Should -BeTrue
+            Test-Path -LiteralPath $marca | Should -BeTrue
         }
 
         It 'duas acoes rodam em paralelo (a de 0,5 s responde antes da de 2 s)' {

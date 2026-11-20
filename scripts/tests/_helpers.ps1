@@ -15,7 +15,7 @@ function Start-HostTeste {
     param([int]$Ocioso = 30)
     $host1 = Join-Path (Split-Path -Parent $PSScriptRoot) 'host.ps1'
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'powershell.exe'
+    $psi.FileName = "$env:windir\System32\WindowsPowerShell\v1.0\powershell.exe"
     $psi.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""$host1"" -OciosoSegundos $Ocioso -AllowlistExtra eco"
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true

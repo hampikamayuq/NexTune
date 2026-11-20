@@ -104,6 +104,27 @@ Describe 'diagnostico.ps1' {
             $p2.classe | Should -Be 'gamer'
             $p2.manual | Should -BeTrue
         }
+        It 'resetarPerfil volta do perfil manual ao detectado automaticamente' {
+            $sim = @{ ramGb = 4; nucleos = 2; gpuDedicada = $false; discoSistemaMediaType = 'HDD'; discoSistemaBusType = 'SATA' }
+            (Invoke-Coleta 'coletar' @{ forcarPerfil = @{ classe = 'gamer'; disco = 'ssd' } }).ok | Should -BeTrue
+            (Get-Perfil $true).manual | Should -BeTrue
+            $r = Invoke-Coleta 'coletar' @{ simular = $sim; resetarPerfil = $true }
+            $r.ok | Should -BeTrue
+            $r.dados.perfil.classe | Should -Be 'basico'
+            $r.dados.perfil.disco | Should -Be 'hdd'
+            $r.dados.perfil.manual | Should -BeFalse
+            $p = Get-Perfil $true
+            $p.classe | Should -Be 'basico'
+            $p.manual | Should -BeFalse
+        }
+        It 'resetarPerfil so vale como booleano e nao combina com forcarPerfil' {
+            $sim = @{ ramGb = 4; nucleos = 2; gpuDedicada = $false; discoSistemaMediaType = 'HDD'; discoSistemaBusType = 'SATA' }
+            Set-Perfil @{ classe = 'gamer'; disco = 'ssd'; manual = $true } $true
+            (Invoke-Coleta 'coletar' @{ simular = $sim; resetarPerfil = 'true' }).dados.perfil.classe | Should -Be 'gamer'
+            $r = Invoke-Coleta 'coletar' @{ resetarPerfil = $true; forcarPerfil = @{ classe = 'medio'; disco = 'ssd' } }
+            $r.ok | Should -BeFalse
+            (Get-Perfil $true).classe | Should -Be 'gamer'
+        }
         It 'forcarPerfil invalido nao grava valores fora do conjunto' {
             $r = Invoke-Coleta 'coletar' @{ forcarPerfil = @{ classe = 'xyz'; disco = 'ssd' } }
             $r.ok | Should -BeFalse

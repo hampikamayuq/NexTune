@@ -150,8 +150,11 @@ VISTAS.limpeza = {
     }
     if (L.resultado) {
       const r = L.resultado;
+      // Categoria que falhou (pasta recusada, DISM/cleanmgr/WMI com erro) aparece à parte, nunca como "pulado".
+      const falhas = (r.falhas || []).map((f) => h('p', { class: 'aviso', text: t('limpeza.falha', { nome: t('cat.' + f.id + '.nome'), erro: f.erro }) }));
       v.append(h('div', { class: 'cartao resultado' },
-        h('p', { class: 'grande', text: t(r.pulados === 1 ? 'limpeza.resultadoUm' : 'limpeza.resultado', { liberado: fmtBytes(r.liberadoBytes), pulados: r.pulados }) })));
+        h('p', { class: 'grande', text: t(r.pulados === 1 ? 'limpeza.resultadoUm' : 'limpeza.resultado', { liberado: fmtBytes(r.liberadoBytes), pulados: r.pulados }) }),
+        falhas));
     }
     v.append(h('p', { class: 'suave', text: t('limpeza.intro') }));
     for (const c of categoriasVisiveis()) {
