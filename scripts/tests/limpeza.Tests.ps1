@@ -27,19 +27,7 @@
         [IO.File]::WriteAllBytes($Caminho, (New-Object byte[] $Bytes))
         (Get-Item -LiteralPath $Caminho).LastWriteTime = $Data
     }
-    # Junction criada/removida pelo cmd: Remove-Item -Recurse do PS 5.1 entraria no alvo.
-    function New-Juncao {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
-        [CmdletBinding()]
-        param([string]$Link, [string]$Alvo)
-        cmd /c mklink /J "$Link" "$Alvo" | Out-Null
-    }
-    function Remove-Juncao {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
-        [CmdletBinding()]
-        param([string]$Link)
-        if (Test-Path -LiteralPath $Link) { cmd /c rmdir "$Link" | Out-Null }
-    }
+    # New-Juncao / Remove-Juncao vem de _helpers.ps1.
 }
 
 AfterAll {

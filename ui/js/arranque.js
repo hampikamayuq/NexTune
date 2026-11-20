@@ -17,6 +17,35 @@ async function carregarBase() {
   S.base = 'pronto';
   try { await analisarLimpeza(); } catch (e) { mostrarErro(e); }
   renderAtual();
+  await carregarSessaoEQuarentena();
+  // A vista aberta durante o arranque pode ter pulado a carga automática (S.ocupado): re-renderiza.
+  renderAtual();
+}
+
+// Depois da base: confere a sessão (usuário elevado = usuário do console), lê a quarentena para o
+// contador e apaga o que já venceu. Erros viram toast e nunca travam o arranque.
+async function carregarSessaoEQuarentena() {
+  if (S.info && typeof S.info.sessaoOk === 'boolean') S.sessaoOk = S.info.sessaoOk;
+  try {
+    const s = await api.executar('sistema', 'sessao', {}, null);
+    S.sessaoOk = s.mesmo !== false;
+  } catch (e) {
+    toast(t('sessao.erro', { erro: e && e.message ? e.message : String(e) }), 'aviso');
+  }
+  aplicarSessao();
+  await carregarQuarentena();
+  if (S.quarentena.erro) { toast(t('quarentena.erro', { erro: S.quarentena.erro }), 'aviso'); return; }
+  const dias = quarentenaDias();
+  if (S.sessaoOk === false || !dias || !quarentenaVencidas().length) return;
+  try {
+    const r = await api.executar('quarentena', 'purgarVencidos', { dias }, null);
+    const n = (r.removidas || []).length;
+    if (n) toast(n === 1 ? t('quarentena.vencidaApagada') : t('quarentena.vencidasApagadas', { n }), 'ok');
+  } catch (e) {
+    mostrarErroEscrita(e);
+  }
+  await carregarQuarentena();
+  if (S.quarentena.erro) toast(t('quarentena.erro', { erro: S.quarentena.erro }), 'aviso');
 }
 
 function ligarJanela() {
@@ -61,6 +90,8 @@ async function arranque() {
   aplicarLeve();
   document.getElementById('versao').textContent = t('app.versao', { v: S.info.versao });
   document.getElementById('faixa-demo').hidden = !S.info.demo;
+  if (typeof S.info.sessaoOk === 'boolean') S.sessaoOk = S.info.sessaoOk;
+  aplicarSessao();
 
   irPara('inicio');
   await carregarBase();

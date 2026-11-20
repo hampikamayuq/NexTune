@@ -16,11 +16,14 @@
       </div>
     </header>
     <div id="faixa-demo" hidden data-i18n="app.demo"></div>
+    <div id="faixa-sessao" hidden role="alert" data-i18n="sessao.faixa"></div>
     <div id="corpo">
       <nav id="menu">
         <button type="button" class="item" data-vista="inicio" data-i18n="nav.inicio"></button>
         <button type="button" class="item" data-vista="diagnostico" data-i18n="nav.diagnostico"></button>
         <button type="button" class="item" data-vista="limpeza" data-i18n="nav.limpeza"></button>
+        <button type="button" class="item" data-vista="programas" data-i18n="nav.programas"></button>
+        <button type="button" class="item" data-vista="quarentena"><span data-i18n="nav.quarentena"></span> <span id="quarentena-n" aria-live="polite"></span></button>
         <button type="button" class="item fim" data-vista="opcoes" data-i18n="nav.opcoes"></button>
       </nav>
       <main id="principal" tabindex="-1"></main>
@@ -39,9 +42,12 @@
     <script src="js/api.js"></script>
     <script src="js/estado.js"></script>
     <script src="js/demo.js"></script>
+    <script src="js/ponto.js"></script>
     <script src="js/vistas/inicio.js"></script>
     <script src="js/vistas/diagnostico.js"></script>
     <script src="js/vistas/limpeza.js"></script>
+    <script src="js/vistas/programas.js"></script>
+    <script src="js/vistas/quarentena.js"></script>
     <script src="js/vistas/opcoes.js"></script>
     <script src="js/arranque.js"></script>
   </body>

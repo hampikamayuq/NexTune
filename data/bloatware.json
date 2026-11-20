@@ -1,0 +1,507 @@
+{
+  "store": [
+    {
+      "packageFamilyName": "Microsoft.BingNews_8wekyb3d8bbwe",
+      "productId": "9WZDNCRFHVFW",
+      "cor": "verde",
+      "motivo": "Notícias da Microsoft: só mostra manchetes e anúncios; o navegador faz o mesmo."
+    },
+    {
+      "packageFamilyName": "Microsoft.BingWeather_8wekyb3d8bbwe",
+      "productId": "9WZDNCRFJ3Q2",
+      "cor": "verde",
+      "motivo": "Clima: a previsão já aparece na barra de tarefas e em qualquer site."
+    },
+    {
+      "packageFamilyName": "Microsoft.BingSearch_8wekyb3d8bbwe",
+      "cor": "verde",
+      "motivo": "Pesquisa Bing: liga a pesquisa do Windows à internet; a pesquisa de arquivos continua igual."
+    },
+    {
+      "packageFamilyName": "Microsoft.GetHelp_8wekyb3d8bbwe",
+      "productId": "9PKDZBMV1H3T",
+      "cor": "verde",
+      "motivo": "Obter Ajuda: abre o suporte da Microsoft; o site faz o mesmo."
+    },
+    {
+      "packageFamilyName": "Microsoft.Getstarted_8wekyb3d8bbwe",
+      "productId": "9WZDNCRDTBJJ",
+      "cor": "verde",
+      "motivo": "Dicas do Windows: só tutoriais; não afeta nada."
+    },
+    {
+      "packageFamilyName": "Microsoft.Microsoft3DViewer_8wekyb3d8bbwe",
+      "productId": "9NBLGGH42THS",
+      "cor": "verde",
+      "motivo": "Visualizador 3D: abre modelos 3D; quase ninguém usa."
+    },
+    {
+      "packageFamilyName": "Microsoft.MSPaint_8wekyb3d8bbwe",
+      "cor": "verde",
+      "motivo": "Paint 3D: a Microsoft descontinuou; o Paint comum continua no Windows."
+    },
+    {
+      "packageFamilyName": "Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe",
+      "productId": "9WZDNCRD29V9",
+      "cor": "verde",
+      "motivo": "Atalho para o Office online e propaganda do Microsoft 365; não é o Office instalado."
+    },
+    {
+      "packageFamilyName": "Microsoft.MicrosoftSolitaireCollection_8wekyb3d8bbwe",
+      "productId": "9WZDNCRFHWD2",
+      "cor": "verde",
+      "motivo": "Paciência com anúncios: dá para reinstalar pela Store quando quiser jogar."
+    },
+    {
+      "packageFamilyName": "Microsoft.MixedReality.Portal_8wekyb3d8bbwe",
+      "productId": "9NG1H8B3ZC7M",
+      "cor": "verde",
+      "motivo": "Portal de Realidade Misturada: só serve com óculos de realidade virtual."
+    },
+    {
+      "packageFamilyName": "Microsoft.People_8wekyb3d8bbwe",
+      "productId": "9NBLGGH10PG8",
+      "cor": "verde",
+      "motivo": "Pessoas: agenda de contatos antiga que a Microsoft deixou de atualizar."
+    },
+    {
+      "packageFamilyName": "Microsoft.SkypeApp_kzf8qxf38zg5c",
+      "productId": "9WZDNCRFJ364",
+      "cor": "verde",
+      "motivo": "Skype: a Microsoft encerrou o serviço em 2025; o app não funciona mais."
+    },
+    {
+      "packageFamilyName": "Microsoft.Todos_8wekyb3d8bbwe",
+      "productId": "9NBLGGH5R558",
+      "cor": "verde",
+      "motivo": "Microsoft To Do: lista de tarefas; se você não usa, só ocupa espaço."
+    },
+    {
+      "packageFamilyName": "Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe",
+      "productId": "9NBLGGH4R32N",
+      "cor": "verde",
+      "motivo": "Hub de Comentários: serve só para mandar sugestões à Microsoft."
+    },
+    {
+      "packageFamilyName": "Microsoft.ZuneVideo_8wekyb3d8bbwe",
+      "productId": "9WZDNCRFJ3P2",
+      "cor": "verde",
+      "motivo": "Filmes e TV: loja de filmes da Microsoft; seus vídeos abrem em outros programas."
+    },
+    {
+      "packageFamilyName": "Microsoft.ZuneMusic_8wekyb3d8bbwe",
+      "productId": "9WZDNCRFJ3PT",
+      "cor": "amarelo",
+      "motivo": "Media Player (antigo Groove): no Windows 11 é o tocador padrão de música; só remova se usa outro."
+    },
+    {
+      "packageFamilyName": "Clipchamp.Clipchamp_yxz26nhyzhsrt",
+      "productId": "9P1J8S7CCWWT",
+      "cor": "verde",
+      "motivo": "Clipchamp: editor de vídeo; só vale se você edita vídeos."
+    },
+    {
+      "packageFamilyName": "Microsoft.549981C3F5F10_8wekyb3d8bbwe",
+      "productId": "9NFFX4SZZ23L",
+      "cor": "verde",
+      "motivo": "Cortana: assistente que a Microsoft desativou; não faz mais nada."
+    },
+    {
+      "packageFamilyName": "Microsoft.WindowsMaps_8wekyb3d8bbwe",
+      "cor": "verde",
+      "motivo": "Mapas: a Microsoft deixou de atualizar; o navegador faz o mesmo."
+    },
+    {
+      "packageFamilyName": "Microsoft.PowerAutomateDesktop_8wekyb3d8bbwe",
+      "cor": "verde",
+      "motivo": "Power Automate: automação para empresas; raramente usado em casa."
+    },
+    {
+      "packageFamilyName": "Microsoft.YourPhone_8wekyb3d8bbwe",
+      "productId": "9NMPJ99VJBWV",
+      "cor": "amarelo",
+      "motivo": "Vincular ao Celular: mostra mensagens e fotos do celular no PC; só remova se não usa."
+    },
+    {
+      "packageFamilyName": "Microsoft.Copilot_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Copilot: assistente de inteligência artificial da Microsoft; só remova se não usa."
+    },
+    {
+      "packageFamilyName": "Microsoft.OutlookForWindows_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Novo Outlook: programa de e-mail; só remova se usa outro."
+    },
+    {
+      "packageFamilyName": "microsoft.windowscommunicationsapps_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Correio e Calendário: a Microsoft encerrou e trocou pelo novo Outlook; só remova se não usa."
+    },
+    {
+      "packageFamilyName": "Microsoft.Office.OneNote_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "OneNote para Windows 10: a Microsoft encerrou o suporte; o OneNote do Office continua."
+    },
+    {
+      "packageFamilyName": "Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Notas Autoadesivas: só remova se não usa; as notas ficam salvas na conta Microsoft."
+    },
+    {
+      "packageFamilyName": "MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Assistência Rápida: deixa alguém de confiança acessar seu PC para ajudar; só remova se nunca usa."
+    },
+    {
+      "packageFamilyName": "MicrosoftTeams_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Teams pessoal (Chat do Windows 11): só remova se não usa para conversar ou em reuniões."
+    },
+    {
+      "packageFamilyName": "MSTeams_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Microsoft Teams: só remova se não usa para reuniões ou trabalho."
+    },
+    {
+      "packageFamilyName": "Microsoft.XboxApp_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Companheiro do Console Xbox: app antigo; só remova se não usa um Xbox."
+    },
+    {
+      "packageFamilyName": "Microsoft.GamingApp_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "App Xbox: necessário para o Game Pass e jogos da Store; remova só se não joga."
+    },
+    {
+      "packageFamilyName": "Microsoft.XboxGamingOverlay_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Xbox Game Bar: grava a tela e mostra o desempenho em jogos; remova só se não joga."
+    },
+    {
+      "packageFamilyName": "Microsoft.XboxSpeechToTextOverlay_8wekyb3d8bbwe",
+      "cor": "amarelo",
+      "motivo": "Legendas de voz da Xbox Game Bar: remova só se não joga."
+    },
+    {
+      "packageFamilyName": "Disney.37853FC22B2CE_6rarf9sa4v8jt",
+      "cor": "verde",
+      "motivo": "Disney+ pré-instalado: o site funciona igual; reinstale pela Store se preferir o app."
+    },
+    {
+      "packageFamilyName": "4DF9E0F8.Netflix_mcm4njqhnhss8",
+      "cor": "verde",
+      "motivo": "Netflix pré-instalado: o site funciona igual; reinstale pela Store se preferir o app."
+    },
+    {
+      "packageFamilyName": "SpotifyAB.SpotifyMusic_zpdnekdrzrea0",
+      "productId": "9NCBCSZSJRSB",
+      "cor": "verde",
+      "motivo": "Spotify pré-instalado: se você usa, deixe; senão só ocupa espaço e dá para reinstalar pela Store."
+    },
+    {
+      "packageFamilyName": "BytedancePte.Ltd.TikTok_6yccndn6064se",
+      "cor": "verde",
+      "motivo": "TikTok pré-instalado: o site funciona igual; reinstale pela Store se preferir o app."
+    },
+    {
+      "packageFamilyName": "Facebook.InstagramBeta_8xx8rvfyw5nnt",
+      "cor": "verde",
+      "motivo": "Instagram pré-instalado: o site funciona igual; reinstale pela Store se preferir o app."
+    },
+    {
+      "packageFamilyName": "Facebook.Facebook_8xx8rvfyw5nnt",
+      "cor": "verde",
+      "motivo": "Facebook pré-instalado: o site funciona igual; reinstale pela Store se preferir o app."
+    },
+    {
+      "packageFamilyName": "FACEBOOK.317180B0BB486_8xx8rvfyw5nnt",
+      "cor": "verde",
+      "motivo": "Messenger pré-instalado: o site funciona igual; reinstale pela Store se preferir o app."
+    },
+    {
+      "packageFamilyName": "5319275A.WhatsAppDesktop_cv1g1gvanyjgm",
+      "cor": "amarelo",
+      "motivo": "WhatsApp: só remova se não usa no computador; o celular continua igual."
+    },
+    {
+      "packageFamilyName": "7EE7776C.LinkedInforWindows_w1wdnht996qgy",
+      "cor": "verde",
+      "motivo": "LinkedIn pré-instalado: o site faz o mesmo."
+    },
+    {
+      "packageFamilyName": "Amazon.com.Amazon_343d40qqvtj1t",
+      "cor": "verde",
+      "motivo": "Loja Amazon pré-instalada: o site faz o mesmo."
+    },
+    {
+      "packageFamilyName": "AmazonVideo.PrimeVideo_pwbj9vvecjh7j",
+      "cor": "verde",
+      "motivo": "Prime Video pré-instalado: o site funciona igual; reinstale pela Store se preferir o app."
+    },
+    {
+      "packageFamilyName": "AdobeSystemsIncorporated.AdobeCreativeCloudExpress_ynb6jyjzte8ga",
+      "cor": "verde",
+      "motivo": "Adobe Express pré-instalado: editor de imagens que funciona pelo site."
+    },
+    {
+      "packageFamilyName": "king.com.CandyCrushSaga_kgqvnymyfvs32",
+      "cor": "verde",
+      "motivo": "Candy Crush pré-instalado: jogo com compras dentro do app; reinstale pela Store se quiser jogar."
+    },
+    {
+      "packageFamilyName": "king.com.CandyCrushSodaSaga_kgqvnymyfvs32",
+      "cor": "verde",
+      "motivo": "Candy Crush Soda pré-instalado: jogo com compras dentro do app; reinstale pela Store se quiser jogar."
+    },
+    {
+      "packageFamilyName": "king.com.BubbleWitch3Saga_kgqvnymyfvs32",
+      "cor": "verde",
+      "motivo": "Bubble Witch 3 pré-instalado: jogo com compras dentro do app; reinstale pela Store se quiser jogar."
+    },
+    {
+      "packageFamilyName": "king.com.FarmHeroesSaga_kgqvnymyfvs32",
+      "cor": "verde",
+      "motivo": "Farm Heroes pré-instalado: jogo com compras dentro do app; reinstale pela Store se quiser jogar."
+    },
+    {
+      "packageFamilyName": "A278AB0D.MarchofEmpires_h6adky7gbf63m",
+      "cor": "verde",
+      "motivo": "March of Empires pré-instalado: jogo com compras dentro do app; reinstale pela Store se quiser jogar."
+    },
+    {
+      "packageFamilyName": "828B5831.HiddenCityMysteryofShadows_ytsefhwckbdv6",
+      "cor": "verde",
+      "motivo": "Hidden City pré-instalado: jogo com compras dentro do app; reinstale pela Store se quiser jogar."
+    },
+    {
+      "packageFamilyName": "5A894077.McAfeeSecurity_wafk5atnkzcwy",
+      "cor": "amarelo",
+      "motivo": "Antivírus McAfee (teste grátis de fábrica): só remova se tiver outro; ao sair, o Windows Defender volta a proteger sozinho.",
+      "siteReinstalar": "https://www.mcafee.com/pt-br/"
+    },
+    {
+      "packageFamilyName": "DolbyLaboratories.DolbyAccess_rz1tebttyyg4y",
+      "cor": "amarelo",
+      "motivo": "Dolby Access: liga o som Dolby do notebook; só remova se não usa esse recurso."
+    },
+    {
+      "packageFamilyName": "E046963F.LenovoCompanion_k1h2ywk1493x8",
+      "cor": "amarelo",
+      "motivo": "Lenovo Vantage: atualiza drivers e configura a bateria do notebook; só remova se não usa.",
+      "siteReinstalar": "https://support.lenovo.com/br/pt/solutions/ht505081"
+    },
+    {
+      "packageFamilyName": "DellInc.DellSupportAssistforPCs_htrsf667h5kn2",
+      "cor": "amarelo",
+      "motivo": "Dell SupportAssist: atualiza drivers e faz testes do notebook; só remova se não usa.",
+      "siteReinstalar": "https://www.dell.com/support/home/pt-br/product-support/product/dell-supportassist-pcs-tablets"
+    },
+    {
+      "packageFamilyName": "DellInc.DellDigitalDelivery_htrsf667h5kn2",
+      "cor": "amarelo",
+      "motivo": "Dell Digital Delivery: instala programas que vieram com o PC; só remova depois que eles já estiverem instalados."
+    },
+    {
+      "packageFamilyName": "DellInc.MyDell_htrsf667h5kn2",
+      "cor": "amarelo",
+      "motivo": "My Dell: central de ajustes de som e energia da Dell; só remova se não usa."
+    },
+    {
+      "packageFamilyName": "AD2F1837.HPSupportAssistant_v10z8vjag6ke6",
+      "cor": "amarelo",
+      "motivo": "HP Support Assistant: atualiza drivers e faz testes do notebook; só remova se não usa.",
+      "siteReinstalar": "https://support.hp.com/br-pt/help/hp-support-assistant"
+    },
+    {
+      "packageFamilyName": "AD2F1837.myHP_v10z8vjag6ke6",
+      "cor": "amarelo",
+      "motivo": "myHP: central de ajustes de som e bateria da HP; só remova se não usa."
+    },
+    {
+      "packageFamilyName": "AD2F1837.HPPrivacySettings_v10z8vjag6ke6",
+      "cor": "amarelo",
+      "motivo": "HP Privacy Settings: controla a tela de privacidade e a câmera; só remova se seu modelo não tem esses recursos."
+    },
+    {
+      "packageFamilyName": "AD2F1837.HPQuickDrop_v10z8vjag6ke6",
+      "cor": "verde",
+      "motivo": "HP QuickDrop: troca de arquivos com o celular que a HP descontinuou."
+    },
+    {
+      "packageFamilyName": "AD2F1837.HPJumpStarts_v10z8vjag6ke6",
+      "cor": "verde",
+      "motivo": "HP JumpStarts: boas-vindas e propaganda da HP."
+    },
+    {
+      "packageFamilyName": "B9ECED6F.MyASUS_qmba6cd70vzyy",
+      "cor": "amarelo",
+      "motivo": "MyASUS: atualiza drivers e configura bateria e tela; só remova se não usa.",
+      "siteReinstalar": "https://www.asus.com/br/support/myasus/"
+    },
+    {
+      "packageFamilyName": "B9ECED6F.ArmouryCrate_qmba6cd70vzyy",
+      "cor": "amarelo",
+      "motivo": "Armoury Crate: controla luzes, ventoinhas e modos de desempenho de PCs ASUS; só remova se não usa."
+    }
+  ],
+  "classicos": [
+    {
+      "padrao": "^(Positivo|Multilaser)\\b.*(Hotkey|Hot Key|Teclas|Fn|Driver|Teclado|Touchpad|Áudio|Audio)",
+      "cor": "amarelo",
+      "motivo": "Controla teclas de atalho ou peças do notebook: remover pode desligar funções do teclado ou do som."
+    },
+    {
+      "padrao": "^Positivo\\b|^PositivoApp|^Aplicativo Positivo",
+      "editor": "Positivo",
+      "cor": "verde",
+      "motivo": "Utilitário de fábrica do Positivo: propaganda e atalhos; o Windows já faz tudo isso."
+    },
+    {
+      "padrao": "^Multilaser\\b",
+      "editor": "Multilaser",
+      "cor": "verde",
+      "motivo": "Utilitário de fábrica da Multilaser: propaganda e atalhos; o Windows já faz tudo isso."
+    },
+    {
+      "padrao": "^VAIO (Care|Update|Control Center|Smart Network)",
+      "cor": "amarelo",
+      "motivo": "Utilitário da VAIO: atualizações e ajustes do notebook; só remova se não usa."
+    },
+    {
+      "padrao": "^Samsung (Update|Settings|Notes|Flow|Gallery|Recovery|Security|Screen Recorder|Studio Plus|Cloud|Multi Control|Second Screen)",
+      "cor": "amarelo",
+      "motivo": "Utilitário da Samsung para o notebook: atualizações e integração com o celular; só remova se não usa.",
+      "siteReinstalar": "https://www.samsung.com/br/support/"
+    },
+    {
+      "padrao": "^Lenovo Vantage|^Lenovo System Update|^Lenovo System Interface Foundation",
+      "cor": "amarelo",
+      "motivo": "Lenovo Vantage e suas partes: atualizam drivers e configuram a bateria; só remova se não usa.",
+      "siteReinstalar": "https://support.lenovo.com/br/pt/solutions/ht505081"
+    },
+    {
+      "padrao": "^Lenovo (Now|Welcome|Hotkeys Dashboard)",
+      "cor": "verde",
+      "motivo": "Boas-vindas e propaganda da Lenovo: não faz nada útil."
+    },
+    {
+      "padrao": "^Dell (SupportAssist|Update|Digital Delivery|Power Manager|Optimizer|Mobile Connect|Customer Connect|Peripheral Manager|Display Manager)",
+      "cor": "amarelo",
+      "motivo": "Utilitário da Dell: atualiza drivers e configura o PC; só remova se não usa.",
+      "siteReinstalar": "https://www.dell.com/support/home/pt-br"
+    },
+    {
+      "padrao": "^HP (Support Assistant|Documentation|Connection Optimizer|Sure Click|Sure Sense|Wolf Security|JumpStart|Audio Switch|Smart|Client Security|System Event Utility|Notifications)",
+      "cor": "amarelo",
+      "motivo": "Utilitário da HP: atualizações, segurança e ajustes do PC; só remova se não usa.",
+      "siteReinstalar": "https://support.hp.com/br-pt"
+    },
+    {
+      "padrao": "^Acer (Care Center|Quick Access|Configuration Manager|Control Center|Power Management)",
+      "cor": "amarelo",
+      "motivo": "Utilitário da Acer: controla teclas, energia e atualizações; só remova se não usa.",
+      "siteReinstalar": "https://www.acer.com/br-pt/support"
+    },
+    {
+      "padrao": "^Acer (Collection|Jumpstart|Product Registration|UEIP Framework|Portal)",
+      "cor": "verde",
+      "motivo": "Propaganda e registro de produto da Acer: não faz nada útil."
+    },
+    {
+      "padrao": "^ASUS (Live Update|Splendid|Battery Health Charging|System Control Interface|Smart Gesture|Keyboard Hotkeys)|^MyASUS|^Armoury Crate",
+      "cor": "amarelo",
+      "motivo": "Utilitário da ASUS: teclas, tela, bateria e atualizações; só remova se não usa.",
+      "siteReinstalar": "https://www.asus.com/br/support/"
+    },
+    {
+      "padrao": "^ASUS (GiftBox|Welcome|Promotion)",
+      "cor": "verde",
+      "motivo": "Propaganda da ASUS: não faz nada útil."
+    },
+    {
+      "padrao": "^Avast",
+      "editor": "Avast|Gen Digital",
+      "cor": "amarelo",
+      "motivo": "Antivírus: só remova se tiver outro; ao sair, o Windows Defender volta a proteger sozinho.",
+      "siteReinstalar": "https://www.avast.com/pt-br/"
+    },
+    {
+      "padrao": "^AVG\\b",
+      "editor": "AVG|Avast|Gen Digital",
+      "cor": "amarelo",
+      "motivo": "Antivírus: só remova se tiver outro; ao sair, o Windows Defender volta a proteger sozinho.",
+      "siteReinstalar": "https://www.avg.com/pt-br/"
+    },
+    {
+      "padrao": "^McAfee",
+      "cor": "amarelo",
+      "motivo": "Antivírus (teste grátis de fábrica): só remova se tiver outro; ao sair, o Windows Defender volta a proteger sozinho.",
+      "siteReinstalar": "https://www.mcafee.com/pt-br/"
+    },
+    {
+      "padrao": "^Norton|^NortonLifeLock",
+      "cor": "amarelo",
+      "motivo": "Antivírus (teste grátis de fábrica): só remova se tiver outro; ao sair, o Windows Defender volta a proteger sozinho.",
+      "siteReinstalar": "https://br.norton.com/"
+    },
+    {
+      "padrao": "^Microsoft OneDrive",
+      "cor": "amarelo",
+      "motivo": "OneDrive: guarda seus arquivos na nuvem; antes de remover, confira se eles estão salvos no computador.",
+      "siteReinstalar": "https://www.microsoft.com/pt-br/microsoft-365/onedrive/download"
+    },
+    {
+      "padrao": "^Microsoft Teams|^Teams Machine-Wide Installer",
+      "cor": "amarelo",
+      "motivo": "Microsoft Teams: só remova se não usa para reuniões ou trabalho.",
+      "siteReinstalar": "https://www.microsoft.com/pt-br/microsoft-teams/download-app"
+    },
+    {
+      "padrao": "^Xbox\\b",
+      "editor": "Microsoft",
+      "cor": "amarelo",
+      "motivo": "App Xbox: necessário para o Game Pass e jogos da Store; remova só se não joga."
+    },
+    {
+      "padrao": "^WildTangent|^WildGames|WildTangent Games",
+      "cor": "verde",
+      "motivo": "Jogos de demonstração WildTangent: propaganda de jogos pagos."
+    },
+    {
+      "padrao": "^ExpressVPN",
+      "cor": "verde",
+      "motivo": "Teste grátis de VPN que veio de fábrica: cobra depois do período de teste.",
+      "siteReinstalar": "https://www.expressvpn.com/"
+    },
+    {
+      "padrao": "Booking\\.com",
+      "cor": "verde",
+      "motivo": "Atalho do Booking.com que veio de fábrica: só propaganda; o site faz o mesmo."
+    },
+    {
+      "padrao": "^Amazon Assistant",
+      "cor": "verde",
+      "motivo": "Amazon Assistant: extensão de propaganda da Amazon no navegador."
+    },
+    {
+      "padrao": "^Dropbox \\d+ GB",
+      "cor": "verde",
+      "motivo": "Oferta de espaço no Dropbox que veio de fábrica: só propaganda; o Dropbox de verdade não é este."
+    },
+    {
+      "padrao": "^CyberLink (PowerDVD|Power Media Player|PowerDirector|YouCam|Media Suite)",
+      "cor": "amarelo",
+      "motivo": "Programa de vídeo ou câmera que veio de fábrica: só remova se não usa."
+    },
+    {
+      "padrao": "^Candy Crush|^Bubble Witch|^Farm Heroes",
+      "cor": "verde",
+      "motivo": "Jogo pré-instalado com compras dentro do app: reinstale pela Store se quiser jogar."
+    },
+    {
+      "padrao": "^Skype\\b",
+      "cor": "verde",
+      "motivo": "Skype: a Microsoft encerrou o serviço em 2025; o programa não funciona mais."
+    }
+  ]
+}

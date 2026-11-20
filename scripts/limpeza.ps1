@@ -25,14 +25,6 @@ $Script:MaxAvisos = 20
 $Script:AvisosEmitidos = 0
 $Script:FalhasCat = $null   # mensagens de falha da categoria em curso (Invoke-Limpar)
 
-function Test-ParamVerdadeiro {
-    # Somente o booleano $true vale (a string 'true' NAO vale).
-    param($Params, [string]$Nome)
-    if ($null -eq $Params) { return $false }
-    $v = $Params.$Nome
-    return ($v -is [bool] -and $v -eq $true)
-}
-
 function Test-RaizSegura {
     # Recusa raizes que nunca devem ser esvaziadas (vazias, relativas, rasas ou de sistema).
     param([string]$Raiz)
@@ -49,23 +41,7 @@ function Test-RaizSegura {
     return $true
 }
 
-function Test-CadeiaSemLink {
-    # $true se a rota e cada pasta acima dela (que exista) nao forem junction, link simbolico ou
-    # ponto de montagem. GetFullPath nao resolve junctions; por isso a subida item a item.
-    param([string]$Caminho)
-    try {
-        $atual = [IO.Path]::GetFullPath($Caminho)
-        while (-not [string]::IsNullOrEmpty($atual)) {
-            if (Test-Path -LiteralPath $atual) {
-                if (Test-Reparse (Get-Item -LiteralPath $atual -Force -ErrorAction Stop)) { return $false }
-            }
-            $pai = [IO.Path]::GetDirectoryName($atual)
-            if ($pai -eq $atual) { break }
-            $atual = $pai
-        }
-        return $true
-    } catch { return $false }
-}
+# Test-CadeiaSemLink (rota e ancestrais sem junction/link) mora em common.ps1.
 
 function Test-DonoRaiz {
     # Sob %ProgramData% qualquer usuario cria pastas: ali a raiz e as pastas entre ela e a base

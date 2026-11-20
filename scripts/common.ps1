@@ -146,9 +146,42 @@ function Write-AppLog {
     Add-LinhaLog $p.Logs $Msg
 }
 
+function Test-ParamVerdadeiro {
+    # Somente o booleano $true vale (a string 'true' NAO vale).
+    param($Params, [string]$Nome)
+    if ($null -eq $Params) { return $false }
+    $v = $Params.$Nome
+    return ($v -is [bool] -and $v -eq $true)
+}
+
+function Get-Simulacao {
+    # 'simular' so vale em modo de teste; fora dele e ignorado.
+    param($Params, [bool]$Teste)
+    if (-not $Teste -or $null -eq $Params) { return $null }
+    return $Params.simular
+}
+
 function Test-Reparse {
     param($Item)
     return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+}
+
+function Test-CadeiaSemLink {
+    # $true se a rota e cada pasta acima dela (que exista) nao forem junction, link simbolico ou
+    # ponto de montagem. GetFullPath nao resolve junctions; por isso a subida item a item.
+    param([string]$Caminho)
+    try {
+        $atual = [IO.Path]::GetFullPath($Caminho)
+        while (-not [string]::IsNullOrEmpty($atual)) {
+            if (Test-Path -LiteralPath $atual) {
+                if (Test-Reparse (Get-Item -LiteralPath $atual -Force -ErrorAction Stop)) { return $false }
+            }
+            $pai = [IO.Path]::GetDirectoryName($atual)
+            if ($pai -eq $atual) { break }
+            $atual = $pai
+        }
+        return $true
+    } catch { return $false }
 }
 
 function Get-PathSize {

@@ -1,12 +1,22 @@
 //! Comandos Tauri chamados pela UI (`window.__TAURI__.core.invoke`).
 //!
 //! Contrato JSON (camelCase): `Ajustes` (ver `ajustes.rs`), `Perfil` e `Info`
-//! (`versao, demo, esAdmin, perfil, modoLeve, equipo`). O progresso chega no evento
+//! (`versao, demo, esAdmin, perfil, modoLeve, equipo, sessaoOk`). O progresso chega no evento
 //! `progresso` com `{id, modulo, tipo:"progresso"|"log", ...}`.
+//!
+//! Comandos: `executar(modulo, acao, params)`, `cancelar()`, `ajustes_ler()`, `ajustes_gravar(a)`,
+//! `dados(nome)`, `info()` e `ponto_sessao() -> bool` (se `sistema/criarPonto` já devolveu
+//! `criado:true` neste processo).
+//!
+//! Sessão (spec §9.1, Review Focus 6): antes da primeira ação de escrita (`acoes::e_escrita`) o
+//! Rust roda `sistema/sessao` uma vez por processo e guarda `mesmo`; `false` recusa toda escrita
+//! com `Err("sessao_diferente")` antes de chegar ao PowerShell. Leitura segue liberada. Falha ao
+//! verificar nunca bloqueia (e não é guardada). `Info.sessaoOk` é `null` até a verificação.
 //!
 //! O host é compartilhado como `Arc<HostPowerShell>` dentro de um `Mutex`: cada comando clona o
 //! `Arc`, solta o lock e só então espera a ação, então ações paralelas não se serializam.
 
+use crate::acoes;
 use crate::ajustes::{self, Ajustes};
 use crate::caminhos::Pastas;
 use crate::host::{Evento, HostPowerShell};
@@ -15,17 +25,22 @@ use crate::protocolo::Mensagem;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as MutexSync};
 use tauri::{Emitter, State, Window};
 use tokio::sync::Mutex;
 
-const DADOS_PERMITIDOS: &[&str] = &["perfis"];
+const DADOS_PERMITIDOS: &[&str] = &["perfis", "bloatware", "protegidos"];
 
 pub struct Estado {
     pub pastas: Pastas,
     pub host: Mutex<Arc<HostPowerShell>>,
     pub demo: bool,
     pub versao: String,
+    /// `sistema/criarPonto` já devolveu `criado:true` neste processo.
+    pub ponto_sessao: AtomicBool,
+    /// Resultado de `sistema/sessao` (`mesmo`): `None` = ainda não verificado.
+    pub sessao: MutexSync<Option<bool>>,
 }
 
 impl Estado {
@@ -37,6 +52,18 @@ impl Estado {
             host: Mutex::new(host),
             demo,
             versao,
+            ponto_sessao: AtomicBool::new(false),
+            sessao: MutexSync::new(None),
+        }
+    }
+
+    fn sessao_lida(&self) -> Option<bool> {
+        *self.sessao.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn guardar_sessao(&self, v: Option<bool>) {
+        if v.is_some() {
+            *self.sessao.lock().unwrap_or_else(|e| e.into_inner()) = v;
         }
     }
 }
@@ -54,6 +81,8 @@ pub struct Info {
     pub perfil: Perfil,
     pub modo_leve: bool,
     pub equipo: String,
+    /// `true`/`false` depois de `sistema/sessao`; `null` enquanto não verificado.
+    pub sessao_ok: Option<bool>,
 }
 
 /// Lê `<data_dir>/<nome>.json`; só nomes da allowlist (sem `..`, `/` ou `\`).
@@ -95,6 +124,39 @@ fn evento_json(modulo: &str, ev: Evento) -> Option<Value> {
     }
 }
 
+/// Lê `mesmo` dos dados devolvidos por `sistema/sessao`. `None` quando ausente ou não booleano
+/// (resultado inesperado nunca bloqueia nem é guardado).
+pub fn sessao_permite(dados: &Value) -> Option<bool> {
+    dados.get("mesmo").and_then(Value::as_bool)
+}
+
+/// Bloqueio por sessão (Review Focus 6): na primeira ação de escrita do processo roda
+/// `sistema/sessao` e guarda o resultado; `mesmo:false` recusa com `sessao_diferente`. Erro ao
+/// rodar a verificação não bloqueia (nem guarda), para uma falha de ferramenta não travar o uso.
+async fn verificar_sessao(estado: &Estado, host: &HostPowerShell) -> Result<(), String> {
+    let atual = match estado.sessao_lida() {
+        Some(v) => Some(v),
+        None => {
+            let r = host
+                .executar("sistema", "sessao", json!({}), false, |_| {})
+                .await;
+            let v = r.ok().as_ref().and_then(sessao_permite);
+            estado.guardar_sessao(v);
+            v
+        }
+    };
+    decidir_sessao(atual)
+}
+
+/// Decisão pura: só `Some(false)` (usuário elevado diferente do usuário do console) bloqueia;
+/// sessão ainda não verificada nunca bloqueia.
+pub fn decidir_sessao(atual: Option<bool>) -> Result<(), String> {
+    match atual {
+        Some(false) => Err("sessao_diferente".into()),
+        _ => Ok(()),
+    }
+}
+
 /// Decisão pura: o host precisa ser recriado quando o modo leve calculado difere da prioridade atual.
 pub fn precisa_trocar(atual: bool, perfil: &Perfil, ajustes: &Ajustes) -> bool {
     perfil::modo_leve(perfil, ajustes) != atual
@@ -130,6 +192,9 @@ pub async fn executar(
         return Err("demo".into());
     }
     let host = estado.host.lock().await.clone();
+    if acoes::e_escrita(&modulo, &acao) {
+        verificar_sessao(&estado, &host).await?;
+    }
     let mod_cb = modulo.clone();
     // Não bloqueia: só emite o evento e volta.
     let progresso = move |ev: Evento| {
@@ -141,11 +206,28 @@ pub async fn executar(
         .executar(&modulo, &acao, params, false, progresso)
         .await
         .map_err(|e| e.to_string());
-    if r.is_ok() && modulo == "diagnostico" && acao == "coletar" {
-        // O diagnóstico grava um perfil.json novo; reavalia a prioridade do host.
-        trocar_host_se_mudou(&estado).await;
+    if let Ok(d) = &r {
+        match (modulo.as_str(), acao.as_str()) {
+            ("diagnostico", "coletar") => {
+                // O diagnóstico grava um perfil.json novo; reavalia a prioridade do host.
+                trocar_host_se_mudou(&estado).await;
+            }
+            // A UI também verifica a sessão no arranque: aproveita o resultado.
+            ("sistema", "sessao") => estado.guardar_sessao(sessao_permite(d)),
+            ("sistema", "criarPonto") if d["criado"] == json!(true) => {
+                estado.ponto_sessao.store(true, Ordering::SeqCst);
+            }
+            _ => {}
+        }
     }
     r
+}
+
+/// `true` se um ponto de restauração já foi criado neste processo (`sistema/criarPonto` com
+/// `criado:true`); a UI usa para não criar outro antes de cada ação de escrita.
+#[tauri::command]
+pub fn ponto_sessao(estado: State<'_, Estado>) -> bool {
+    estado.ponto_sessao.load(Ordering::SeqCst)
 }
 
 /// Cancela a ação em curso e espera (até 10 s) os `finally` dela restaurarem serviços e registro.
@@ -192,6 +274,11 @@ pub fn info(estado: State<'_, Estado>) -> Info {
         perfil,
         modo_leve,
         equipo: std::env::var("COMPUTERNAME").unwrap_or_default(),
+        sessao_ok: if estado.demo {
+            Some(true)
+        } else {
+            estado.sessao_lida()
+        },
     }
 }
 
@@ -199,8 +286,9 @@ pub fn info(estado: State<'_, Estado>) -> Info {
 mod testes {
     use super::*;
 
-    fn dir_tmp() -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("otim-dados-{}", std::process::id()));
+    /// Uma pasta por teste (`nome`) e por processo: os testes correm em paralelo.
+    fn dir_tmp(nome: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("otim-dados-{}-{nome}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("perfis.json"), r#"{"a":1}"#).unwrap();
         std::fs::write(d.join("ajustes.json"), "{}").unwrap();
@@ -229,17 +317,185 @@ mod testes {
 
     #[test]
     fn perfis_ok() {
-        assert_eq!(ler_dados(&dir_tmp(), "perfis").unwrap(), json!({"a": 1}));
+        assert_eq!(
+            ler_dados(&dir_tmp("perfis_ok"), "perfis").unwrap(),
+            json!({"a": 1})
+        );
     }
 
     #[test]
     fn traversal_e_desconhecidos_falham() {
-        let d = dir_tmp();
+        let d = dir_tmp("traversal");
         assert!(ler_dados(&d, "../ajustes").is_err());
         assert!(ler_dados(&d, "a/b").is_err());
         assert!(ler_dados(&d, "a\\b").is_err());
         assert!(ler_dados(&d, "nao_existe").is_err());
         assert!(ler_dados(&d, "outro").is_err());
+    }
+
+    /// Lê `data/` real do repositório e confere a forma das listas de bloatware e protegidos:
+    /// chaves de topo, cores válidas, padrões que compilam como regex sem diferenciar caixa
+    /// (o PowerShell usa os mesmos padrões) e `packageFamilyName` no formato da Store.
+    #[test]
+    fn bloatware_e_protegidos_ok() {
+        let data = crate::caminhos::pastas_dev().data;
+        let re_pfn = regex::Regex::new(r"^[A-Za-z0-9.\-]+_[a-z0-9]{13}$").unwrap();
+        let compila = |p: &Value| {
+            let p = p.as_str().expect("padrao é texto");
+            regex::RegexBuilder::new(p)
+                .case_insensitive(true)
+                .build()
+                .unwrap_or_else(|e| panic!("padrão inválido {p:?}: {e}"));
+        };
+        let cor_ok = |c: &Value| {
+            assert!(
+                matches!(c.as_str(), Some("verde" | "amarelo" | "vermelho")),
+                "cor inválida: {c}"
+            );
+        };
+        let motivo_ok = |e: &Value| {
+            assert!(
+                e["motivo"].as_str().is_some_and(|m| !m.trim().is_empty()),
+                "motivo ausente em {e}"
+            );
+        };
+
+        let b = ler_dados(&data, "bloatware").unwrap();
+        let store = b["store"].as_array().expect("bloatware.store é lista");
+        let classicos = b["classicos"]
+            .as_array()
+            .expect("bloatware.classicos é lista");
+        assert!(!store.is_empty() && !classicos.is_empty());
+        let mut vistos = std::collections::HashSet::new();
+        for e in store {
+            let pfn = e["packageFamilyName"]
+                .as_str()
+                .expect("packageFamilyName é texto");
+            assert!(re_pfn.is_match(pfn), "packageFamilyName inválido: {pfn}");
+            assert!(
+                vistos.insert(pfn.to_lowercase()),
+                "packageFamilyName repetido: {pfn}"
+            );
+            cor_ok(&e["cor"]);
+            motivo_ok(e);
+        }
+        for e in classicos {
+            compila(&e["padrao"]);
+            if let Some(ed) = e.get("editor") {
+                compila(ed);
+            }
+            cor_ok(&e["cor"]);
+            motivo_ok(e);
+        }
+
+        let p = ler_dados(&data, "protegidos").unwrap();
+        let programas = p["programas"]
+            .as_array()
+            .expect("protegidos.programas é lista");
+        let processos = p["processos"]
+            .as_array()
+            .expect("protegidos.processos é lista");
+        assert!(!programas.is_empty() && !processos.is_empty());
+        for e in programas {
+            compila(&e["padrao"]);
+            motivo_ok(e);
+        }
+        for proc in processos {
+            let nome = proc.as_str().expect("processo é texto");
+            assert!(
+                nome.to_lowercase().ends_with(".exe"),
+                "processo sem .exe: {nome}"
+            );
+        }
+    }
+
+    #[test]
+    fn decidir_sessao_bloqueia_so_quando_diferente() {
+        assert_eq!(decidir_sessao(Some(false)), Err("sessao_diferente".to_string()));
+        assert_eq!(decidir_sessao(Some(true)), Ok(()));
+        assert_eq!(decidir_sessao(None), Ok(()));
+    }
+
+    #[test]
+    fn sessao_permite_le_mesmo() {
+        assert_eq!(
+            sessao_permite(
+                &json!({"usuarioProcesso": "PC\\ana", "mesmo": true, "desconhecido": false})
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            sessao_permite(
+                &json!({"usuarioProcesso": "PC\\adm", "usuarioConsole": "PC\\ana", "mesmo": false})
+            ),
+            Some(false)
+        );
+        // Console desconhecido (RDP, serviço) vem com mesmo:true e não bloqueia.
+        assert_eq!(
+            sessao_permite(&json!({"usuarioConsole": null, "mesmo": true, "desconhecido": true})),
+            Some(true)
+        );
+        assert_eq!(sessao_permite(&json!({"usuarioProcesso": "x"})), None);
+        assert_eq!(sessao_permite(&json!({"mesmo": "true"})), None);
+        assert_eq!(sessao_permite(&json!({"mesmo": 1})), None);
+        assert_eq!(sessao_permite(&json!({"mesmo": null})), None);
+        assert_eq!(sessao_permite(&json!(null)), None);
+        assert_eq!(sessao_permite(&json!([true])), None);
+    }
+
+    #[test]
+    fn e_escrita_integrado() {
+        assert!(acoes::e_escrita("limpeza", "limpar"));
+        assert!(acoes::e_escrita("quarentena", "purgar"));
+        assert!(!acoes::e_escrita("limpeza", "analisar"));
+        assert!(!acoes::e_escrita("sistema", "sessao"));
+    }
+
+    #[test]
+    fn estado_guarda_sessao_e_ponto() {
+        let e = Estado::novo(crate::caminhos::pastas_dev(), true, "0.0.0-teste".into());
+        assert_eq!(e.sessao_lida(), None);
+        assert!(!e.ponto_sessao.load(Ordering::SeqCst));
+        e.guardar_sessao(None);
+        assert_eq!(e.sessao_lida(), None, "None não sobrescreve");
+        e.guardar_sessao(Some(false));
+        assert_eq!(e.sessao_lida(), Some(false));
+        e.guardar_sessao(None);
+        assert_eq!(
+            e.sessao_lida(),
+            Some(false),
+            "None não apaga o que foi verificado"
+        );
+        e.guardar_sessao(Some(true));
+        assert_eq!(e.sessao_lida(), Some(true));
+        e.ponto_sessao.store(true, Ordering::SeqCst);
+        assert!(e.ponto_sessao.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn info_serializa_sessao_ok_sempre() {
+        let base = Info {
+            versao: "0".into(),
+            demo: false,
+            es_admin: false,
+            perfil: Perfil {
+                classe: "basico".into(),
+                disco: "hdd".into(),
+                manual: false,
+            },
+            modo_leve: false,
+            equipo: String::new(),
+            sessao_ok: None,
+        };
+        let v = serde_json::to_value(&base).unwrap();
+        assert!(v.as_object().unwrap().contains_key("sessaoOk"));
+        assert_eq!(v["sessaoOk"], Value::Null);
+        let v = serde_json::to_value(Info {
+            sessao_ok: Some(false),
+            ..base
+        })
+        .unwrap();
+        assert_eq!(v["sessaoOk"], json!(false));
     }
 
     #[test]

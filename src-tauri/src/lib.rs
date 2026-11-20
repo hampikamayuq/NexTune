@@ -25,6 +25,7 @@ pub fn run() {
             comandos::ajustes_gravar,
             comandos::dados,
             comandos::info,
+            comandos::ponto_sessao,
         ])
         .build(tauri::generate_context!())
         .expect("erro ao construir o aplicativo Tauri");
