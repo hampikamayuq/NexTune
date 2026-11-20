@@ -4,9 +4,44 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Otimizador</title>
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <h1>Otimizador</h1>
-    <p>Em desenvolvimento.</p>
+    <header id="titulo" data-tauri-drag-region>
+      <span class="marca" data-tauri-drag-region><span class="logo" aria-hidden="true"></span><span class="nome" data-i18n="app.nome" data-tauri-drag-region></span><span id="versao" data-tauri-drag-region></span></span>
+      <div class="janela">
+        <button type="button" id="jan-min" class="jan" data-i18n-aria="janela.minimizar" data-i18n-title="janela.minimizar"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5h8"/></svg></button>
+        <button type="button" id="jan-max" class="jan" data-i18n-aria="janela.maximizar" data-i18n-title="janela.maximizar"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5h7v7h-7z"/></svg></button>
+        <button type="button" id="jan-fechar" class="jan fechar" data-i18n-aria="janela.fechar" data-i18n-title="janela.fechar"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1l8 8M9 1l-8 8"/></svg></button>
+      </div>
+    </header>
+    <div id="faixa-demo" hidden data-i18n="app.demo"></div>
+    <div id="corpo">
+      <nav id="menu">
+        <button type="button" class="item" data-vista="inicio" data-i18n="nav.inicio"></button>
+        <button type="button" class="item" data-vista="diagnostico" data-i18n="nav.diagnostico"></button>
+        <button type="button" class="item" data-vista="limpeza" data-i18n="nav.limpeza"></button>
+        <button type="button" class="item fim" data-vista="opcoes" data-i18n="nav.opcoes"></button>
+      </nav>
+      <main id="principal" tabindex="-1"></main>
+    </div>
+    <div id="ocupado" hidden>
+      <div class="trilho"><i id="ocupado-barra"></i></div>
+      <span id="ocupado-msg" data-i18n="ocupado.trabalhando"></span>
+      <button type="button" id="btn-cancelar" class="btn sec" data-i18n="ocupado.cancelar"></button>
+    </div>
+    <div id="toasts" aria-live="polite"></div>
+    <div id="modal-raiz"></div>
+    <noscript>Ative o JavaScript para usar o programa.</noscript>
+    <script src="js/esc.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/estado.js"></script>
+    <script src="js/demo.js"></script>
+    <script src="js/vistas/inicio.js"></script>
+    <script src="js/vistas/diagnostico.js"></script>
+    <script src="js/vistas/limpeza.js"></script>
+    <script src="js/vistas/opcoes.js"></script>
+    <script src="js/arranque.js"></script>
   </body>
 </html>

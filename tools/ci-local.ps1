@@ -47,6 +47,35 @@ if ($testes.Count -eq 0) {
     if ($resultado.FailedCount -gt 0) { Stop-ComFalha 'Pester com testes falhando' }
 }
 
+# 2b. Interface: sem interpolação em innerHTML sem esc(), e sem texto visível fora do i18n
+Write-Host '==> UI: innerHTML sem esc()' -ForegroundColor Cyan
+$ruins = @()
+if (Test-Path ui/js) {
+    $ruins = @(Get-ChildItem -Path ui/js -Filter '*.js' -Recurse | Select-String -Pattern 'innerHTML\s*[+]?=\s*[^;]*\$\{(?![^}]*esc\()')
+}
+if ($ruins.Count -gt 0) {
+    $ruins | ForEach-Object { Write-Host ("{0}:{1}: {2}" -f $_.Path, $_.LineNumber, $_.Line.Trim()) }
+    Stop-ComFalha 'innerHTML com interpolação sem esc()'
+}
+
+Write-Host '==> UI: texto visível sem data-i18n' -ForegroundColor Cyan
+$semI18n = @()
+if (Test-Path ui/index.html) {
+    $n = 0
+    foreach ($linha in (Get-Content -Path ui/index.html -Encoding UTF8)) {
+        $n++
+        foreach ($m in [regex]::Matches($linha, '<(\w+)([^>]*)>([^<{]*[A-Za-zÀ-ÿ]{3,}[^<]*)<')) {
+            $tag = $m.Groups[1].Value.ToLowerInvariant()
+            if ($tag -in 'title', 'noscript', 'script', 'style') { continue }
+            if ($m.Groups[2].Value -notmatch 'data-i18n') { $semI18n += "ui/index.html:${n}: $($linha.Trim())" }
+        }
+    }
+}
+if ($semI18n.Count -gt 0) {
+    $semI18n | ForEach-Object { Write-Host $_ }
+    Stop-ComFalha 'texto visível em ui/index.html sem data-i18n'
+}
+
 # 3. Rust
 Invoke-Passo 'cargo clippy' { cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings }
 Invoke-Passo 'cargo test'   { cargo test --manifest-path src-tauri/Cargo.toml }
