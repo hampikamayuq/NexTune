@@ -22,13 +22,13 @@
 }
 
 AfterAll {
-    $t = Join-Path $env:TEMP 'OtimizadorTeste'
+    $t = Join-Path $env:TEMP 'NexTuneTeste'
     if (Test-Path -LiteralPath $t) { Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 Describe 'diagnostico.ps1' {
     BeforeEach {
-        $t = Join-Path $env:TEMP 'OtimizadorTeste'
+        $t = Join-Path $env:TEMP 'NexTuneTeste'
         if (Test-Path -LiteralPath $t) { Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue }
     }
 

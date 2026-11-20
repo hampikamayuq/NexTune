@@ -12,7 +12,7 @@
 }
 
 AfterAll {
-    $t = Join-Path $env:TEMP 'OtimizadorTeste'
+    $t = Join-Path $env:TEMP 'NexTuneTeste'
     if (Test-Path -LiteralPath $t) { Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
@@ -72,7 +72,7 @@ Context 'Test-ProtectedPath' {
         "${env:ProgramFiles(x86)}\Microsoft\EdgeCore\1.2.3",
         "$env:ProgramFiles\Microsoft\Edge",
         "$env:ProgramFiles\WindowsApps\X",
-        "$env:ProgramData\Otimizador\Quarentena",
+        "$env:ProgramData\NexTune\Quarentena",
         "$env:SystemDrive\PROGRA~1\Common Files\naoexiste\x",
         ''
     ) {
@@ -144,7 +144,7 @@ Context 'Get-PathSize' {
         [IO.File]::WriteAllBytes("$d\a.bin", (New-Object byte[] 10))
         [IO.File]::WriteAllBytes("$alvo\grande.bin", (New-Object byte[] 5000))
         cmd /c mklink /J "$d\jn" "$alvo" | Out-Null
-        $raizJ = Join-Path $env:TEMP 'OtimizadorTeste\sizeRaizJ'
+        $raizJ = Join-Path $env:TEMP 'NexTuneTeste\sizeRaizJ'
         cmd /c mklink /J "$raizJ" "$alvo" | Out-Null
         try {
             Get-PathSize $d | Should -Be 10
@@ -173,7 +173,7 @@ Context 'Seguranca da pasta de dados' {
         Test-SidConfiavel $null | Should -BeFalse
     }
     It 'Set-SegurancaPastaApp cria a pasta com DACL protegida e dono Administradores' {
-        $d = Join-Path $env:TEMP 'OtimizadorTeste\daclNova'
+        $d = Join-Path $env:TEMP 'NexTuneTeste\daclNova'
         Set-SegurancaPastaApp $d
         $acl = Get-Acl -LiteralPath $d
         $acl.AreAccessRulesProtected | Should -BeTrue

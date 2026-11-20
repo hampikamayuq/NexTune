@@ -1,9 +1,9 @@
-﻿# Mede o consumo real do Otimizador instalado (orçamento da spec §12).
+﻿# Mede o consumo real do NexTune instalado (orçamento da spec §12).
 # Uso: powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1 [-Exe <caminho>] [-Instalar]
-#   -Exe       caminho do otimizador.exe a medir (sem ele, procura o app instalado).
+#   -Exe       caminho do nextune.exe a medir (sem ele, procura o app instalado).
 #   -Instalar  se não houver app instalado, instala o setup mais novo de
 #              src-tauri/target/release/bundle/nsis com /S, mede e desinstala depois.
-# Soma TODOS os processos do app: otimizador.exe, msedgewebview2.exe da sua árvore
+# Soma TODOS os processos do app: nextune.exe, msedgewebview2.exe da sua árvore
 # e powershell.exe filho (o host). Só abre, observa e fecha; nunca envia entrada ao app.
 # Sai com código 1 se ramAbertaMB > 120 ou cpuOciosoPct >= 0.5.
 param(
@@ -22,13 +22,13 @@ function Get-AppInstalado {
               'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
               'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
     $k = Get-ItemProperty $chaves -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -like 'Otimizador*' } | Select-Object -First 1
+        Where-Object { $_.DisplayName -like 'NexTune*' } | Select-Object -First 1
     if (-not $k) { return $null }
     $pasta = $null
     if ($k.InstallLocation) { $pasta = $k.InstallLocation.Trim('"') }
     elseif ($k.UninstallString) { $pasta = Split-Path ($k.UninstallString.Trim('"').Split('"')[0]) }
     if (-not $pasta) { return $null }
-    $caminho = Join-Path $pasta 'otimizador.exe'
+    $caminho = Join-Path $pasta 'nextune.exe'
     if (Test-Path -LiteralPath $caminho) { return $caminho }
     return $null
 }
@@ -53,7 +53,7 @@ function Get-ProcessoDoApp([int]$RaizPid) {
             if (-not $visto.ContainsKey($id)) { $visto[$id] = $true; $fila.Enqueue($id) }
         }
     }
-    $nomes = 'otimizador.exe', 'msedgewebview2.exe', 'powershell.exe'
+    $nomes = 'nextune.exe', 'msedgewebview2.exe', 'powershell.exe'
     $todos | Where-Object { $visto.ContainsKey([int]$_.ProcessId) -and ($nomes -contains $_.Name.ToLowerInvariant()) }
 }
 
@@ -93,7 +93,7 @@ try {
     if (-not $Exe) { $Exe = Get-AppInstalado }
     if (-not $Exe) {
         if (-not $Instalar) {
-            throw 'Otimizador não está instalado. Instale-o ou use -Instalar (ou -Exe <caminho>).'
+            throw 'NexTune não está instalado. Instale-o ou use -Instalar (ou -Exe <caminho>).'
         }
         $setup = Get-ChildItem $pastaSetup -Filter '*-setup.exe' -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -108,7 +108,7 @@ try {
     $pasta = Split-Path $Exe
 
     if (Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($Exe)) -ErrorAction SilentlyContinue) {
-        throw 'O Otimizador já está aberto: feche-o e meça de novo para um arranque limpo.'
+        throw 'O NexTune já está aberto: feche-o e meça de novo para um arranque limpo.'
     }
 
     $pesoMB = [math]::Round(((Get-ChildItem -LiteralPath $pasta -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB, 1)

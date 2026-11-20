@@ -143,7 +143,7 @@ function Get-RotasCategoria {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
     [CmdletBinding()]
     param([string]$Id, [bool]$Teste)
-    if ($Teste) { return @(Join-Path $env:TEMP "OtimizadorTeste\limpeza\$Id") }
+    if ($Teste) { return @(Join-Path $env:TEMP "NexTuneTeste\limpeza\$Id") }
     switch ($Id) {
         'temp_usuario' { return @($env:TEMP) }
         'temp_windows' { return @("$env:windir\Temp") }

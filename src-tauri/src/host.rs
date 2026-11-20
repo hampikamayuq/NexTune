@@ -689,7 +689,7 @@ mod testes {
     }
 
     fn marcador(nome: &str) -> PathBuf {
-        let d = std::env::temp_dir().join("OtimizadorTesteRust");
+        let d = std::env::temp_dir().join("NexTuneTesteRust");
         std::fs::create_dir_all(&d).unwrap();
         let f = d.join(format!("{nome}-{}.txt", std::process::id()));
         let _ = std::fs::remove_file(&f);

@@ -3,7 +3,7 @@
     . "$PSScriptRoot\..\limpeza.ps1"
     . "$PSScriptRoot\_helpers.ps1"
     $Script:Ids = @('temp_usuario', 'temp_windows', 'wu_cache', 'entrega', 'informes', 'miniaturas', 'launchers', 'navegadores', 'minidumps', 'lixeira', 'shaders', 'dism_componentes', 'windows_old', 'pontos_antigos')
-    $Script:Raiz = Join-Path $env:TEMP 'OtimizadorTeste\limpeza'
+    $Script:Raiz = Join-Path $env:TEMP 'NexTuneTeste\limpeza'
 
     function Invoke-Limp {
         param([string]$Acao, $Params = @{})
@@ -43,7 +43,7 @@
 }
 
 AfterAll {
-    $t = Join-Path $env:TEMP 'OtimizadorTeste'
+    $t = Join-Path $env:TEMP 'NexTuneTeste'
     if (Test-Path -LiteralPath $t) { Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
@@ -158,7 +158,7 @@ Describe 'limpeza.ps1' {
             $r.dados.liberadoBytes | Should -Be 400
         }
         It 'nao segue junction para fora da raiz' {
-            $alvo = Join-Path $env:TEMP 'OtimizadorTeste\fora'
+            $alvo = Join-Path $env:TEMP 'NexTuneTeste\fora'
             New-Item -ItemType Directory -Path $alvo -Force | Out-Null
             [IO.File]::WriteAllBytes((Join-Path $alvo 'preciso.txt'), (New-Object byte[] 10))
             $j = Join-Path $Script:Raiz 'temp_usuario\jn'
@@ -170,7 +170,7 @@ Describe 'limpeza.ps1' {
             } finally { Remove-Juncao $j }
         }
         It 'raiz da categoria que e junction: alvo intacto e categoria em falhas' {
-            $alvo = Join-Path $env:TEMP 'OtimizadorTeste\foraRaiz'
+            $alvo = Join-Path $env:TEMP 'NexTuneTeste\foraRaiz'
             New-Item -ItemType Directory -Path $alvo -Force | Out-Null
             New-ArquivoIdade (Join-Path $alvo 'preciso.txt') 18 (Get-Date).AddDays(-30)
             $j = Join-Path $Script:Raiz 'informes'
@@ -190,7 +190,7 @@ Describe 'limpeza.ps1' {
             } finally { Remove-Juncao $j }
         }
         It 'pasta acima da raiz que e junction: alvo intacto e categoria em falhas' {
-            $alvo = Join-Path $env:TEMP 'OtimizadorTeste\foraPai'
+            $alvo = Join-Path $env:TEMP 'NexTuneTeste\foraPai'
             New-Item -ItemType Directory -Path (Join-Path $alvo 'temp_usuario') -Force | Out-Null
             New-ArquivoIdade (Join-Path $alvo 'temp_usuario\preciso.tmp') 10 (Get-Date).AddDays(-30)
             Remove-Item -LiteralPath $Script:Raiz -Recurse -Force
@@ -246,7 +246,7 @@ Describe 'limpeza.ps1' {
             $Script:UltimaSaida | Should -Match '"falhas":\[\]'
         }
         It 'dono nao confiavel sob a base protegida e recusado' {
-            $base = Join-Path $env:TEMP 'OtimizadorTeste\pd'
+            $base = Join-Path $env:TEMP 'NexTuneTeste\pd'
             $fab = Join-Path $base 'Fabricante'
             $pasta = Join-Path $fab 'Cache'
             New-Item -ItemType Directory -Path $pasta -Force | Out-Null
@@ -305,7 +305,7 @@ Describe 'limpeza.ps1' {
 
     Context 'cleanmgr somente um handler' {
         It 'define a flag so no handler pedido e restaura as dos outros' {
-            $base = 'HKCU:\Software\OtimizadorTeste\VolumeCaches'
+            $base = 'HKCU:\Software\NexTuneTeste\VolumeCaches'
             try {
                 New-Item -Path "$base\Previous Installations" -Force | Out-Null
                 New-Item -Path "$base\DownloadsFolder" -Force | Out-Null
@@ -316,22 +316,22 @@ Describe 'limpeza.ps1' {
                 (Get-ItemProperty -LiteralPath "$base\DownloadsFolder").StateFlags0099 | Should -Be 2
                 (Get-ItemProperty -LiteralPath "$base\Outro").StateFlags0042 | Should -Be 2
                 (Get-ItemProperty -LiteralPath "$base\Previous Installations").StateFlags0099 | Should -BeNullOrEmpty
-            } finally { Remove-Item -LiteralPath 'HKCU:\Software\OtimizadorTeste' -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-Item -LiteralPath 'HKCU:\Software\NexTuneTeste' -Recurse -Force -ErrorAction SilentlyContinue }
         }
         It 'remove a flag dos outros antes da execucao (observado no ponto do cleanmgr)' {
-            $base = 'HKCU:\Software\OtimizadorTeste\VolumeCaches'
+            $base = 'HKCU:\Software\NexTuneTeste\VolumeCaches'
             try {
                 New-Item -Path "$base\Previous Installations" -Force | Out-Null
                 New-Item -Path "$base\DownloadsFolder" -Force | Out-Null
                 Set-ItemProperty -LiteralPath "$base\DownloadsFolder" -Name 'StateFlags0099' -Value 2 -Type DWord
                 $Script:Obs = $null
                 $Script:Chamou = $false
-                Mock Start-Process { $Script:Obs = (Get-ItemProperty -LiteralPath 'HKCU:\Software\OtimizadorTeste\VolumeCaches\DownloadsFolder').StateFlags0099; $Script:Chamou = $true }
+                Mock Start-Process { $Script:Obs = (Get-ItemProperty -LiteralPath 'HKCU:\Software\NexTuneTeste\VolumeCaches\DownloadsFolder').StateFlags0099; $Script:Chamou = $true }
                 Invoke-CleanmgrSomente 'Previous Installations' 99 $base $false
                 $Script:Chamou | Should -BeTrue
                 $Script:Obs | Should -BeNullOrEmpty
                 (Get-ItemProperty -LiteralPath "$base\DownloadsFolder").StateFlags0099 | Should -Be 2
-            } finally { Remove-Item -LiteralPath 'HKCU:\Software\OtimizadorTeste' -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-Item -LiteralPath 'HKCU:\Software\NexTuneTeste' -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }
 }

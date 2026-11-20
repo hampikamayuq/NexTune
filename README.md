@@ -1,4 +1,4 @@
-# Otimizador (nome provisório)
+# NexTune
 
 Aplicativo de desktop para Windows que diagnostica o computador e faz limpeza e otimização com segurança.
 

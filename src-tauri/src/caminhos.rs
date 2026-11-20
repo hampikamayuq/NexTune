@@ -20,8 +20,8 @@ fn env_pasta(nome: &str) -> PathBuf {
 
 fn pastas_de_ambiente(scripts: PathBuf, data: PathBuf) -> Pastas {
     Pastas {
-        appdata: env_pasta("APPDATA").join("Otimizador"),
-        programdata: env_pasta("ProgramData").join("Otimizador"),
+        appdata: env_pasta("APPDATA").join("NexTune"),
+        programdata: env_pasta("ProgramData").join("NexTune"),
         scripts,
         data,
     }
@@ -130,7 +130,7 @@ pub fn caminho_protegido(p: &Path) -> bool {
 
     let windir = env_ou("windir", "C:\\Windows");
     let base = env_opt("ProgramData")
-        .map(|d| d.join("Otimizador"))
+        .map(|d| d.join("NexTune"))
         .unwrap_or_default();
     for pre in [&windir, &base] {
         let s = pre.to_string_lossy();
@@ -225,8 +225,8 @@ mod testes {
     #[test]
     fn remove_prefixo_verbatim_so_com_letra_de_unidade() {
         assert_eq!(
-            sem_prefixo_verbatim(PathBuf::from(r"\\?\C:\Program Files\Otimizador")),
-            PathBuf::from(r"C:\Program Files\Otimizador")
+            sem_prefixo_verbatim(PathBuf::from(r"\\?\C:\Program Files\NexTune")),
+            PathBuf::from(r"C:\Program Files\NexTune")
         );
         assert_eq!(
             sem_prefixo_verbatim(PathBuf::from(r"C:\x")),

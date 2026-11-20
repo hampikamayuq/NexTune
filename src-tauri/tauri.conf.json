@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Otimizador",
+  "productName": "NexTune",
   "version": "0.1.0",
-  "identifier": "br.otimizador.app",
+  "identifier": "io.github.hampikamayuq.nextune",
   "build": {
     "frontendDist": "../ui"
   },
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Otimizador",
+        "title": "NexTune",
         "width": 1240,
         "height": 800,
         "minWidth": 760,
@@ -38,7 +38,7 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "publisher": "Otimizador (nome provisório)",
+    "publisher": "NexTune",
     "windows": {
       "webviewInstallMode": {
         "type": "embedBootstrapper"

@@ -1,8 +1,8 @@
-# Otimizador de Windows para PCs populares e gamer — Documento de design
+# NexTune: otimizador de Windows para PCs populares e gamer — Documento de design
 
 Data: 2026-11-20
 Estado: rascunho para aprovação
-Nome do programa: **a definir** (usa-se "o Otimizador" neste documento)
+Nome do programa: **NexTune** (repositório github.com/hampikamayuq/NexTune)
 
 ---
 
@@ -15,7 +15,7 @@ A motivação vem de duas fontes:
 1. **O RetroLimpia** (Retropunk94, MIT, Electron + PowerShell, em espanhol), analisado em 2026-11-19 em `C:\Users\UPASC\Documents\Nova pasta\RetroLimpia-main`. Acertou na arquitetura de segurança (quarentena, ponto de restauração, caminhos protegidos, estado salvo antes de mexer) e na honestidade com o usuário. Errou no peso (Electron: ~150 MB de RAM só com a janela, instalador de dezenas de MB), em alterações permanentes sem reversão e em usar chaves de Política que travam a tela de Configurações.
 2. **A experiência prática de manutenção** de um Positivo C6400 (HDD, 8 GB, Windows 11 Pro 26H2): o que ferramentas como RyTuneX fazem de ruim em HDD, por que SysMain e indexação exigem decisão caso a caso, limpeza de componentes via DISM, Windows.old, como agendar chkdsk de verdade (e por que ele às vezes não roda no boot), e o pacote de ajustes do gpedit/autounattend que o usuário já padronizou para reinstalações.
 
-A tese do produto: **primeiro descobrir que máquina é aquela, só depois recomendar.** Concorrentes aplicam a mesma receita para todo mundo; o Otimizador adapta a receita ao perfil (disco mecânico ou SSD, pouca ou muita RAM, notebook ou desktop, GPU dedicada ou integrada) e nunca aplica um ajuste que piore aquela classe de máquina.
+A tese do produto: **primeiro descobrir que máquina é aquela, só depois recomendar.** Concorrentes aplicam a mesma receita para todo mundo; o NexTune adapta a receita ao perfil (disco mecânico ou SSD, pouca ou muita RAM, notebook ou desktop, GPU dedicada ou integrada) e nunca aplica um ajuste que piore aquela classe de máquina.
 
 ## 2. Público
 
@@ -47,7 +47,7 @@ Consequências: tudo em português claro, sem jargão sem explicação; cada aç
 ### Anti-objetivos (fracasso mesmo que "funcione")
 
 - "Limpar registro para ganhar velocidade", "otimizador de RAM", "desativar pagefile", desligar Windows Defender, desligar Windows Update. Nada disso entra, nem no modo avançado.
-- Desabilitar ou remover Microsoft Edge e o **WebView2 Runtime**: o Windows e o próprio Otimizador dependem deles. Entram na lista de protegidos.
+- Desabilitar ou remover Microsoft Edge e o **WebView2 Runtime**: o Windows e o próprio NexTune dependem deles. Entram na lista de protegidos.
 - Qualquer alteração permanente sem caminho de volta.
 - Usar chaves de Política de Grupo (`HKLM\SOFTWARE\Policies\...`, `HKCU\Software\Policies\...`) quando existir a chave que a própria tela de Configurações grava. Onde não houver alternativa, a interface avisa "trava esta opção em Configurações" e o ajuste é reversível.
 - Telemetria própria. O único tráfego automático é a consulta de versão nova no GitHub.
@@ -110,7 +110,7 @@ Consequências: tudo em português claro, sem jargão sem explicação; cada aç
 - Mantém **um** Host PowerShell: `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts\host.ps1`, janela oculta, prioridade abaixo do normal quando o perfil for `fraco`. Comandos entram por stdin como JSON de uma linha com `id`; respostas saem por stdout prefixadas (`@@PROGRESS`, `@@LOG`, `@@RESULT`) com o mesmo `id`. O Rust roteia por `id`, então várias ações podem estar em voo (ex.: diagnóstico em paralelo com leitura de programas).
 - Cancelar: comando `cancelar {id}` para o host, que mata a árvore de processos filhos daquela ação; se o host não responder em 5 s, o Rust mata o host e relança.
 - Host ocioso por 2 minutos fecha sozinho (devolve ~50 MB de RAM); relança em menos de 1 s no próximo clique (no HDD, até 2 s: a interface mostra "preparando").
-- Ajustes do usuário em `%APPDATA%\<App>\ajustes.json`. Dados do sistema em `%ProgramData%\<App>\` (`Quarentena\`, `logs\`, `backups\`, `estado\`). Permissões padrão do Windows, sem `icacls`.
+- Ajustes do usuário em `%APPDATA%\NexTune\ajustes.json`. Dados do sistema em `%ProgramData%\NexTune\` (`Quarentena\`, `logs\`, `backups\`, `estado\`). Permissões padrão do Windows, sem `icacls`.
 - Bandeja opcional (quando o usuário ativa lembretes). Autostart por tarefa agendada ONLOGON com `RL HIGHEST` apontando para o executável em Program Files (sem script intermediário).
 - **Lembretes (definição):** com a bandeja ativa, a cada N dias (padrão 3) o Rust pede ao host uma revisão **só de leitura**: tamanho da limpeza verde, atualizações pendentes do Windows e de programas, dias desde a última verificação de disco, alerta de saúde do disco (SMART). Se houver algo acima dos limites (lixo > 500 MB, qualquer atualização, disco sem verificação há 90 dias, saúde diferente de "OK"), mostra **uma** notificação do Windows; clicar abre o programa na tela certa. Lembretes nunca executam nada. O host fecha logo após a revisão. Ligar o **Modo Jogo automático** liga a bandeja e o autostart (sem bandeja ele não funciona), e a interface diz isso ao ligar.
 - Vigia do Modo Jogo automático: no Rust, `tasklist /FO CSV /NH` a cada 15 s quando o usuário tiver jogos na lista e o automático ligado.
@@ -120,11 +120,11 @@ Consequências: tudo em português claro, sem jargão sem explicação; cada aç
 - `scripts/host.ps1`: loop de leitura de stdin; para cada comando, resolve `scripts/<modulo>.ps1` da allowlist, dot-source uma vez por sessão, chama `Invoke-Acao $acao $params` daquele módulo; captura exceções e devolve `@@RESULT {id, ok:false, erro}`. Saída sempre UTF-8 sem BOM.
 - `scripts/common.ps1`: `Send-Progress`, `Send-Log`, `Send-Result` (com `id`), `Write-AppLog`, `Get-PathSize`, `Test-ProtectedPath` (lista do RetroLimpia **mais** `Microsoft\EdgeWebView`, `Microsoft\EdgeCore`, `Microsoft\Edge`, pastas de runtimes .NET/VC++, `WindowsApps`), `Get-Perfil` (lê o perfil salvo pelo diagnóstico).
 - Cada módulo é um arquivo. Cada ação destrutiva recebe o perfil e recusa o que for proibido para aquele perfil (defesa em profundidade: a interface nem oferece, o Rust valida, o script confere).
-- Modo `teste`: parâmetro que redireciona registro para `HKCU\Software\<App>Teste\` e pastas para `%TEMP%\<App>Teste\`, para Pester rodar sem tocar no sistema.
+- Modo `teste`: parâmetro que redireciona registro para `HKCU\Software\NexTuneTeste\` e pastas para `%TEMP%\NexTuneTeste\`, para Pester rodar sem tocar no sistema.
 
 ## 7. Perfil da máquina (o coração do produto)
 
-O Diagnóstico roda na primeira abertura (e sob demanda) e grava `%ProgramData%\<App>\estado\perfil.json`.
+O Diagnóstico roda na primeira abertura (e sob demanda) e grava `%ProgramData%\NexTune\estado\perfil.json`.
 
 **Coleta:** CPU (núcleos, hilos, nome), RAM total, disco do sistema (`Get-PhysicalDisk` → `MediaType` HDD/SSD, `BusType` NVMe; fallback `Win32_DiskDrive`), demais discos, GPU(s) e se há dedicada (NVIDIA/AMD não integrada), bateria presente (notebook), fabricante/modelo, versão e build do Windows, Inicialização Rápida ativa (`HiberbootEnabled`), SysMain e WSearch (estado atual), saúde dos discos (`Get-StorageReliabilityCounter`), espaço livre.
 
@@ -160,7 +160,7 @@ As classes se combinam com o **tipo de disco**, que é a dimensão mais importan
 Cada módulo expõe ações de **leitura** (sempre permitidas) e **escrita** (passam pelas regras do perfil, criam ponto de restauração quando configurado, registram log e, quando removem algo, usam a quarentena).
 
 ### 8.1 Diagnóstico
-Leitura: tudo da seção 7, mais temperatura de CPU/GPU quando disponível, saúde e desgaste dos discos, bateria. Mostra o perfil detectado com um botão "não é isso, trocar". Gera um relatório HTML salvo em `Documentos\<App>\`.
+Leitura: tudo da seção 7, mais temperatura de CPU/GPU quando disponível, saúde e desgaste dos discos, bateria. Mostra o perfil detectado com um botão "não é isso, trocar". Gera um relatório HTML salvo em `Documentos\NexTune\`.
 
 ### 8.2 Limpeza
 Categorias com cor (verde = seguro, amarelo = decide você):
@@ -196,7 +196,7 @@ Grupos: anúncios e sugestões, privacidade (ID de publicidade, experiências pe
 ### 8.7 Atualizações
 - Windows Update via COM (`Microsoft.Update.Session`): listar, instalar selecionadas; excluir atualizações de versão ("Upgrades") e Preview por padrão.
 - Programas via `winget upgrade` (parser independente de idioma, como o RetroLimpia).
-- Atualização do próprio Otimizador: Tauri updater com assinatura minisign; chave privada só nos secrets do GitHub Actions; `latest.json` e instalador em GitHub Releases; baixa só o instalador; instala quando o usuário aceitar ou, se estiver na bandeja, quando nenhuma ação estiver em curso.
+- Atualização do próprio NexTune: Tauri updater com assinatura minisign; chave privada só nos secrets do GitHub Actions; `latest.json` e instalador em GitHub Releases; baixa só o instalador; instala quando o usuário aceitar ou, se estiver na bandeja, quando nenhuma ação estiver em curso.
 
 ### 8.8 Modo Jogo
 Portado do RetroLimpia (`modojuego.ps1`) com as mesmas garantias: estado salvo em disco **antes** de qualquer mudança; nunca ativa por cima de um estado existente; lista de protegidos (OBS, Discord, launchers, drivers, áudio, overlays); programas com janela recebem pedido de fechar (respeita "salvar alterações?"), não `kill`; restaura tudo ao sair (plano de energia, notificações, serviços pausados, prioridade) e reabre o que fechou.
@@ -211,7 +211,7 @@ Portado do RetroLimpia (`modojuego.ps1`) com as mesmas garantias: estado salvo e
 2. Quarentena para todo arquivo/pasta/chave removido. Registro exportado em `.reg` antes de apagar.
 3. `Test-ProtectedPath` em toda ação destrutiva de arquivo, no Rust e no PowerShell.
 4. Lista de processos e programas protegidos compartilhada entre Programas, Inicialização e Modo Jogo.
-5. Log em `%ProgramData%\<App>\logs\AAAA-MM.log` de toda escrita: o quê, onde, resultado.
+5. Log em `%ProgramData%\NexTune\logs\AAAA-MM.log` de toda escrita: o quê, onde, resultado.
 6. Sem rede a partir da interface; no Rust só HTTPS para `api.github.com` e `github.com` (updater) e, se o usuário clicar em "Reportar problema", o endpoint de reportes (opt-in, com anonimização de usuário, hostname, e-mails e IPs, como o RetroLimpia faz).
 7. Sem `Invoke-Expression`; comandos externos sempre com lista de argumentos.
 8. O instalador NSIS nunca mexe em ACLs (`icacls`).
@@ -221,7 +221,7 @@ Portado do RetroLimpia (`modojuego.ps1`) com as mesmas garantias: estado salvo e
 - Repositório público no GitHub, licença MIT, README em português com: o que faz, o que nunca faz, como auditar, SHA-256, "por que o Windows avisa".
 - GitHub Actions (`windows-latest`): instala Rust, `npm ci`, `cargo tauri build`, roda testes (seção 13), gera `SHA256.txt`, publica Release em tag `v*` com instalador NSIS per-machine (`requireAdministrator`), `latest.json` do updater e assinaturas.
 - Instalador embute o bootstrapper do WebView2.
-- **Desinstalador do próprio programa** (hooks NSIS desde a v1): 1) se houver estado pendente do Modo Jogo, restaura antes de remover; 2) remove a tarefa ONLOGON; 3) pergunta "Apagar também a quarentena, backups e registros em `%ProgramData%\<App>`?" com **sim** marcado por padrão (é um limpador; não deixa resto), e um aviso de que a quarentena pode conter coisas de até 7 dias; 4) nunca mexe em ACLs.
+- **Desinstalador do próprio programa** (hooks NSIS desde a v1): 1) se houver estado pendente do Modo Jogo, restaura antes de remover; 2) remove a tarefa ONLOGON; 3) pergunta "Apagar também a quarentena, backups e registros em `%ProgramData%\NexTune`?" com **sim** marcado por padrão (é um limpador; não deixa resto), e um aviso de que a quarentena pode conter coisas de até 7 dias; 4) nunca mexe em ACLs.
 - **Chave de assinatura do atualizador:** gerada uma vez na máquina do usuário com `tauri signer generate`; a chave pública vai no código; a privada entra nos secrets do GitHub **e** uma cópia criptografada com senha fica fora do GitHub, em local que o usuário escolher (pergunta aberta 6). Sem essa cópia, perder o secret deixa todas as instalações sem atualização para sempre.
 - Site: página única em `docs/` (GitHub Pages), como o RetroLimpia.
 - **Smart App Control (Windows 11 novo de fábrica):** bloqueia executáveis sem assinatura sem opção de "executar assim mesmo", e desligá-lo é permanente até reinstalar o Windows. Decisão (minha): a v1 sai sem assinatura mesmo assim, porque a SignPath Foundation só aceita projeto já publicado; o site e o README ganham uma seção "Windows diz que o app foi bloqueado pelo Smart App Control" explicando o que é, que a decisão de desligar é do usuário e irreversível, e que a versão assinada é prioridade da v1.x. O pedido à SignPath entra logo após a primeira release pública.
@@ -230,7 +230,7 @@ Portado do RetroLimpia (`modojuego.ps1`) com as mesmas garantias: estado salvo e
 ## 11. Experiência de uso (esboço)
 
 ```
-┌─ <App> ───────────────────────────────────────── v1.0.0 ─ ─ □ ✕ ┐
+┌─ NexTune ───────────────────────────────────────── v1.0.0 ─ ─ □ ✕ ┐
 │ ▣ Início        │  Seu PC: Positivo C6400 · HDD 1 TB · 8 GB      │
 │ ▤ Limpeza       │  Perfil: PC básico com disco mecânico  [trocar]│
 │ ▥ Programas     │                                                │
@@ -285,7 +285,7 @@ Assistente pós-formatação (winget em lote), inglês/espanhol, verificação d
 
 ## 16. Perguntas abertas (só o usuário responde)
 
-1. Nome do programa (define pasta em `%ProgramData%`, nome do repositório, instalador e site).
+1. ~~Nome do programa~~ — respondida em 2026-11-20: **NexTune**, repositório github.com/hampikamayuq/NexTune.
 2. Licença MIT e repositório público desde o início, ou privado até a primeira versão?
 3. Conta GitHub a usar para o repositório e para as Releases/Actions.
 4. Desenvolver e testar localmente (instalar Rust ≈ 1 GB no HDD do Positivo) ou compilar só no GitHub Actions e testar o instalador baixado?

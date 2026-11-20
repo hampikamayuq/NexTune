@@ -1,4 +1,4 @@
-# Otimizador — Plano 1: Fundação, Diagnóstico e Limpeza
+# NexTune — Plano 1: Fundação, Diagnóstico e Limpeza
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -12,7 +12,7 @@
 
 **Planos seguintes (fora deste):** 2 Programas + quarentena; 3 Inicialização + Ajustes do Windows; 4 Disco + Atualizações; 5 Modo Jogo + bandeja + lembretes + atualizador; 6 site, README e primeira release.
 
-**Nome provisório:** `Otimizador`. Aparece em exatamente quatro lugares, para troca por busca-e-substituição quando o nome for definido: `package.json` (`name`), `src-tauri/tauri.conf.json` (`productName`, `identifier` = `br.otimizador.app`), `scripts/common.ps1` (`$Global:AppNome`), `ui/i18n/pt-BR.json` (`app.nome`).
+**Nome:** o nome provisório `Otimizador` foi trocado por **NexTune** em 2026-11-20 (identificador `io.github.hampikamayuq.nextune`, repositório github.com/hampikamayuq/NexTune). As menções a `Otimizador` e `br.otimizador.app` abaixo são históricas e descrevem os comandos como foram planejados.
 
 ## Global Constraints
 

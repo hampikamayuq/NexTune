@@ -4,7 +4,7 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } c
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 
-Set-Variable -Name AppNome -Value 'Otimizador' -Scope Global
+Set-Variable -Name AppNome -Value 'NexTune' -Scope Global
 $Script:Saida = $null
 
 function Set-Saida {
@@ -86,9 +86,9 @@ function Get-AppPastas {
     [CmdletBinding()]
     param([bool]$Teste = $false)
     $aviso = $null
-    if ($Teste) { $base = Join-Path $env:TEMP 'OtimizadorTeste' }
+    if ($Teste) { $base = Join-Path $env:TEMP 'NexTuneTeste' }
     else {
-        $base = Join-Path $env:ProgramData 'Otimizador'
+        $base = Join-Path $env:ProgramData 'NexTune'
         # %ProgramData% deixa qualquer usuario criar pastas: a nossa precisa de dono e DACL proprios.
         if (-not $Script:BaseVerificada) {
             try {
@@ -198,7 +198,7 @@ function Test-ProtectedPath {
     $n = $full.TrimEnd('\').ToLowerInvariant()
     if ($n.Length -le 3) { return $true }   # raiz de unidade
 
-    $base = Join-Path $env:ProgramData 'Otimizador'
+    $base = Join-Path $env:ProgramData 'NexTune'
     $prefixos = @($env:windir, $base)
     foreach ($pre in $prefixos) {
         if ([string]::IsNullOrEmpty($pre)) { continue }

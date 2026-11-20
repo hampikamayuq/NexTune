@@ -1,6 +1,6 @@
 window.I18N = window.I18N || {};
 window.I18N['pt-BR'] = {
-  "app.nome": "Otimizador",
+  "app.nome": "NexTune",
   "app.versao": "versão {v}",
   "app.demo": "Modo demonstração: os dados são de exemplo e nada é alterado no seu PC.",
   "nav.inicio": "Início",
