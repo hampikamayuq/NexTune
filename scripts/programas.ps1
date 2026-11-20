@@ -40,13 +40,6 @@ $Script:SegmentosProibidos = @('microsoft', 'classes', 'policies', 'wow6432node'
 
 # ---------- dados ----------
 
-function Get-Simulacao {
-    # 'simular' so vale em modo de teste; fora dele e ignorado.
-    param($Params, [bool]$Teste)
-    if (-not $Teste -or $null -eq $Params) { return $null }
-    return $Params.simular
-}
-
 function Read-ArquivoJson {
     # Le um JSON em UTF-8 (com ou sem BOM). Lanca se o arquivo nao existir ou nao for JSON.
     param([string]$Caminho)

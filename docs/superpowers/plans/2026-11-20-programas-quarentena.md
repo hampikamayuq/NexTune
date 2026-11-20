@@ -45,7 +45,7 @@ data/
   bloatware.json              lista por PackageFamilyName/ProductId (Store) e por nome/editor (clássico): cor, motivo, siteReinstalar, productId
   protegidos.json             programas e processos protegidos (compartilhado por Programas, Inicialização e Modo Jogo): padrões de nome/editor/PackageFamilyName
 scripts/
-  quarentena.ps1              funções Move-ParaQuarentena, Export-ChaveRegistro, Remove-ChaveComBackup; ações listar, restaurar, purgar, purgarVencidos
+  quarentena.ps1              funções New-EntradaQuarentena, Add-ItemQuarentena, Complete-EntradaQuarentena, Export-ChaveRegistro, Restore-ChaveRegistro; ações listar, restaurar, purgar, purgarVencidos
   sistema.ps1                 ações protecaoEstado, criarPonto, ligarProtecao, sessao
   programas.ps1               ações listar, desinstalar, restos, limparRestos
   host.ps1                    allowlist += quarentena, sistema, programas
@@ -76,7 +76,7 @@ README.md                     pendências atualizadas
 ## Contratos (JSON, camelCase na UI; o PowerShell devolve exatamente estes nomes)
 
 ### quarentena
-- `listar {}` → `{ entradas: [{ id, data (ISO), modulo, descricao, itens: n, tamanhoBytes, venceEm (ISO) }] , diasPadrao }`. Ordenadas da mais nova para a mais antiga.
+- `listar { dias? (1..90, padrão 7) }` → `{ entradas: [{ id, data (ISO), modulo, descricao, itens: n, tamanhoBytes, venceEm (ISO) }] , diasPadrao }`. Ordenadas da mais nova para a mais antiga.
 - `restaurar { ids: [id] }` → `{ restauradas: [id], conflitos: [{ id, item, motivo }], falhas: [{ id, erro }] }`. Uma entrada só sai da quarentena quando **todos** os itens voltaram; com conflito ela fica.
 - `purgar { ids: [id], confirmado: true }` → `{ removidas: [id], falhas: [{ id, erro }] }`.
 - `purgarVencidos { dias: 1..90 }` → `{ removidas: [id] }`.
@@ -91,13 +91,13 @@ README.md                     pendências atualizadas
 - Em modo teste: registro em `HKCU\Software\NexTuneTeste\SystemRestore`, nenhum `Checkpoint-Computer`/`vssadmin`/`Enable-ComputerRestore` real (grava marcador em `%TEMP%\NexTuneTeste\sistema\`), e `simular { falharCriar?, usuarioConsole?, usuarioProcesso? }` aceito só em teste (o estado da proteção em teste vem da chave `HKCU\Software\NexTuneTeste\SystemRestore` semeada pelo teste).
 
 ### programas
-- `listar {}` → `{ programas: [{ id, nome, versao, editor, tipo: 'classico'|'store', tamanhoBytes (-1 desconhecido), instaladoEm (ISO|null), local, cor (verde|amarelo|vermelho|null), motivoCor, protegido, motivoProtegido, instalador: 'msi'|'inno'|'nsis'|'installshield'|'quiet'|'loja'|'desconhecido', servicos: [nome], ramBytes, packageFamilyName, productId, siteReinstalar }] }`.
+- `listar {}` → `{ programas: [{ id, nome, versao, editor, tipo: 'classico'|'store', tamanhoBytes (-1 desconhecido), instaladoEm (`yyyy-MM-dd`|null), local, cor (verde|amarelo|vermelho|null), motivoCor, protegido, motivoProtegido, instalador: 'msi'|'inno'|'nsis'|'installshield'|'quiet'|'loja'|'desconhecido', servicos: [nome], ramBytes, packageFamilyName, productId, siteReinstalar }] }`.
   - Id clássico: `cl:<hive>:<nomeDaChave>` com hive em `hklm64|hklm32|hkcu`. Id Store: `st:<PackageFullName>`.
   - Fontes: `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`, `HKLM\SOFTWARE\WOW6432Node\...\Uninstall`, `HKCU\...\Uninstall` (ignora `SystemComponent=1`, sem `DisplayName`, atualizações `KB`); `Get-AppxPackage -AllUsers` sem `IsFramework`, sem `SignatureKind -eq 'System'` e sem `NonRemovable`.
   - Progresso em três etapas (clássicos, Store, tamanhos/serviços/RAM). Tamanho: `EstimatedSize` (KB) quando houver, senão `Get-PathSize` do `InstallLocation` com teto de 10 s por programa (`-1` se estourar).
 - `desinstalar { id, confirmado: true, avancado?, desprovisionar? }` → `{ modo: 'silencioso'|'assistente'|'loja', codigo (int|null), restos: <mesmo formato de restos.candidatos> }`. Recusa `protegido`. Ordem: `QuietUninstallString` → MSI (`msiexec /x {guid} /qn /norestart`) → Inno (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`) → NSIS (`/S`) → InstallShield (`/s /v"/qn"`) → último recurso o assistente (sem `-Wait` infinito: limite de 10 min, código `null` se estourar). Store: `Remove-AppxPackage -AllUsers`; `desprovisionar` só com `avancado:true` (`Remove-AppxProvisionedPackage -Online`). Em modo teste só executa desinstaladores dentro de `%TEMP%\NexTuneTeste`.
 - `restos { id, nome, editor?, local? }` → `{ candidatos: [{ tipo: 'pasta'|'arquivo'|'atalho'|'chave', caminho, tamanhoBytes, motivo, confianca: 'media' }] }`. Candidatos: `local` se ainda existir e sem `.exe/.dll/.sys`; `%LOCALAPPDATA%`, `%APPDATA%`, `%ProgramData%` com `\<editor>\<nome>` ou `\<nome>` (mesmas regras: fora de `Test-ProtectedPath`, sem executáveis, sem alteração há 30 dias — exceto `local`, que acabou de ser desinstalado); atalhos `.lnk` do Menu Iniciar (usuário e todos) e da Área de Trabalho cujo alvo não existe; chaves `HKCU\Software\<editor>\<nome>` e `HKLM\SOFTWARE\<editor>\<nome>` quando o programa não está mais na lista. Nunca sugere nada sob caminho protegido.
-- `limparRestos { itens: [{ tipo, caminho }], confirmado: true }` → `{ quarentenaId (string|null), movidos: n, falhas: [{ caminho, erro }] }`. Cada item passa por `Test-ProtectedPath` de novo; tudo numa única entrada de quarentena (`modulo:'programas'`).
+- `limparRestos { itens: [{ tipo, caminho }], confirmado: true, nome? }` → `{ quarentenaId (string|null), movidos: n, falhas: [{ caminho, erro }] }`. Cada item passa por `Test-ProtectedPath` de novo; tudo numa única entrada de quarentena (`modulo:'programas'`).
 
 ### Rust
 - `acoes::e_escrita(modulo, acao) -> bool`: `limpeza/limpar`, `programas/desinstalar`, `programas/limparRestos`, `quarentena/restaurar`, `quarentena/purgar`, `quarentena/purgarVencidos`, `sistema/criarPonto`, `sistema/ligarProtecao`.
@@ -107,10 +107,10 @@ README.md                     pendências atualizadas
 
 ### UI
 - `garantirPonto()` (`ui/js/ponto.js`): se `ajustes.pontoRestauracao === 'pular'` ou `api.pontoSessao()` → volta `true`. Senão lê `protecaoEstado`; desligada e `perguntar` → modal com dois botões (**Ligar a Proteção do Sistema (recomendado)** / Continuar sem ponto) que grava `ligar` ou `pular`; `ligar` → `ligarProtecao`. Depois `criarPonto`; `criado:false` → toast de aviso e segue. Devolve `true` sempre que o usuário não cancelou o modal.
-- Programas: lista com busca, filtros (todos / recomendados / Store / clássicos), ordenação (nome, tamanho, data), ponto de cor, selos (Store, protegido, serviços, RAM). Botão Desinstalar → `garantirPonto()` → modal "Vai desinstalar X (Y). Para desfazer: Z" (Z = link da Store `ms-windows-store://pdp/?ProductId=` quando `productId`, senão `siteReinstalar`, senão "reinstale pelo site do fabricante"); no modo avançado, apps da Store mostram a caixa "Impedir que volte em contas novas" com aviso. Depois: cartão de resultado e lista de restos com caixas (todas marcadas, confiança média sempre pergunta) → "Mover para a quarentena".
+- Programas: lista com busca, filtros (todos / recomendados / Store / clássicos), ordenação (nome, tamanho, data), ponto de cor, selos (Store, protegido, serviços, RAM). Botão Desinstalar → modal "Vai desinstalar X (Y). Para desfazer: Z" (Z = link da Store `ms-windows-store://pdp/?ProductId=` quando `productId`, senão `siteReinstalar`, senão "reinstale pelo site do fabricante"); no modo avançado, apps da Store mostram a caixa "Impedir que volte em contas novas" com aviso. Depois: cartão de resultado e lista de restos com caixas (todas marcadas, confiança média sempre pergunta) → "Mover para a quarentena".
 - Quarentena: lista (data, módulo, descrição, itens, tamanho, vence em), seleção múltipla, **Restaurar** e **Apagar agora** (confirmação dupla com checkbox), aviso "N vencidas". Contador no menu (`Quarentena (n)`).
 - Sessão bloqueada: `S.sessaoOk === false` → faixa fixa explicando e todos os botões de escrita (`.acao.escrita`) com `data-bloq`.
-- Limpeza: `limpar()` chama `garantirPonto()` depois das confirmações e antes de `executar`.
+- Limpeza: `limpar()` chama `garantirPonto()` depois das confirmações e antes de `executar`. Programas (`desinstalar`) e Quarentena (`restaurar`, que reimporta chaves no registro) fazem o mesmo. Isenções documentadas: `purgar`, `purgarVencidos` e `limparRestos` só tocam `%ProgramData%\NexTune` (e `limparRestos` sempre vem depois de um `desinstalar` que já criou o ponto).
 - Demo: programas de exemplo (Positivo/Multilaser bloatware em verde, utilitário OEM em amarelo, Edge/WebView2 em vermelho, dois sem cor), três entradas de quarentena (uma vencida), proteção desligada na primeira pergunta.
 
 ---
@@ -181,7 +181,7 @@ README.md                     pendências atualizadas
 - [x] **Step 1:** `README.md`: seção "Pendências" atualizada; crédito ao RetroLimpia (MIT) pelas listas e pela lógica de desinstalação; nota de que Pester/PSScriptAnalyzer rodam no Actions e em `tools/ci-local.ps1`.
 - [x] **Step 2:** Marcar as caixas deste plano. Rodar `cargo clippy -D warnings`, `cargo test`, e as checagens de UI do Step 1 da Task 6.
 - [x] **Step 3:** Revisão final por agente do diff completo do plano (foco: Review Focus 1–7, anti-objetivos, textos em pt-BR fora do i18n).
-- [x] **Step 4:** Commit `docs: fechar o Plano 2 e atualizar pendências` e `git push -u origin ccr-9c9329b8-ajpqfw`.
+- [x] **Step 4:** Commit `docs: README com estado atual, pendências e créditos; caixas do Plano 2 marcadas` e `git push -u origin ccr-9c9329b8-ajpqfw`.
 
 ---
 

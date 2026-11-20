@@ -11,13 +11,6 @@ $Script:NomeFrequencia = 'SystemRestorePointCreationFrequency'
 $Script:NomeIntervalo = 'RPSessionInterval'
 $Script:MaxDescricao = 80
 
-function Get-Simulacao {
-    # 'simular' so vale em modo de teste; fora dele e ignorado.
-    param($Params, [bool]$Teste)
-    if (-not $Teste -or $null -eq $Params) { return $null }
-    return $Params.simular
-}
-
 function Get-ChaveRestauracao {
     param([bool]$Teste)
     if ($Teste) { return $Script:ChaveRestauracaoTeste }

@@ -38,8 +38,9 @@ const MODULOS: &[&str] = &[
     "programas",
 ];
 
-/// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`) e, na UI,
-/// ponto de restauração antes da primeira delas (`garantirPonto()`).
+/// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`). A UI roda
+/// `garantirPonto()` antes das que mexem fora da pasta do app (limpar, desinstalar, restaurar);
+/// purgar a quarentena e levar restos para ela só tocam `%ProgramData%\NexTune`.
 const ESCRITA: &[(&str, &str)] = &[
     ("limpeza", "limpar"),
     ("programas", "desinstalar"),

@@ -242,7 +242,7 @@ window.I18N['pt-BR'] = {
   "programas.modo.assistente": "O desinstalador do próprio programa foi aberto para concluir.",
   "programas.modo.loja": "App da Store removido para todos os usuários deste PC.",
   "programas.codigo": "código de saída {codigo}",
-  "programas.assistenteAberto": "o desinstalador pode ainda estar aberto; termine por ele",
+  "programas.assistenteAberto": "o desinstalador passou de 10 minutos e foi encerrado; confira se o programa ainda aparece na lista",
   "programas.restosTitulo": "Restos encontrados",
   "programas.restosIntro": "Sobraram estes itens. Os marcados vão para a quarentena por {dias} dias; de lá você pode restaurar.",
   "programas.restosNenhum": "Nenhum resto encontrado.",

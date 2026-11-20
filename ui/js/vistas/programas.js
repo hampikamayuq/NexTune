@@ -76,7 +76,6 @@ function programasDesfazer(p) {
 
 async function desinstalarPrograma(p) {
   if (S.ocupado || p.protegido) return;
-  if (!(await garantirPonto())) return;
 
   const editor = p.editor || t('programas.editorDesconhecido');
   const corpo = [h('p', { text: t('programas.confirmarTexto', { nome: p.nome, editor, tamanho: fmtBytes(p.tamanhoBytes), z: programasDesfazer(p) }) })];
@@ -92,6 +91,7 @@ async function desinstalarPrograma(p) {
   }
   const ok = await perguntar({ titulo: t('programas.confirmarTitulo', { nome: p.nome }), corpo, ok: t('programas.desinstalar') });
   if (!ok) return;
+  if (!(await garantirPonto())) return;
 
   const params = { id: p.id, confirmado: true };
   if (S.ajustes.modoAvancado) params.avancado = true;

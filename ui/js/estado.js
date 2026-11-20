@@ -42,7 +42,8 @@ function fmtGb(bytes) {
 // Data curta em pt-BR (dd/mm/aaaa); ISO inválido ou vazio vira travessão.
 function fmtData(iso) {
   if (!iso) return '—';
-  const d = new Date(iso);
+  // Data só com dia (yyyy-MM-dd, como o registro do Windows informa) é lida como local, não UTC.
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso + 'T00:00:00' : iso);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }

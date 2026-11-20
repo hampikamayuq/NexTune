@@ -154,6 +154,13 @@ function Test-ParamVerdadeiro {
     return ($v -is [bool] -and $v -eq $true)
 }
 
+function Get-Simulacao {
+    # 'simular' so vale em modo de teste; fora dele e ignorado.
+    param($Params, [bool]$Teste)
+    if (-not $Teste -or $null -eq $Params) { return $null }
+    return $Params.simular
+}
+
 function Test-Reparse {
     param($Item)
     return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)

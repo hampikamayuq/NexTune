@@ -74,6 +74,8 @@ async function restaurarQuarentena() {
     ok: t('quarentena.restaurar'),
   });
   if (!ok) return;
+  // Restaurar reimporta chaves no registro: é escrita no sistema, merece o ponto de restauração.
+  if (!(await garantirPonto())) return;
   try {
     const r = await api.executar('quarentena', 'restaurar', { ids: sel.map((e) => e.id) }, null);
     const n = (r.restauradas || []).length;

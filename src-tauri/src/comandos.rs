@@ -145,6 +145,12 @@ async fn verificar_sessao(estado: &Estado, host: &HostPowerShell) -> Result<(), 
             v
         }
     };
+    decidir_sessao(atual)
+}
+
+/// Decisão pura: só `Some(false)` (usuário elevado diferente do usuário do console) bloqueia;
+/// sessão ainda não verificada nunca bloqueia.
+pub fn decidir_sessao(atual: Option<bool>) -> Result<(), String> {
     match atual {
         Some(false) => Err("sessao_diferente".into()),
         _ => Ok(()),
@@ -401,6 +407,13 @@ mod testes {
                 "processo sem .exe: {nome}"
             );
         }
+    }
+
+    #[test]
+    fn decidir_sessao_bloqueia_so_quando_diferente() {
+        assert_eq!(decidir_sessao(Some(false)), Err("sessao_diferente".to_string()));
+        assert_eq!(decidir_sessao(Some(true)), Ok(()));
+        assert_eq!(decidir_sessao(None), Ok(()));
     }
 
     #[test]
