@@ -11,14 +11,6 @@ $Script:NomeFrequencia = 'SystemRestorePointCreationFrequency'
 $Script:NomeIntervalo = 'RPSessionInterval'
 $Script:MaxDescricao = 80
 
-function Test-ParamVerdadeiro {
-    # Somente o booleano $true vale (a string 'true' NAO vale). Mesma regra de limpeza.ps1.
-    param($Params, [string]$Nome)
-    if ($null -eq $Params) { return $false }
-    $v = $Params.$Nome
-    return ($v -is [bool] -and $v -eq $true)
-}
-
 function Get-Simulacao {
     # 'simular' so vale em modo de teste; fora dele e ignorado.
     param($Params, [bool]$Teste)

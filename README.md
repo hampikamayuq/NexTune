@@ -27,7 +27,6 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 
 - RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB). O número é a soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; tratado no Plano 5. Para medir de novo: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1` (veja as opções no topo do script).
 - Os scripts do Plano 2 (`quarentena.ps1`, `sistema.ps1`, `programas.ps1`) foram escritos e revisados fora do Windows; a primeira rodada do Pester e do PSScriptAnalyzer acontece no Actions ou com `tools/ci-local.ps1`. Pontos a observar estão nos comentários de cabeçalho de cada script.
-- `Test-ParamVerdadeiro` está duplicado em `limpeza.ps1`, `quarentena.ps1` e `sistema.ps1`; consolidar em `common.ps1`.
 - Abrir links (loja, site do fabricante) a partir da interface depende de um comando Rust `abrir_url` (só HTTPS e `ms-windows-store:`), previsto para o Plano 5; hoje a tela mostra o endereço para copiar.
 
 ## Créditos

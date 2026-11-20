@@ -25,14 +25,6 @@ $Script:MaxAvisos = 20
 $Script:AvisosEmitidos = 0
 $Script:FalhasCat = $null   # mensagens de falha da categoria em curso (Invoke-Limpar)
 
-function Test-ParamVerdadeiro {
-    # Somente o booleano $true vale (a string 'true' NAO vale).
-    param($Params, [string]$Nome)
-    if ($null -eq $Params) { return $false }
-    $v = $Params.$Nome
-    return ($v -is [bool] -and $v -eq $true)
-}
-
 function Test-RaizSegura {
     # Recusa raizes que nunca devem ser esvaziadas (vazias, relativas, rasas ou de sistema).
     param([string]$Raiz)

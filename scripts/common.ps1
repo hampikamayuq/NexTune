@@ -146,6 +146,14 @@ function Write-AppLog {
     Add-LinhaLog $p.Logs $Msg
 }
 
+function Test-ParamVerdadeiro {
+    # Somente o booleano $true vale (a string 'true' NAO vale).
+    param($Params, [string]$Nome)
+    if ($null -eq $Params) { return $false }
+    $v = $Params.$Nome
+    return ($v -is [bool] -and $v -eq $true)
+}
+
 function Test-Reparse {
     param($Item)
     return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)

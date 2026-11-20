@@ -25,14 +25,6 @@ $Script:RaizRegistro = @{
     HKEY_CURRENT_CONFIG = 'HKEY_CURRENT_CONFIG'
 }
 
-function Test-ParamVerdadeiro {
-    # Somente o booleano $true vale (a string 'true' NAO vale).
-    param($Params, [string]$Nome)
-    if ($null -eq $Params) { return $false }
-    $v = $Params.$Nome
-    return ($v -is [bool] -and $v -eq $true)
-}
-
 function Test-IdQuarentena {
     # Puro: id no formato yyyyMMdd-HHmmss-xxxx (4 hex minusculos).
     param($Id)
