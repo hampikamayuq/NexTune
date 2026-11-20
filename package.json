@@ -1,0 +1,17 @@
+{
+  "name": "otimizador",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test:ps": "powershell -NoProfile -File tools/ci-local.ps1 -SoTestes",
+    "test:rs": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "lint:ps": "powershell -NoProfile -Command \"Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error\""
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
