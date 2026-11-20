@@ -9,7 +9,7 @@ const PROGRAMAS_ORDENS = ['nome', 'tamanho', 'data'];
 
 // Comparação sem acento e sem diferenciar caixa.
 function normalizarTexto(s) {
-  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
 function programasProgresso(p) {
@@ -69,6 +69,7 @@ function linkStore(p) {
 // Texto "para desfazer" da confirmação: Store com ProductId → link; clássico → site do fabricante.
 function programasDesfazer(p) {
   if (p.tipo === 'store' && p.productId) return t('programas.desfazerStore');
+  if (p.tipo === 'store') return t('programas.desfazerStoreSemLink');
   if (p.siteReinstalar) return t('programas.desfazerSite', { site: p.siteReinstalar });
   return t('programas.desfazerGenerico');
 }
@@ -123,8 +124,8 @@ async function moverRestos() {
   const dias = S.ajustes.diasQuarentena;
   const tamanho = fmtBytes(sel.reduce((s, c) => s + Math.max(c.tamanhoBytes || 0, 0), 0));
   const ok = await perguntar({
-    titulo: t('programas.moverTitulo', { n: sel.length }),
-    corpo: [h('p', { text: t('programas.moverTexto', { n: sel.length, tamanho, dias }) })],
+    titulo: sel.length === 1 ? t('programas.moverTituloUm') : t('programas.moverTitulo', { n: sel.length }),
+    corpo: [h('p', { text: sel.length === 1 ? t('programas.moverTextoUm', { tamanho, dias }) : t('programas.moverTexto', { n: sel.length, tamanho, dias }) })],
     ok: t('programas.moverQuarentena'),
   });
   if (!ok) return;
@@ -134,7 +135,7 @@ async function moverRestos() {
     }, null);
     u.movidos = r;
     const falhas = (r.falhas || []).length;
-    toast(falhas ? t('programas.movidosFalhas', { n: r.movidos, f: falhas }) : t('programas.movidos', { n: r.movidos }), 'ok');
+    toast(falhas ? t('programas.movidosFalhas', { n: r.movidos, f: falhas }) : (r.movidos === 1 ? t('programas.movidoUm') : t('programas.movidos', { n: r.movidos })), 'ok');
     renderAtual();
     try { await carregarQuarentena(); } catch (e) { mostrarErro(e); }
   } catch (e) {
@@ -158,8 +159,8 @@ function cartaoResultadoProgramas() {
     const m = u.movidos;
     const falhas = m.falhas || [];
     cartao.append(
-      h('p', { text: falhas.length ? t('programas.movidosFalhas', { n: m.movidos, f: falhas.length }) : t('programas.movidos', { n: m.movidos }) }),
-      falhas.map((f) => h('p', { class: 'aviso pequeno', text: t('programas.falhaResto', { caminho: f.caminho, erro: f.erro }) })),
+      h('p', { text: falhas.length ? t('programas.movidosFalhas', { n: m.movidos, f: falhas.length }) : (m.movidos === 1 ? t('programas.movidoUm') : t('programas.movidos', { n: m.movidos })) }),
+      ...falhas.map((f) => h('p', { class: 'aviso pequeno', text: t('programas.falhaResto', { caminho: f.caminho, erro: f.erro }) })),
       h('div', { class: 'acoes' },
         h('button', { type: 'button', class: 'btn sec', text: t('programas.verQuarentena'), onclick: () => irPara('quarentena') }), fechar));
     return cartao;
@@ -203,7 +204,7 @@ function linhaPrograma(p) {
   if (p.instaladoEm) meta.push(t('programas.instaladoEm', { data: fmtData(p.instaladoEm) }));
 
   return h('div', { class: 'prog' + (p.protegido ? ' protegido' : '') },
-    h('span', { class: 'ponto ' + (p.cor || 'neutro'), title: t('programas.cor.' + (p.cor || 'nenhuma')) }),
+    h('span', { class: 'ponto ' + (p.cor || 'neutro'), role: 'img', title: t('programas.cor.' + (p.cor || 'nenhuma')), 'aria-label': t('programas.cor.' + (p.cor || 'nenhuma')) }),
     h('div', { class: 'prog-info' },
       h('div', { class: 'prog-nome' }, h('span', { text: p.nome }), selos),
       h('div', { class: 'suave pequeno', text: meta.join(' · ') }),
@@ -234,6 +235,8 @@ VISTAS.programas = {
     if (P.ultimo) v.append(cartaoResultadoProgramas());
     if (!P.lista) {
       if (!P.erro && !P.prog) v.append(h('div', { class: 'carregando' }, h('span', { class: 'giro' }), h('span', { text: t('programas.carregando') })));
+      // Sempre dá para pedir a lista de novo (ex.: a visita aconteceu durante o arranque e a carga automática foi pulada).
+      if (!P.prog) v.append(h('p', {}, h('button', { type: 'button', class: 'btn sec acao', text: t('programas.atualizar'), onclick: () => carregarProgramas() })));
       return;
     }
 
@@ -264,7 +267,7 @@ VISTAS.programas = {
 
     v.append(h('div', { class: 'barra-prog' },
       busca,
-      h('div', { class: 'chips', role: 'group' }, chips),
+      h('div', { class: 'chips', role: 'group', 'aria-label': t('programas.filtros') }, chips),
       h('label', { class: 'ordem' }, h('span', { class: 'suave pequeno', text: t('programas.ordem') }), ordem),
       h('button', { type: 'button', class: 'btn sec acao', text: t('programas.atualizar'), onclick: () => carregarProgramas() })),
       contagem, listaEl);

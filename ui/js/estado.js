@@ -138,8 +138,10 @@ function perguntar({ titulo, corpo, ok, okClasse, cancelar, exigeCheck, extra })
     let check = null;
     const btnOk = h('button', { type: 'button', class: 'btn ' + (okClasse || ''), text: ok || t('comum.confirmar') });
     const btnNao = h('button', { type: 'button', class: 'btn sec', text: cancelar || t('comum.cancelar') });
+    const corpoApp = document.getElementById('corpo');
     const fim = (v) => {
       document.removeEventListener('keydown', teclas, true);
+      if (corpoApp) corpoApp.inert = false;
       raiz.textContent = '';
       if (anterior && anterior.focus) anterior.focus();
       resolver(v);
@@ -147,7 +149,7 @@ function perguntar({ titulo, corpo, ok, okClasse, cancelar, exigeCheck, extra })
     const teclas = (e) => { if (e.key === 'Escape') { e.preventDefault(); fim(false); } };
     btnOk.addEventListener('click', () => fim(true));
     btnNao.addEventListener('click', () => fim(false));
-    const filhos = [h('h2', { text: titulo }), h('div', { class: 'corpo' }, corpo || [])];
+    const filhos = [h('h2', { id: 'modal-titulo', text: titulo }), h('div', { class: 'corpo' }, corpo || [])];
     if (exigeCheck) {
       check = h('input', { type: 'checkbox', id: 'modal-check' });
       btnOk.disabled = true;
@@ -160,10 +162,12 @@ function perguntar({ titulo, corpo, ok, okClasse, cancelar, exigeCheck, extra })
       btnExtra.addEventListener('click', () => fim('extra'));
     }
     filhos.push(h('div', { class: 'acoes' }, btnExtra, btnNao, btnOk));
-    const fundo = h('div', { class: 'fundo-modal' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' }, filhos));
+    const fundo = h('div', { class: 'fundo-modal' }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-titulo' }, filhos));
     fundo.addEventListener('mousedown', (e) => { if (e.target === fundo) fim(false); });
     raiz.textContent = '';
     raiz.append(fundo);
+    // O resto da tela fica inerte (sem foco, sem clique) enquanto o modal está aberto.
+    if (corpoApp) corpoApp.inert = true;
     document.addEventListener('keydown', teclas, true);
     (exigeCheck ? check : btnNao).focus();
   });

@@ -107,15 +107,16 @@ const demo = {
     ];
   },
 
+  // Três entradas dentro do prazo (2, 5 e dias-1 dias atrás), para o arranque não purgar nada.
+  // Para ver o estado "vencida" na demo: em Opções, baixe os dias na quarentena para menos que a
+  // idade de uma entrada (ex.: 3 dias deixa a de 5 dias vencida) e volte à Quarentena.
   _quarentenaInicial() {
     const dias = (S.ajustes && S.ajustes.diasQuarentena) || 7;
-    const e = (id, hDias, modulo, descricao, itens, tam) => ({
-      id, data: this._dia(hDias), modulo, descricao, itens, tamanhoBytes: tam, venceEm: this._dia(hDias - dias),
-    });
+    const e = (id, hDias, modulo, descricao, itens, tam) => ({ id, data: this._dia(hDias), modulo, descricao, itens, tamanhoBytes: tam });
     return [
       e('20251118-143012-a3f1', 2, 'programas', 'Restos de McAfee LiveSafe', 3, 48 * MB),
-      e('20251110-091500-7c0e', 10, 'programas', 'Restos de Lenovo Now', 1, 12 * MB),
-      e('20251017-201044-b2d9', dias + 2, 'ajustes', 'Backup de registro: anúncios e sugestões', 4, 24 * 1024),
+      e('20251115-091500-7c0e', 5, 'programas', 'Restos de Lenovo Now', 1, 12 * MB),
+      e('20251114-201044-b2d9', Math.max(dias - 1, 1), 'ajustes', 'Backup de registro: anúncios e sugestões', 4, 24 * 1024),
     ];
   },
 
@@ -196,7 +197,7 @@ const demo = {
       await this._simular(onProgresso, 'programas', ['Preparando o desinstalador…', 'Desinstalando ' + prog.nome + '…', 'Procurando restos…']);
       this._programas = this._programas.filter((p) => p.id !== prog.id);
       const loja = prog.tipo === 'store';
-      return { modo: loja ? 'loja' : (prog.instalador === 'desconhecido' ? 'assistente' : 'silencioso'), codigo: loja ? null : 0, restos: this._restos(prog) };
+      return { modo: loja ? 'loja' : (prog.instalador === 'desconhecido' ? 'assistente' : 'silencioso'), codigo: 0, restos: this._restos(prog) };
     }
     if (acao === 'restos') {
       const prog = this._programas.find((p) => p.id === params.id) || { nome: params.nome, editor: params.editor || '' };
@@ -208,13 +209,12 @@ const demo = {
       if (!itens.length) throw new Error('Nenhum item para mover.');
       if (!this._quarentena) this._quarentena = this._quarentenaInicial();
       await this._simular(onProgresso, 'programas', itens.map((i) => 'Movendo ' + i.caminho + '…'));
-      const dias = (S.ajustes && S.ajustes.diasQuarentena) || 7;
       this._seq++;
       const id = '20251120-1530' + String(this._seq).padStart(2, '0') + '-' + (0x1a00 + this._seq).toString(16);
       const agora = new Date();
       this._quarentena.unshift({
         id, data: agora.toISOString(), modulo: 'programas', descricao: 'Restos de ' + (params.nome || 'programa'),
-        itens: itens.length, tamanhoBytes: itens.length * 18 * MB, venceEm: new Date(agora.getTime() + dias * 86400000).toISOString(),
+        itens: itens.length, tamanhoBytes: itens.length * 18 * MB,
       });
       return { quarentenaId: id, movidos: itens.length, falhas: [] };
     }
@@ -225,8 +225,10 @@ const demo = {
     if (!this._quarentena) this._quarentena = this._quarentenaInicial();
     const ids = params.ids || [];
     if (acao === 'listar') {
+      // Como o script real: venceEm = data + params.dias (padrão 7), calculado na hora da leitura.
+      const dias = Number(params.dias) || 7;
       await this._dormir(150);
-      return { entradas: this._quarentena.map((e) => Object.assign({}, e)), diasPadrao: 7 };
+      return { entradas: this._quarentena.map((e) => Object.assign({}, e, { venceEm: new Date(new Date(e.data).getTime() + dias * 86400000).toISOString() })), diasPadrao: 7 };
     }
     if (acao === 'restaurar') {
       await this._simular(onProgresso, 'quarentena', ids.map((id) => 'Restaurando ' + id + '…'));

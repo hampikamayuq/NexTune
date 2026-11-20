@@ -45,6 +45,15 @@ async function carregarQuarentena() {
   if (S.vista === 'quarentena') renderAtual();
 }
 
+// O Rust aceita no máximo MAX_IDS por chamada; o que passar fica para a próxima ação.
+const QUARENTENA_MAX_IDS = 200;
+
+function quarentenaLimitar(sel) {
+  if (sel.length <= QUARENTENA_MAX_IDS) return sel;
+  toast(t('quarentena.limiteIds', { max: QUARENTENA_MAX_IDS }), 'aviso');
+  return sel.slice(0, QUARENTENA_MAX_IDS);
+}
+
 function quarentenaSelecionadas() {
   const Q = S.quarentena;
   return (Q.entradas || []).filter((e) => Q.sel.has(e.id));
@@ -57,10 +66,10 @@ function quarentenaModulo(m) {
 
 async function restaurarQuarentena() {
   const Q = S.quarentena;
-  const sel = quarentenaSelecionadas();
+  const sel = quarentenaLimitar(quarentenaSelecionadas());
   if (!sel.length || S.ocupado) return;
   const ok = await perguntar({
-    titulo: t('quarentena.restaurarTitulo', { n: sel.length }),
+    titulo: sel.length === 1 ? t('quarentena.restaurarTituloUm') : t('quarentena.restaurarTitulo', { n: sel.length }),
     corpo: [h('p', { text: t('quarentena.restaurarTexto') })],
     ok: t('quarentena.restaurar'),
   });
@@ -79,12 +88,12 @@ async function restaurarQuarentena() {
 
 async function purgarQuarentena() {
   const Q = S.quarentena;
-  const sel = quarentenaSelecionadas();
+  const sel = quarentenaLimitar(quarentenaSelecionadas());
   if (!sel.length || S.ocupado) return;
   const tamanho = fmtBytes(sel.reduce((s, e) => s + Math.max(e.tamanhoBytes || 0, 0), 0));
   const ok = await perguntar({
     titulo: t('quarentena.apagarTitulo'),
-    corpo: [h('p', { class: 'aviso', text: t('quarentena.apagarTexto', { n: sel.length, tamanho }) })],
+    corpo: [h('p', { class: 'aviso', text: sel.length === 1 ? t('quarentena.apagarTextoUm', { tamanho }) : t('quarentena.apagarTexto', { n: sel.length, tamanho }) })],
     exigeCheck: t('limpeza.entendi'),
     ok: t('quarentena.apagar'),
     okClasse: 'perigo',
@@ -108,7 +117,7 @@ async function purgarVencidasQuarentena() {
   if (!vencidas.length || !dias || S.ocupado) return;
   const ok = await perguntar({
     titulo: t('quarentena.apagarVencidasTitulo'),
-    corpo: [h('p', { text: t('quarentena.apagarVencidasTexto', { n: vencidas.length, dias }) })],
+    corpo: [h('p', { text: vencidas.length === 1 ? t('quarentena.apagarVencidasTextoUm', { dias }) : t('quarentena.apagarVencidasTexto', { n: vencidas.length, dias }) })],
     ok: t('quarentena.apagarVencidas'),
     okClasse: 'perigo',
   });
@@ -128,11 +137,11 @@ function cartaoResultadoQuarentena(r) {
   const cartao = h('div', { class: 'cartao resultado atencao' });
   if ((r.conflitos || []).length) {
     cartao.append(h('h4', { text: t('quarentena.conflitosTitulo') }),
-      r.conflitos.map((c) => h('p', { class: 'pequeno', text: t('quarentena.conflito', { item: c.item, motivo: c.motivo }) })));
+      ...r.conflitos.map((c) => h('p', { class: 'pequeno', text: t('quarentena.conflito', { item: c.item, motivo: c.motivo }) })));
   }
   if ((r.falhas || []).length) {
     cartao.append(h('h4', { text: t('quarentena.falhasTitulo') }),
-      r.falhas.map((f) => h('p', { class: 'pequeno', text: t('quarentena.falha', { id: f.id, erro: f.erro }) })));
+      ...r.falhas.map((f) => h('p', { class: 'pequeno', text: t('quarentena.falha', { id: f.id, erro: f.erro }) })));
   }
   cartao.append(h('div', { class: 'acoes' }, h('button', { type: 'button', class: 'btn sec', text: t('comum.fechar'), onclick: () => { Q.ultimo = null; renderAtual(); } })));
   return cartao;
