@@ -9,6 +9,21 @@ function New-PastaTeste {
     return $p
 }
 
+# Junction criada/removida pelo cmd: Remove-Item -Recurse do PS 5.1 entraria no alvo.
+function New-Juncao {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param([string]$Link, [string]$Alvo)
+    cmd /c mklink /J "$Link" "$Alvo" | Out-Null
+}
+
+function Remove-Juncao {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param([string]$Link)
+    if (Test-Path -LiteralPath $Link) { cmd /c rmdir "$Link" | Out-Null }
+}
+
 function Start-HostTeste {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
