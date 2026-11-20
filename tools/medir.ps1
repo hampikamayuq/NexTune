@@ -82,95 +82,108 @@ function Measure-Arvore([int]$RaizPid) {
     }
 }
 
-# Instalação / localização
+# Tudo depois da instalação roda dentro do try: qualquer saída ou erro passa pelo finally,
+# que fecha o app e desinstala o que este script instalou (a máquina volta ao estado anterior).
 $instaladoPorMim = $false
-if (-not $Exe) { $Exe = Get-AppInstalado }
-if (-not $Exe) {
-    if (-not $Instalar) {
-        Write-Warning 'Otimizador não está instalado. Instale-o ou use -Instalar (ou -Exe <caminho>).'
-        exit 1
-    }
-    $setup = Get-ChildItem $pastaSetup -Filter '*-setup.exe' -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $setup) { Write-Warning 'Instalador não encontrado em src-tauri\target\release\bundle\nsis (rode npm run build).'; exit 1 }
-    Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
-    $instaladoPorMim = $true
-    for ($i = 0; $i -lt 30 -and -not $Exe; $i++) { $Exe = Get-AppInstalado; if (-not $Exe) { Start-Sleep -Seconds 1 } }
-    if (-not $Exe) { Write-Warning 'A instalação silenciosa não deixou o app registrado.'; exit 1 }
-}
-if (-not (Test-Path -LiteralPath $Exe)) { Write-Warning "Não encontrei o executável: $Exe"; exit 1 }
-$Exe = (Resolve-Path -LiteralPath $Exe).Path
-$pasta = Split-Path $Exe
-
+$app = $null
+$restantes = @()
+$pasta = $null
 $saida = 0
 try {
-    if (Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($Exe)) -ErrorAction SilentlyContinue) {
-        Write-Warning 'O Otimizador já está aberto: feche-o e meça de novo para um arranque limpo.'
-        $saida = 1
-    } else {
-        $pesoMB = [math]::Round(((Get-ChildItem -LiteralPath $pasta -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB, 1)
-        $setupRef = Get-ChildItem $pastaSetup -Filter '*-setup.exe' -ErrorAction SilentlyContinue |
+    if (-not $Exe) { $Exe = Get-AppInstalado }
+    if (-not $Exe) {
+        if (-not $Instalar) {
+            throw 'Otimizador não está instalado. Instale-o ou use -Instalar (ou -Exe <caminho>).'
+        }
+        $setup = Get-ChildItem $pastaSetup -Filter '*-setup.exe' -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        $instaladorMB = if ($setupRef) { [math]::Round($setupRef.Length / 1MB, 2) } else { $null }
-
-        # 1) Arranque: da chamada até haver uma janela na árvore do app
-        $sw = [Diagnostics.Stopwatch]::StartNew()
-        $app = Start-Process -FilePath $Exe -PassThru
-        $arranque = $null
-        while ($sw.Elapsed.TotalSeconds -lt 30) {
-            if ((Measure-Arvore $app.Id).janela) { $arranque = [math]::Round($sw.Elapsed.TotalSeconds, 2); break }
-            Start-Sleep -Milliseconds 100
-        }
-
-        # 2) Com o host vivo (logo após o diagnóstico inicial): espera até 30 s ele aparecer
-        $ramHost = $null
-        for ($i = 0; $i -lt 60; $i++) {
-            $m = Measure-Arvore $app.Id
-            if ($m.temHost) { $ramHost = $m.ramMB; break }
-            Start-Sleep -Milliseconds 500
-        }
-
-        # 3) Espera o host terminar (até 150 s)
-        $hostVivo = $false
-        if ($null -ne $ramHost) {
-            $hostVivo = $true
-            for ($i = 0; $i -lt 150; $i++) {
-                if (-not (Measure-Arvore $app.Id).temHost) { $hostVivo = $false; break }
-                Start-Sleep -Seconds 1
-            }
-        }
-
-        # 4) Em repouso, janela aberta, sem tocar em nada: 5 s de acomodação e 10 s de medição
-        Start-Sleep -Seconds 5
-        $a = Measure-Arvore $app.Id
-        Start-Sleep -Seconds 10
-        $b = Measure-Arvore $app.Id
-        $cpuPct = [math]::Round((($b.cpuSeg - $a.cpuSeg) / 10 / [Environment]::ProcessorCount) * 100, 2)
-
-        $res = [ordered]@{
-            versao          = (Get-Item -LiteralPath $Exe).VersionInfo.ProductVersion
-            pesoInstaladoMB = $pesoMB
-            instaladorMB    = $instaladorMB
-            arranqueSeg     = $arranque
-            processos       = $b.processos
-            ramAbertaMB     = $b.ramMB
-            ramHostMB       = $ramHost
-            cpuOciosoPct    = $cpuPct
-            hostVivo        = $hostVivo
-            detalhe         = @($b.detalhe)
-        }
-
-        # 5) Fecha o app; o que sobrar da árvore depois de 5 s é encerrado à força
-        $restantes = @(Get-ProcessoDoApp $app.Id | ForEach-Object { [int]$_.ProcessId })
-        Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 5
-        foreach ($id in $restantes) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
-
-        $res | ConvertTo-Json -Depth 4
-        if ($b.ramMB -gt $LimiteRamMB -or $cpuPct -ge $LimiteCpuPct) { $saida = 1 }
+        if (-not $setup) { throw 'Instalador não encontrado em src-tauri\target\release\bundle\nsis (rode npm run build).' }
+        Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+        $instaladoPorMim = $true
+        for ($i = 0; $i -lt 30 -and -not $Exe; $i++) { $Exe = Get-AppInstalado; if (-not $Exe) { Start-Sleep -Seconds 1 } }
+        if (-not $Exe) { throw 'A instalação silenciosa não deixou o app registrado.' }
     }
+    if (-not (Test-Path -LiteralPath $Exe)) { throw "Não encontrei o executável: $Exe" }
+    $Exe = (Resolve-Path -LiteralPath $Exe).Path
+    $pasta = Split-Path $Exe
+
+    if (Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($Exe)) -ErrorAction SilentlyContinue) {
+        throw 'O Otimizador já está aberto: feche-o e meça de novo para um arranque limpo.'
+    }
+
+    $pesoMB = [math]::Round(((Get-ChildItem -LiteralPath $pasta -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB, 1)
+    $setupRef = Get-ChildItem $pastaSetup -Filter '*-setup.exe' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $instaladorMB = if ($setupRef) { [math]::Round($setupRef.Length / 1MB, 2) } else { $null }
+
+    # 1) Arranque: da chamada até haver uma janela na árvore do app
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $app = Start-Process -FilePath $Exe -PassThru
+    $arranque = $null
+    while ($sw.Elapsed.TotalSeconds -lt 30) {
+        $m = Measure-Arvore $app.Id
+        $restantes = @($m.detalhe | ForEach-Object { $_.pid })
+        if ($m.janela) { $arranque = [math]::Round($sw.Elapsed.TotalSeconds, 2); break }
+        Start-Sleep -Milliseconds 100
+    }
+
+    # 2) Com o host vivo (logo após o diagnóstico inicial): espera até 30 s ele aparecer
+    $ramHost = $null
+    for ($i = 0; $i -lt 60; $i++) {
+        $m = Measure-Arvore $app.Id
+        $restantes = @($m.detalhe | ForEach-Object { $_.pid })
+        if ($m.temHost) { $ramHost = $m.ramMB; break }
+        Start-Sleep -Milliseconds 500
+    }
+
+    # 3) Espera o host terminar (até 150 s)
+    $hostVivo = $false
+    if ($null -ne $ramHost) {
+        $hostVivo = $true
+        for ($i = 0; $i -lt 150; $i++) {
+            if (-not (Measure-Arvore $app.Id).temHost) { $hostVivo = $false; break }
+            Start-Sleep -Seconds 1
+        }
+    }
+
+    # 4) Em repouso, janela aberta, sem tocar em nada: 5 s de acomodação e 10 s de medição
+    Start-Sleep -Seconds 5
+    $a = Measure-Arvore $app.Id
+    Start-Sleep -Seconds 10
+    $b = Measure-Arvore $app.Id
+    $restantes = @($b.detalhe | ForEach-Object { $_.pid })
+    $cpuBruto = ($b.cpuSeg - $a.cpuSeg) / 10 / [Environment]::ProcessorCount * 100
+    $cpuPct = [math]::Round($cpuBruto, 2)
+
+    $res = [ordered]@{
+        versao          = (Get-Item -LiteralPath $Exe).VersionInfo.ProductVersion
+        pesoInstaladoMB = $pesoMB
+        instaladorMB    = $instaladorMB
+        arranqueSeg     = $arranque
+        processos       = $b.processos
+        ramAbertaMB     = $b.ramMB
+        ramHostMB       = $ramHost
+        cpuOciosoPct    = $cpuPct
+        hostVivo        = $hostVivo
+        detalhe         = @($b.detalhe)
+    }
+    $res | ConvertTo-Json -Depth 4
+    if ($b.ramMB -gt $LimiteRamMB -or $cpuBruto -ge $LimiteCpuPct) { $saida = 1 }
+} catch {
+    Write-Warning $_.Exception.Message
+    $saida = 1
 } finally {
-    if ($instaladoPorMim) {
+    # Fecha o app; o que sobrar da árvore depois de 5 s é encerrado à força
+    if ($app) {
+        try {
+            $ids = @($restantes) + @($app.Id)
+            Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 5
+            foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+        } catch { Write-Warning "Falha ao encerrar o app: $($_.Exception.Message)" }
+    }
+    if ($instaladoPorMim -and -not $pasta) { $e2 = Get-AppInstalado; if ($e2) { $pasta = Split-Path $e2 } }
+    if ($instaladoPorMim -and $pasta) {
         $desinst = Join-Path $pasta 'uninstall.exe'
         if (Test-Path -LiteralPath $desinst) {
             Start-Process -FilePath $desinst -ArgumentList '/S' -Wait
