@@ -19,7 +19,7 @@ use std::sync::Arc;
 use tauri::{Emitter, State, Window};
 use tokio::sync::Mutex;
 
-const DADOS_PERMITIDOS: &[&str] = &["perfis"];
+const DADOS_PERMITIDOS: &[&str] = &["perfis", "bloatware", "protegidos"];
 
 pub struct Estado {
     pub pastas: Pastas,
@@ -240,6 +240,73 @@ mod testes {
         assert!(ler_dados(&d, "a\\b").is_err());
         assert!(ler_dados(&d, "nao_existe").is_err());
         assert!(ler_dados(&d, "outro").is_err());
+    }
+
+    /// Lê `data/` real do repositório e confere a forma das listas de bloatware e protegidos:
+    /// chaves de topo, cores válidas, padrões que compilam como regex sem diferenciar caixa
+    /// (o PowerShell usa os mesmos padrões) e `packageFamilyName` no formato da Store.
+    #[test]
+    fn bloatware_e_protegidos_ok() {
+        let data = crate::caminhos::pastas_dev().data;
+        let re_pfn = regex::Regex::new(r"^[A-Za-z0-9.\-]+_[a-z0-9]{13}$").unwrap();
+        let compila = |p: &Value| {
+            let p = p.as_str().expect("padrao é texto");
+            regex::RegexBuilder::new(p)
+                .case_insensitive(true)
+                .build()
+                .unwrap_or_else(|e| panic!("padrão inválido {p:?}: {e}"));
+        };
+        let cor_ok = |c: &Value| {
+            assert!(
+                matches!(c.as_str(), Some("verde" | "amarelo" | "vermelho")),
+                "cor inválida: {c}"
+            );
+        };
+        let motivo_ok = |e: &Value| {
+            assert!(
+                e["motivo"].as_str().is_some_and(|m| !m.trim().is_empty()),
+                "motivo ausente em {e}"
+            );
+        };
+
+        let b = ler_dados(&data, "bloatware").unwrap();
+        let store = b["store"].as_array().expect("bloatware.store é lista");
+        let classicos = b["classicos"].as_array().expect("bloatware.classicos é lista");
+        assert!(!store.is_empty() && !classicos.is_empty());
+        let mut vistos = std::collections::HashSet::new();
+        for e in store {
+            let pfn = e["packageFamilyName"]
+                .as_str()
+                .expect("packageFamilyName é texto");
+            assert!(re_pfn.is_match(pfn), "packageFamilyName inválido: {pfn}");
+            assert!(
+                vistos.insert(pfn.to_lowercase()),
+                "packageFamilyName repetido: {pfn}"
+            );
+            cor_ok(&e["cor"]);
+            motivo_ok(e);
+        }
+        for e in classicos {
+            compila(&e["padrao"]);
+            if let Some(ed) = e.get("editor") {
+                compila(ed);
+            }
+            cor_ok(&e["cor"]);
+            motivo_ok(e);
+        }
+
+        let p = ler_dados(&data, "protegidos").unwrap();
+        let programas = p["programas"].as_array().expect("protegidos.programas é lista");
+        let processos = p["processos"].as_array().expect("protegidos.processos é lista");
+        assert!(!programas.is_empty() && !processos.is_empty());
+        for e in programas {
+            compila(&e["padrao"]);
+            motivo_ok(e);
+        }
+        for proc in processos {
+            let nome = proc.as_str().expect("processo é texto");
+            assert!(nome.to_lowercase().ends_with(".exe"), "processo sem .exe: {nome}");
+        }
     }
 
     #[test]

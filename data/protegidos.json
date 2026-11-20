@@ -1,0 +1,137 @@
+{
+  "programas": [
+    {
+      "padrao": "^Microsoft Edge WebView2|EdgeWebView|^Microsoft\\.Win32WebViewHost",
+      "motivo": "Mostra a tela do NexTune e de muitos outros programas: sem ele, eles não abrem."
+    },
+    {
+      "padrao": "^Microsoft Edge Update|EdgeUpdate",
+      "motivo": "Atualiza o Edge e o WebView2: sem ele, o navegador fica sem correções de segurança."
+    },
+    {
+      "padrao": "^Microsoft Edge|^Microsoft\\.MicrosoftEdge",
+      "motivo": "Navegador que faz parte do Windows: o sistema e outros programas dependem dele."
+    },
+    {
+      "padrao": "^NexTune",
+      "motivo": "É este programa."
+    },
+    {
+      "padrao": "^Microsoft Visual C\\+\\+",
+      "motivo": "Biblioteca que jogos e programas usam para abrir: sem ela, eles param de funcionar."
+    },
+    {
+      "padrao": "^(Microsoft )?\\.NET|^Microsoft Windows Desktop Runtime|^Microsoft ASP\\.NET Core|^dotnet-",
+      "motivo": "Base do .NET usada por muitos programas: remover faz eles pararem de abrir."
+    },
+    {
+      "padrao": "^Windows Software Development Kit|^Windows SDK|^Windows Kits",
+      "motivo": "Ferramenta de desenvolvimento do Windows: outros programas podem depender dela."
+    },
+    {
+      "padrao": "DirectX",
+      "motivo": "Faz jogos e vídeos funcionarem: sem ele, jogos não abrem."
+    },
+    {
+      "padrao": "GameInput",
+      "motivo": "Faz controles, teclado e mouse funcionarem em jogos: sem ele, jogos recentes não abrem."
+    },
+    {
+      "padrao": "^Microsoft\\.XboxIdentityProvider",
+      "motivo": "Login da conta Microsoft em jogos: sem ele, jogos da Store e o Game Pass não entram."
+    },
+    {
+      "padrao": "^Microsoft\\.GamingServices",
+      "motivo": "Instala e abre jogos da Store e do Game Pass: sem ele, eles param."
+    },
+    {
+      "padrao": "^Microsoft\\.Xbox\\.TCUI|^Microsoft\\.XboxGameCallableUI",
+      "motivo": "Parte do Windows usada por jogos para convites, conquistas e conta: outros apps dependem dela."
+    },
+    {
+      "padrao": "^NVIDIA|^NVIDIACorp\\.",
+      "motivo": "Driver da placa de vídeo: sem ele, a tela fica lenta e jogos não rodam."
+    },
+    {
+      "padrao": "^AMD\\b|^Advanced Micro Devices|^AdvancedMicroDevicesInc",
+      "motivo": "Driver da placa de vídeo ou do processador AMD: sem ele, a tela fica lenta e o PC perde desempenho."
+    },
+    {
+      "padrao": "^Intel(\\(R\\)|®)?\\s|^AppUp\\.IntelGraphicsExperience",
+      "motivo": "Driver Intel (vídeo, rede ou chipset): sem ele, peças do computador param de funcionar."
+    },
+    {
+      "padrao": "^Realtek|^RealtekSemiconductorCorp\\.",
+      "motivo": "Driver de som ou de rede: sem ele, o áudio ou a internet param."
+    },
+    {
+      "padrao": "^Windows Security|^Windows Defender|^Microsoft Defender|^Microsoft\\.SecHealthUI|^Microsoft\\.Windows\\.SecHealthUI",
+      "motivo": "Antivírus do Windows: protege o computador e não deve ser removido."
+    },
+    {
+      "padrao": "^Microsoft\\.WindowsStore|^Microsoft\\.StorePurchaseApp|^Microsoft\\.Services\\.Store\\.Engagement|^Microsoft Store$",
+      "motivo": "Loja do Windows: é por ela que apps e jogos voltam quando você quer reinstalar."
+    },
+    {
+      "padrao": "^Microsoft\\.VCLibs",
+      "motivo": "Biblioteca compartilhada por apps da Store: sem ela, vários apps não abrem."
+    },
+    {
+      "padrao": "^Microsoft\\.NET\\.Native",
+      "motivo": "Biblioteca compartilhada por apps da Store: sem ela, vários apps não abrem."
+    },
+    {
+      "padrao": "^Microsoft\\.UI\\.Xaml",
+      "motivo": "Desenha a tela de apps da Store e do próprio Windows: sem ela, eles não abrem."
+    },
+    {
+      "padrao": "WindowsAppRuntime|^Microsoft\\.WindowsAppSDK",
+      "motivo": "Base de apps novos do Windows (Fotos, Widgets, Bloco de Notas): sem ela, eles não abrem."
+    },
+    {
+      "padrao": "^Microsoft\\.DesktopAppInstaller|^App Installer$",
+      "motivo": "Instalador de apps do Windows (winget): instala e atualiza programas e apps da Store."
+    },
+    {
+      "padrao": "^Microsoft\\.WindowsTerminal|^Windows Terminal",
+      "motivo": "Terminal do Windows: parte do Windows 11, usado por quem mexe em comandos."
+    },
+    {
+      "padrao": "^Microsoft\\.WindowsNotepad|^Microsoft\\.Paint(_|$)|^Microsoft\\.WindowsCalculator|^Microsoft\\.ScreenSketch",
+      "motivo": "Aplicativo básico do Windows (Bloco de Notas, Paint, Calculadora, Recorte): o sistema o usa e reinstalar dá trabalho."
+    },
+    {
+      "padrao": "^Microsoft\\.WindowsCamera|^Microsoft\\.Windows\\.Photos",
+      "motivo": "Câmera e Fotos do Windows: o sistema os usa para abrir imagens e a webcam."
+    },
+    {
+      "padrao": "^Microsoft Update Health Tools|^Windows PC Health Check",
+      "motivo": "Ajuda o Windows Update a corrigir problemas de atualização: faz parte do Windows."
+    },
+    {
+      "padrao": "^Microsoft\\.Windows\\.(ShellExperienceHost|StartMenuExperienceHost|Search|CloudExperienceHost|ContentDeliveryManager|FileExplorer|PeopleExperienceHost)|^MicrosoftWindows\\.Client|^Microsoft\\.AAD\\.BrokerPlugin|^Microsoft\\.AccountsControl|^Microsoft\\.LockApp|^Microsoft\\.CredDialogHost|^windows\\.immersivecontrolpanel|^Windows\\.PrintDialog",
+      "motivo": "Parte interna do Windows (menu Iniciar, pesquisa, login, Configurações): o sistema não funciona sem."
+    }
+  ],
+  "processos": [
+    "explorer.exe",
+    "csrss.exe",
+    "winlogon.exe",
+    "lsass.exe",
+    "services.exe",
+    "svchost.exe",
+    "dwm.exe",
+    "msedgewebview2.exe",
+    "NexTune.exe",
+    "powershell.exe",
+    "conhost.exe",
+    "RuntimeBroker.exe",
+    "SearchHost.exe",
+    "StartMenuExperienceHost.exe",
+    "ShellExperienceHost.exe",
+    "sihost.exe",
+    "fontdrvhost.exe",
+    "audiodg.exe",
+    "ctfmon.exe"
+  ]
+}
