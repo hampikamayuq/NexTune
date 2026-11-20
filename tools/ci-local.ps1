@@ -1,4 +1,4 @@
-param([switch]$SoTestes)
+﻿param([switch]$SoTestes)
 
 # Verificação local equivalente ao CI. Sai com código 1 na primeira falha.
 $ErrorActionPreference = 'Stop'
@@ -15,6 +15,17 @@ function Invoke-Passo([string]$Nome, [scriptblock]$Bloco) {
     Write-Host "==> $Nome" -ForegroundColor Cyan
     & $Bloco
     if ($LASTEXITCODE -ne 0) { Stop-ComFalha "$Nome (código $LASTEXITCODE)" }
+}
+
+# 0. Todo .ps1 deve ser UTF-8 com BOM (EF BB BF), senão o PowerShell 5.1 lê como ANSI
+Write-Host "==> BOM UTF-8" -ForegroundColor Cyan
+$semBom = @(Get-ChildItem -Path scripts, tools -Filter "*.ps1" -Recurse | Where-Object {
+    $b = [System.IO.File]::ReadAllBytes($_.FullName)
+    $b.Length -lt 3 -or $b[0] -ne 0xEF -or $b[1] -ne 0xBB -or $b[2] -ne 0xBF
+})
+if ($semBom.Count -gt 0) {
+    $semBom | ForEach-Object { Write-Host "Sem BOM: $($_.FullName)" }
+    Stop-ComFalha "arquivos .ps1 sem BOM UTF-8"
 }
 
 # 1. PSScriptAnalyzer
