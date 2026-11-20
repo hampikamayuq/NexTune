@@ -8,7 +8,8 @@ $Script:DiscosValidos = @('hdd', 'ssd')
 function Get-RegrasPerfil {
     param([string]$DataDir = (Join-Path $PSScriptRoot '..\data'))
     $arq = Join-Path $DataDir 'perfis.json'
-    return (Get-Content -LiteralPath $arq -Raw -Encoding UTF8 | ConvertFrom-Json)
+    try { return (Get-Content -LiteralPath $arq -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop) }
+    catch { throw "perfis.json ilegivel em ${DataDir}: $($_.Exception.Message)" }
 }
 
 function Get-ClasseEDisco {
@@ -266,25 +267,24 @@ function Get-Coleta {
     }
 }
 
-function Invoke-Acao {
-    param([string]$Id, [string]$Acao, $Params, [bool]$Teste)
-    if ($Acao -ne 'coletar') {
-        Send-Result $Id $null $false 'ação desconhecida'
-        return
-    }
-
+function Invoke-Coletar {
+    param([string]$Id, $Params, [bool]$Teste)
     $forcar = $null
     if ($null -ne $Params) { $forcar = $Params.forcarPerfil }
     if ($null -ne $forcar) {
-        $c = [string]$forcar.classe
-        $d = [string]$forcar.disco
-        if ($Script:ClassesValidas -notcontains $c -or $Script:DiscosValidos -notcontains $d) {
+        # Normaliza para minusculas antes de validar e gravar (Rust so aceita minusculas).
+        $c = ([string]$forcar.classe).ToLowerInvariant()
+        $d = ([string]$forcar.disco).ToLowerInvariant()
+        if ($Script:ClassesValidas -cnotcontains $c -or $Script:DiscosValidos -cnotcontains $d) {
             Send-Result $Id $null $false 'perfil inválido'
             return
         }
     }
 
-    $regras = Get-RegrasPerfil (Join-Path $PSScriptRoot '..\data')
+    $dataDir = Join-Path $PSScriptRoot '..\data'
+    # dataDir so vale em modo de teste (mesmo criterio de 'simular').
+    if ($Teste -and $null -ne $Params -and -not [string]::IsNullOrEmpty([string]$Params.dataDir)) { $dataDir = [string]$Params.dataDir }
+    $regras = Get-RegrasPerfil $dataDir
     $sim = Get-BrutoSimulado $Params $Teste
     if ($null -ne $sim) {
         # Simulacao (somente teste): substitui a coleta real, sem tocar no hardware.
@@ -309,10 +309,10 @@ function Invoke-Acao {
     Send-Progress $Id 90 'Classificando a maquina'
     $existente = Get-Perfil $Teste
     if ($null -ne $forcar) {
-        $perfil = [pscustomobject]@{ classe = [string]$forcar.classe; disco = [string]$forcar.disco; manual = $true }
+        $perfil = [pscustomobject]@{ classe = $c; disco = $d; manual = $true }
         Set-Perfil $perfil $Teste
     } elseif ($null -ne $existente -and $existente.manual -and
-              $Script:ClassesValidas -contains $existente.classe -and $Script:DiscosValidos -contains $existente.disco) {
+              $Script:ClassesValidas -ccontains $existente.classe -and $Script:DiscosValidos -ccontains $existente.disco) {
         $perfil = $existente
     } else {
         $r = Get-ClasseEDisco $bruto $regras
@@ -323,4 +323,19 @@ function Invoke-Acao {
 
     Write-AppLog ("diagnostico: perfil {0}/{1} manual={2}" -f $perfil.classe, $perfil.disco, $perfil.manual) $Teste
     Send-Result $Id $dados
+}
+
+function Invoke-Acao {
+    param([string]$Id, [string]$Acao, $Params, [bool]$Teste)
+    if ($Acao -ne 'coletar') {
+        Send-Result $Id $null $false 'ação desconhecida'
+        return
+    }
+    try {
+        Invoke-Coletar $Id $Params $Teste
+    } catch {
+        $msg = 'diagnóstico falhou: ' + $_.Exception.Message
+        Write-AppLog $msg $Teste
+        Send-Result $Id $null $false $msg
+    }
 }

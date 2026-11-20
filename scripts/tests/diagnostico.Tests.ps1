@@ -1,6 +1,7 @@
 ﻿BeforeAll {
     . "$PSScriptRoot\..\common.ps1"
     . "$PSScriptRoot\..\diagnostico.ps1"
+    . "$PSScriptRoot\_helpers.ps1"
     $Script:Regras = Get-RegrasPerfil (Join-Path $PSScriptRoot '..\..\data')
 
     # Executa uma acao do modulo capturando o protocolo; devolve o @@RESULT (objeto) ou $null.
@@ -134,6 +135,36 @@ Describe 'diagnostico.ps1' {
             $sw.ToString() | Should -Match '"discos":\['
             $sw.ToString() | Should -Match '"gpus":\['
             $sw.ToString() | Should -Match '"unidades":\['
+        }
+        It 'forcarPerfil normaliza maiusculas antes de gravar' {
+            $r = Invoke-Coleta 'coletar' @{ forcarPerfil = @{ classe = 'GAMER'; disco = 'SSD' } }
+            $r.ok | Should -BeTrue
+            $p = Get-Perfil $true
+            $p.classe | Should -BeExactly 'gamer'
+            $p.disco | Should -BeExactly 'ssd'
+            $p.manual | Should -BeTrue
+            $r.dados.perfil.classe | Should -BeExactly 'gamer'
+        }
+        It 'forcarPerfil com disco nvme ou objeto vazio e rejeitado sem gravar' {
+            (Invoke-Coleta 'coletar' @{ forcarPerfil = @{ classe = 'gamer'; disco = 'nvme' } }).ok | Should -BeFalse
+            (Invoke-Coleta 'coletar' @{ forcarPerfil = @{} }).ok | Should -BeFalse
+            Get-Perfil $true | Should -BeNullOrEmpty
+        }
+        It 'perfil existente com caixa inesperada nao e tratado como manual' {
+            Set-Perfil @{ classe = 'GAMER'; disco = 'SSD'; manual = $true } $true
+            $sim = @{ ramGb = 4; nucleos = 2; gpuDedicada = $false; discoSistemaMediaType = 'HDD'; discoSistemaBusType = 'SATA' }
+            (Invoke-Coleta 'coletar' @{ simular = $sim }).ok | Should -BeTrue
+            $p = Get-Perfil $true
+            $p.classe | Should -BeExactly 'basico'
+            $p.manual | Should -BeFalse
+        }
+        It 'falha inesperada ainda devolve exatamente um resultado ok:false' {
+            $vazio = New-PastaTeste 'semperfis'
+            $sim = @{ ramGb = 4; nucleos = 2; gpuDedicada = $false; discoSistemaMediaType = 'HDD' }
+            $r = Invoke-Coleta 'coletar' @{ simular = $sim; dataDir = $vazio }
+            $r | Should -Not -BeNullOrEmpty
+            $r.ok | Should -BeFalse
+            $r.erro | Should -Match 'falhou'
         }
         It 'acao desconhecida devolve erro' {
             $r = Invoke-Coleta 'xyz' @{}
