@@ -84,11 +84,20 @@ function Test-ProtectedPath {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $true }
     try { $full = [IO.Path]::GetFullPath($Path) } catch { return $true }
-    if (Test-Path -LiteralPath $full) {
+    # Expande nomes 8.3 no ancestral existente mais proximo e reanexa o restante
+    $existente = $full
+    $resto = ''
+    while ($existente.Length -gt 3 -and -not (Test-Path -LiteralPath $existente)) {
+        $resto = '\' + (Split-Path -Leaf $existente) + $resto
+        $existente = Split-Path -Parent $existente
+        if ([string]::IsNullOrEmpty($existente)) { break }
+    }
+    if (-not [string]::IsNullOrEmpty($existente) -and (Test-Path -LiteralPath $existente)) {
         try {
-            $fso = New-Object -ComObject Scripting.FileSystemObject
-            if (Test-Path -LiteralPath $full -PathType Container) { $full = $fso.GetFolder($full).Path }
-            else { $full = $fso.GetFile($full).Path }
+            if ($null -eq $Script:Fso) { $Script:Fso = New-Object -ComObject Scripting.FileSystemObject }
+            if (Test-Path -LiteralPath $existente -PathType Container) { $exp = $Script:Fso.GetFolder($existente).Path }
+            else { $exp = $Script:Fso.GetFile($existente).Path }
+            $full = $exp.TrimEnd('\') + $resto
         } catch { $null = $_ }
     }
     $n = $full.TrimEnd('\').ToLowerInvariant()
@@ -134,8 +143,11 @@ function Get-Perfil {
     if (-not (Test-Path -LiteralPath $arq)) { return $null }
     try {
         $r = Get-Content -LiteralPath $arq -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($null -eq $r) { return $null }
-        return $r
+        if ($r -isnot [pscustomobject]) { return $null }
+        $classe = [string]$r.classe
+        $disco = [string]$r.disco
+        if ([string]::IsNullOrEmpty($classe) -or [string]::IsNullOrEmpty($disco)) { return $null }
+        return [pscustomobject]@{ classe = $classe; disco = $disco; manual = [bool]$r.manual }
     } catch { return $null }
 }
 

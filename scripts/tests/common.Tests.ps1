@@ -73,6 +73,7 @@ Context 'Test-ProtectedPath' {
         "$env:ProgramFiles\Microsoft\Edge",
         "$env:ProgramFiles\WindowsApps\X",
         "$env:ProgramData\Otimizador\Quarentena",
+        "$env:SystemDrive\PROGRA~1\Common Files\naoexiste\x",
         ''
     ) {
         Test-ProtectedPath $_ | Should -BeTrue
@@ -82,6 +83,10 @@ Context 'Test-ProtectedPath' {
     }
     It 'nao protege ProgramaQualquer' {
         Test-ProtectedPath "$env:ProgramFiles\ProgramaQualquer" | Should -BeFalse
+    }
+    It 'caminho inexistente sob nome curto 8.3 e tratado como o caminho expandido' {
+        # PROGRA~1\naoexiste\x expande para Program Files\naoexiste\x, igual a ProgramaQualquer: nao protegido
+        Test-ProtectedPath "$env:SystemDrive\PROGRA~1\naoexiste\x" | Should -BeFalse
     }
     It 'nao protege LOCALAPPDATA\Programs\Editor' {
         Test-ProtectedPath "$env:LOCALAPPDATA\Programs\Editor" | Should -BeFalse
@@ -107,6 +112,16 @@ Context 'Pastas e perfil' {
         $r.classe | Should -Be 'gamer'
         $r.disco | Should -Be 'hdd'
         $r.manual | Should -BeFalse
+    }
+    It 'Get-Perfil sem disco devolve null' {
+        $p = Get-AppPastas $true
+        [IO.File]::WriteAllText((Join-Path $p.Estado 'perfil.json'), '{"classe":"x"}')
+        Get-Perfil $true | Should -BeNullOrEmpty
+    }
+    It 'Get-Perfil com JSON que nao e objeto devolve null' {
+        $p = Get-AppPastas $true
+        [IO.File]::WriteAllText((Join-Path $p.Estado 'perfil.json'), '[]')
+        Get-Perfil $true | Should -BeNullOrEmpty
     }
     It 'Write-AppLog anexa ao log do mes' {
         Write-AppLog 'mensagem de teste' $true

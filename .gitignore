@@ -5,3 +5,4 @@ dist/
 *.log
 TestResults/
 .superpowers/
+testResults.xml
