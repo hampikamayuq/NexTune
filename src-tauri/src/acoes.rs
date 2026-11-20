@@ -36,6 +36,8 @@ const MODULOS: &[&str] = &[
     "quarentena",
     "sistema",
     "programas",
+    "inicializacao",
+    "ajusteswin",
 ];
 
 /// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`). A UI roda
@@ -50,6 +52,9 @@ const ESCRITA: &[(&str, &str)] = &[
     ("quarentena", "purgarVencidos"),
     ("sistema", "criarPonto"),
     ("sistema", "ligarProtecao"),
+    ("inicializacao", "alternar"),
+    ("ajusteswin", "aplicar"),
+    ("ajusteswin", "restaurar"),
 ];
 
 /// Tipos de item que `programas/limparRestos` aceita.
@@ -62,6 +67,8 @@ const MAX_ITENS: usize = 500;
 const MAX_TEXTO: usize = 260;
 /// Tamanho máximo (em caracteres) de um caminho ou chave em `limparRestos`.
 const MAX_CAMINHO: usize = 1024;
+/// Máximo de ids por chamada de `ajusteswin/aplicar|restaurar`.
+const MAX_IDS_AJUSTES: usize = 50;
 
 pub fn modulos_permitidos() -> &'static [&'static str] {
     MODULOS
@@ -82,6 +89,21 @@ fn re_id_programa() -> &'static Regex {
     RE.get_or_init(|| {
         Regex::new(r"^(cl:(hklm64|hklm32|hkcu):.{1,255}|st:.{1,255})$").expect("regex válida")
     })
+}
+
+fn re_id_inicio() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"^(run:(hkcu|hklm|hklm32):.{1,255}|pasta:(usuario|todos):.{1,255}|tarefa:\\.{1,255})$",
+        )
+        .expect("regex válida")
+    })
+}
+
+fn re_id_ajuste() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^[a-z0-9_]{1,40}$").expect("regex válida"))
 }
 
 fn erro(msg: impl Into<String>) -> ErroValidacao {
@@ -201,8 +223,13 @@ fn copiar_simular(
     Ok(())
 }
 
-/// `ids`: lista não vazia (até `MAX_IDS`) de ids de quarentena `yyyyMMdd-HHmmss-xxxx`, sem repetição.
-fn ids_quarentena(m: &Map<String, Value>) -> Result<Value, ErroValidacao> {
+/// `ids`: lista não vazia (até `max`) de textos que casam `re`, sem controle e sem repetição.
+fn lista_de_ids(
+    m: &Map<String, Value>,
+    re: &Regex,
+    max: usize,
+    rotulo: &str,
+) -> Result<Value, ErroValidacao> {
     let ids = m
         .get("ids")
         .and_then(Value::as_array)
@@ -210,14 +237,14 @@ fn ids_quarentena(m: &Map<String, Value>) -> Result<Value, ErroValidacao> {
     if ids.is_empty() {
         return Err(erro("ids não pode ser vazio"));
     }
-    if ids.len() > MAX_IDS {
-        return Err(erro(format!("ids: no máximo {MAX_IDS} por vez")));
+    if ids.len() > max {
+        return Err(erro(format!("ids: no máximo {max} por vez")));
     }
     let mut vistos: Vec<&str> = Vec::with_capacity(ids.len());
     for v in ids {
         let id = v.as_str().ok_or_else(|| erro("ids deve conter textos"))?;
-        if !re_id_quarentena().is_match(id) {
-            return Err(erro(format!("id de quarentena inválido: {id}")));
+        if tem_controle(id) || !re.is_match(id) {
+            return Err(erro(format!("id de {rotulo} inválido: {id}")));
         }
         if vistos.contains(&id) {
             return Err(erro(format!("id repetido: {id}")));
@@ -225,6 +252,25 @@ fn ids_quarentena(m: &Map<String, Value>) -> Result<Value, ErroValidacao> {
         vistos.push(id);
     }
     Ok(Value::Array(ids.clone()))
+}
+
+/// `ids`: lista não vazia (até `MAX_IDS`) de ids de quarentena `yyyyMMdd-HHmmss-xxxx`, sem repetição.
+fn ids_quarentena(m: &Map<String, Value>) -> Result<Value, ErroValidacao> {
+    lista_de_ids(m, re_id_quarentena(), MAX_IDS, "quarentena")
+}
+
+/// Id de item de inicialização: `run:<hkcu|hklm|hklm32>:<nome>`, `pasta:<usuario|todos>:<arquivo>` ou
+/// `tarefa:\<caminho><nome>`; 1..=255 caracteres após o prefixo, sem controle. O PowerShell resolve o
+/// id contra a própria lista; aqui ele nunca vira caminho.
+fn id_inicio(m: &Map<String, Value>) -> Result<String, ErroValidacao> {
+    let id = m
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| erro("id é obrigatório (texto)"))?;
+    if tem_controle(id) || !re_id_inicio().is_match(id) {
+        return Err(erro("id de inicialização inválido"));
+    }
+    Ok(id.to_string())
 }
 
 /// Id de programa: `cl:<hklm64|hklm32|hkcu>:<chave>` ou `st:<PackageFullName>`, 1..=255 caracteres
@@ -516,6 +562,61 @@ pub fn validar(
             copiar_texto(&m, &mut saida, "nome", MAX_TEXTO)?;
             Ok(Value::Object(saida))
         }
+        ("inicializacao", "listar") | ("ajusteswin", "listar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["avancado", "simular"])?;
+            let mut saida = Map::new();
+            copiar_bool(&m, &mut saida, "avancado")?;
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("inicializacao", "alternar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["id", "ativar", "confirmado", "avancado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let id = id_inicio(&m)?;
+            let ativar = m
+                .get("ativar")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| erro("ativar é obrigatório (booleano)"))?;
+            let tarefa = id.starts_with("tarefa:");
+            let mut saida = Map::new();
+            saida.insert("id".into(), Value::String(id));
+            saida.insert("ativar".into(), Value::Bool(ativar));
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_bool(&m, &mut saida, "avancado")?;
+            // Review Focus 2: tarefa agendada só no modo avançado (o script confere de novo).
+            if tarefa && saida.get("avancado") != Some(&Value::Bool(true)) {
+                return Err(erro("tarefas agendadas exigem avancado:true"));
+            }
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("ajusteswin", "aplicar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["ids", "confirmado", "avancado"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert(
+                "ids".into(),
+                lista_de_ids(&m, re_id_ajuste(), MAX_IDS_AJUSTES, "ajuste")?,
+            );
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_bool(&m, &mut saida, "avancado")?;
+            Ok(Value::Object(saida))
+        }
+        ("ajusteswin", "restaurar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["ids", "confirmado"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert(
+                "ids".into(),
+                lista_de_ids(&m, re_id_ajuste(), MAX_IDS_AJUSTES, "ajuste")?,
+            );
+            saida.insert("confirmado".into(), Value::Bool(true));
+            Ok(Value::Object(saida))
+        }
         _ => Err(ErroValidacao::NaoPermitida(format!("{modulo}/{acao}"))),
     }
 }
@@ -722,7 +823,7 @@ mod testes {
 
     #[test]
     fn modulos() {
-        assert_eq!(modulos_permitidos().len(), 6);
+        assert_eq!(modulos_permitidos().len(), 8);
         for m in [
             "host",
             "diagnostico",
@@ -730,6 +831,8 @@ mod testes {
             "quarentena",
             "sistema",
             "programas",
+            "inicializacao",
+            "ajusteswin",
         ] {
             assert!(modulos_permitidos().contains(&m), "{m}");
         }
@@ -747,6 +850,9 @@ mod testes {
             ("quarentena", "purgarVencidos"),
             ("sistema", "criarPonto"),
             ("sistema", "ligarProtecao"),
+            ("inicializacao", "alternar"),
+            ("ajusteswin", "aplicar"),
+            ("ajusteswin", "restaurar"),
         ] {
             assert!(e_escrita(m, a), "{m}/{a} é escrita");
         }
@@ -759,6 +865,8 @@ mod testes {
             ("quarentena", "listar"),
             ("sistema", "protecaoEstado"),
             ("sistema", "sessao"),
+            ("inicializacao", "listar"),
+            ("ajusteswin", "listar"),
             ("limpeza", "Limpar"),
             ("inexistente", "limpar"),
         ] {
@@ -1455,5 +1563,114 @@ mod testes {
         parametro(limpar_restos(
             json!([{"tipo": "chave", "caminho": "D:\\a\\b.txt"}]),
         ));
+    }
+
+    // ---- inicializacao ----
+
+    #[test]
+    fn inicializacao_e_ajusteswin_listar() {
+        for (m, a) in [("inicializacao", "listar"), ("ajusteswin", "listar")] {
+            assert_eq!(validar(m, a, &json!(null), false).unwrap(), json!({}));
+            let p = json!({"avancado": true});
+            assert_eq!(validar(m, a, &p, false).unwrap(), p);
+            parametro(validar(m, a, &json!({"avancado": "s"}), false));
+            parametro(validar(m, a, &json!({"x": 1}), false));
+            let sim = json!({"simular": {"tarefas": []}});
+            assert_eq!(validar(m, a, &sim, true).unwrap(), sim);
+            parametro(validar(m, a, &sim, false));
+        }
+    }
+
+    #[test]
+    fn inicializacao_alternar_valido() {
+        for id in [
+            "run:hkcu:Spotify",
+            "run:hklm32:Nome Com Espaço (x64) ção",
+            "run:hklm:X",
+            "pasta:usuario:App.lnk",
+            "pasta:todos:App.lnk",
+        ] {
+            for ativar in [true, false] {
+                let p = json!({"id": id, "ativar": ativar, "confirmado": true});
+                assert_eq!(validar("inicializacao", "alternar", &p, false).unwrap(), p);
+            }
+        }
+        let p = json!({"id": "tarefa:\\Positivo\\Updater", "ativar": false, "confirmado": true, "avancado": true});
+        assert_eq!(validar("inicializacao", "alternar", &p, false).unwrap(), p);
+        let sim = json!({"id": "run:hkcu:X", "ativar": true, "confirmado": true, "simular": {"tarefas": []}});
+        assert_eq!(validar("inicializacao", "alternar", &sim, true).unwrap(), sim);
+        parametro(validar("inicializacao", "alternar", &sim, false));
+    }
+
+    /// Review Focus 2 (lado Rust): tarefa agendada só com `avancado:true`; quem recusa protegidos é o
+    /// PowerShell, e nada aqui pode “liberar” um id fora da forma.
+    #[test]
+    fn inicializacao_alternar_recusa() {
+        let alt = |p: Value| validar("inicializacao", "alternar", &p, false);
+        parametro(alt(json!({"id": "run:hkcu:X", "ativar": true})));
+        parametro(alt(json!({"id": "run:hkcu:X", "ativar": true, "confirmado": "true"})));
+        parametro(alt(json!({"id": "run:hkcu:X", "ativar": true, "confirmado": 1})));
+        parametro(alt(json!({"id": "run:hkcu:X", "confirmado": true})));
+        parametro(alt(json!({"id": "run:hkcu:X", "ativar": 1, "confirmado": true})));
+        parametro(alt(json!({"id": "run:hkcu:X", "ativar": "true", "confirmado": true})));
+        parametro(alt(json!({"ativar": true, "confirmado": true})));
+        parametro(alt(json!({"id": 5, "ativar": true, "confirmado": true})));
+        parametro(alt(json!({"id": "run:hkcu:X", "ativar": true, "confirmado": true, "x": 1})));
+        let longo = format!("run:hkcu:{}", "a".repeat(256));
+        let limite = format!("run:hkcu:{}", "a".repeat(255));
+        assert!(alt(json!({"id": limite, "ativar": true, "confirmado": true})).is_ok());
+        for id in [
+            "",
+            "run:hklm:",
+            "run:hkey:X",
+            "run:hklm64:X",
+            "RUN:hkcu:X",
+            "pasta:outro:X",
+            "pasta:usuario:",
+            "tarefa:Sem\\Barra",
+            "tarefa:",
+            "tarefa:\\",
+            "run:hkcu:a\nb",
+            "run:hkcu:a\u{0}b",
+            "pasta:todos:a\tb",
+            "cl:hkcu:X",
+            longo.as_str(),
+        ] {
+            parametro(alt(json!({"id": id, "ativar": true, "confirmado": true})));
+        }
+        parametro(alt(json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true})));
+        parametro(alt(json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true, "avancado": false})));
+        assert!(alt(json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true, "avancado": true})).is_ok());
+    }
+
+    // ---- ajusteswin ----
+
+    #[test]
+    fn ajusteswin_aplicar_e_restaurar() {
+        let p = json!({"ids": ["id_publicidade", "efeitos_visuais"], "confirmado": true});
+        assert_eq!(validar("ajusteswin", "aplicar", &p, false).unwrap(), p);
+        assert_eq!(validar("ajusteswin", "restaurar", &p, false).unwrap(), p);
+        let av = json!({"ids": ["historico_atividades"], "confirmado": true, "avancado": true});
+        assert_eq!(validar("ajusteswin", "aplicar", &av, false).unwrap(), av);
+        parametro(validar("ajusteswin", "restaurar", &av, false));
+        let longo41 = "a".repeat(41);
+        for a in ["aplicar", "restaurar"] {
+            let v = |p: Value| validar("ajusteswin", a, &p, false);
+            parametro(v(json!({"ids": ["x"]})));
+            parametro(v(json!({"ids": ["x"], "confirmado": "true"})));
+            parametro(v(json!({"confirmado": true})));
+            parametro(v(json!({"ids": [], "confirmado": true})));
+            parametro(v(json!({"ids": "x", "confirmado": true})));
+            parametro(v(json!({"ids": [1], "confirmado": true})));
+            parametro(v(json!({"ids": ["x", "x"], "confirmado": true})));
+            for ruim in ["", "Maiusculo", "com-hifen", "com espaco", "ção", "a\nb", longo41.as_str()] {
+                parametro(v(json!({"ids": [ruim], "confirmado": true})));
+            }
+            let muitos: Vec<String> = (0..MAX_IDS_AJUSTES).map(|i| format!("a{i}")).collect();
+            assert!(v(json!({"ids": muitos, "confirmado": true})).is_ok());
+            let demais: Vec<String> = (0..=MAX_IDS_AJUSTES).map(|i| format!("a{i}")).collect();
+            parametro(v(json!({"ids": demais, "confirmado": true})));
+            parametro(validar("ajusteswin", a, &json!({"ids": ["x"], "confirmado": true, "simular": {}}), true));
+        }
     }
 }
