@@ -2,7 +2,8 @@
     . "$PSScriptRoot\..\common.ps1"
     . "$PSScriptRoot\..\quarentena.ps1"
     . "$PSScriptRoot\_helpers.ps1"
-    $Script:Raiz = Join-Path $env:TEMP 'NexTuneTeste\quarentena'   # origem dos itens de teste
+    # Origem dos itens de teste. NAO pode ser ...\quarentena: em NTFS seria a mesma pasta da base da quarentena.
+    $Script:Raiz = Join-Path $env:TEMP 'NexTuneTeste\origem'
     $Script:Quar = (Get-AppPastas $true).Quarentena
     $Script:ChaveBase = 'HKCU:\Software\NexTuneTeste'
 
@@ -182,6 +183,72 @@ Describe 'quarentena.ps1' {
             { Add-ItemQuarentena -Entrada $e -Caminho (Join-Path $Script:Raiz 'nao-existe.txt') } | Should -Throw
             $e.itens.Count | Should -Be 0
         }
+        It 'pasta com junction dentro e recusada e nada se move' {
+            $alvo = Join-Path $env:TEMP 'NexTuneTeste\foraDentro'
+            New-ArquivoTeste (Join-Path $alvo 'preciso.txt') 10
+            $pasta = Join-Path $Script:Raiz 'comLink'
+            New-ArquivoTeste (Join-Path $pasta 'normal.txt') 10
+            New-ArquivoTeste (Join-Path $pasta 'sub\fundo\x.txt') 10
+            $j = Join-Path $pasta 'sub\fundo\jn'
+            New-Juncao $j $alvo
+            try {
+                $e = New-EntradaQuarentena -Modulo 'teste' -Descricao 'junction dentro' -Teste $true
+                { Add-ItemQuarentena -Entrada $e -Caminho $pasta } | Should -Throw -ExpectedMessage '*junção*'
+                $e.itens.Count | Should -Be 0
+                Test-Path -LiteralPath (Join-Path $pasta 'normal.txt') | Should -BeTrue
+                Test-Path -LiteralPath $j | Should -BeTrue
+                Test-Path -LiteralPath (Join-Path $alvo 'preciso.txt') | Should -BeTrue
+                @(Get-ChildItem -LiteralPath (Join-Path $e.pasta 'itens') -Force).Count | Should -Be 0
+            } finally { Remove-Juncao $j }
+        }
+        It 'Test-ArvoreSemLink detecta junction em qualquer nivel' {
+            $alvo = Join-Path $env:TEMP 'NexTuneTeste\foraArvore'
+            New-ArquivoTeste (Join-Path $alvo 'preciso.txt') 10
+            $pasta = Join-Path $Script:Raiz 'arvore'
+            New-ArquivoTeste (Join-Path $pasta 'a\b\c.txt') 10
+            New-ArquivoTeste (Join-Path $pasta 'd.txt') 10
+            Test-ArvoreSemLink $pasta | Should -BeTrue
+            $j = Join-Path $pasta 'a\b\jn'
+            New-Juncao $j $alvo
+            try { Test-ArvoreSemLink $pasta | Should -BeFalse } finally { Remove-Juncao $j }
+            Test-ArvoreSemLink $pasta | Should -BeTrue
+        }
+        It 'origem dentro de junction e recusada (cadeia de pastas sem link)' {
+            $alvo = Join-Path $env:TEMP 'NexTuneTeste\foraCadeia'
+            New-ArquivoTeste (Join-Path $alvo 'preciso.txt') 10
+            $j = Join-Path $Script:Raiz 'jnPai'
+            New-Juncao $j $alvo
+            try {
+                $e = New-EntradaQuarentena -Modulo 'teste' -Descricao 'dentro de junction' -Teste $true
+                { Add-ItemQuarentena -Entrada $e -Caminho (Join-Path $j 'preciso.txt') } | Should -Throw -ExpectedMessage '*junção*'
+                $e.itens.Count | Should -Be 0
+                Test-Path -LiteralPath (Join-Path $alvo 'preciso.txt') | Should -BeTrue
+            } finally { Remove-Juncao $j }
+        }
+        It 'falha no meio com a pasta do item vazia desfaz tudo' {
+            $e = New-EntradaQuarentena -Modulo 'teste' -Descricao 'falha' -Teste $true
+            $arq = Join-Path $Script:Raiz 'f1\arquivo.txt'
+            New-ArquivoTeste $arq 10
+            Mock Move-Item { throw 'disco cheio' }
+            { Add-ItemQuarentena -Entrada $e -Caminho $arq } | Should -Throw -ExpectedMessage '*disco cheio*'
+            $e.itens.Count | Should -Be 0
+            Test-Path -LiteralPath $arq | Should -BeTrue
+            @(Get-ChildItem -LiteralPath (Join-Path $e.pasta 'itens') -Force).Count | Should -Be 0
+        }
+        It 'falha depois de exportar a chave guarda o .reg como item parcial' {
+            $prov = 'HKCU:\Software\NexTuneTeste\Parcial'
+            New-Item -Path $prov -Force | Out-Null
+            Set-ItemProperty -LiteralPath $prov -Name 'V' -Value 'x'
+            $e = New-EntradaQuarentena -Modulo 'teste' -Descricao 'parcial' -Teste $true
+            Mock Remove-Item { throw 'chave travada' } -ParameterFilter { $LiteralPath -like 'Registry::*' }
+            { Add-ItemQuarentena -Entrada $e -Caminho 'HKCU\Software\NexTuneTeste\Parcial' } | Should -Throw -ExpectedMessage '*parcial*'
+            $e.itens.Count | Should -Be 1
+            Test-Path -LiteralPath (Join-Path $e.pasta 'itens\1\chave.reg') | Should -BeTrue
+            Test-Path -LiteralPath $prov | Should -BeTrue
+            $e = Complete-EntradaQuarentena -Entrada $e
+            @((Get-ManifestoTeste $e.id).itens).Count | Should -Be 1
+            (Get-ManifestoTeste $e.id).itens[0].origem | Should -Be 'HKCU\Software\NexTuneTeste\Parcial'
+        }
     }
 
     Context 'listar' {
@@ -340,6 +407,54 @@ Describe 'quarentena.ps1' {
             Test-Path -LiteralPath (Join-Path $Script:Raiz 'ra1\pasta') | Should -BeFalse
             Test-Path -LiteralPath (Join-Path (Get-PastaDaEntrada $e.id) 'itens\2\pasta\dentro.txt') | Should -BeTrue
         }
+        It 'manifesto com nome ou origem fora do formato vai para falhas e nada se move' {
+            foreach ($forja in @(
+                    { param($m) $m.itens[0].nome = '..\..\arquivo.txt' },
+                    { param($m) $m.itens[0].nome = '..' },
+                    { param($m) $m.itens[0].origem = 'arquivo.txt' },
+                    { param($m) $m.itens[0].origem = '\\servidor\share\arquivo.txt' },
+                    { param($m) $m.itens[0].tipo = 'outro' },
+                    { param($m) $m.itens[0].n = '1\..\..' })) {
+                $e = New-EntradaTeste 'mf'
+                Set-ManifestoTeste $e.id $forja
+                $r = Invoke-Q 'restaurar' @{ ids = @($e.id) }
+                $r.ok | Should -BeTrue
+                @($r.dados.restauradas).Count | Should -Be 0
+                @($r.dados.conflitos).Count | Should -Be 0
+                @($r.dados.falhas).Count | Should -Be 1
+                $r.dados.falhas[0].erro | Should -Match 'manifesto'
+                Test-Path -LiteralPath (Join-Path $Script:Raiz 'mf\pasta') | Should -BeFalse
+                Test-Path -LiteralPath (Join-Path (Get-PastaDaEntrada $e.id) 'itens\2\pasta\dentro.txt') | Should -BeTrue
+                Invoke-Q 'purgar' @{ ids = @($e.id); confirmado = $true } | Out-Null
+            }
+        }
+        It 'Test-ItemManifesto aceita so itens bem formados' {
+            Test-ItemManifesto ([pscustomobject]@{ n = 1; tipo = 'arquivo'; origem = 'C:\Temp\a.txt'; nome = 'a.txt' }) | Should -BeTrue
+            Test-ItemManifesto ([pscustomobject]@{ n = 2; tipo = 'chave'; origem = 'HKCU\Software\X'; nome = 'chave.reg' }) | Should -BeTrue
+            Test-ItemManifesto ([pscustomobject]@{ n = 1; tipo = 'arquivo'; origem = 'C:\Temp\a.txt'; nome = 'sub\a.txt' }) | Should -BeFalse
+            Test-ItemManifesto ([pscustomobject]@{ n = 1; tipo = 'arquivo'; origem = 'C:\Temp\a.txt'; nome = '.' }) | Should -BeFalse
+            Test-ItemManifesto ([pscustomobject]@{ n = 1; tipo = 'pasta'; origem = 'Temp\a'; nome = 'a' }) | Should -BeFalse
+            Test-ItemManifesto ([pscustomobject]@{ n = 1; tipo = 'pasta'; origem = '\\srv\share\a'; nome = 'a' }) | Should -BeFalse
+            Test-ItemManifesto ([pscustomobject]@{ n = 'x'; tipo = 'arquivo'; origem = 'C:\Temp\a.txt'; nome = 'a.txt' }) | Should -BeFalse
+            Test-ItemManifesto ([pscustomobject]@{ n = 1; tipo = 'chave'; origem = 'C:\Temp\a.txt'; nome = 'chave.reg' }) | Should -BeFalse
+            Test-ItemManifesto $null | Should -BeFalse
+        }
+        It 'origem dentro de junction vira conflito ao restaurar' {
+            $alvo = Join-Path $env:TEMP 'NexTuneTeste\foraRestaura'
+            New-Item -ItemType Directory -Path $alvo -Force | Out-Null
+            $e = New-EntradaTeste 'rj1'
+            $j = Join-Path $Script:Raiz 'jnRestaura'
+            New-Juncao $j $alvo
+            try {
+                Set-ManifestoTeste $e.id { param($m) $m.itens[0].origem = (Join-Path $Script:Raiz 'jnRestaura\arquivo.txt') }
+                $r = Invoke-Q 'restaurar' @{ ids = @($e.id) }
+                @($r.dados.restauradas).Count | Should -Be 0
+                @($r.dados.conflitos).Count | Should -Be 1
+                $r.dados.conflitos[0].motivo | Should -Match 'junção'
+                Test-Path -LiteralPath (Join-Path $alvo 'arquivo.txt') | Should -BeFalse
+                Test-Path -LiteralPath (Join-Path (Get-PastaDaEntrada $e.id) 'itens\2\pasta\dentro.txt') | Should -BeTrue
+            } finally { Remove-Juncao $j }
+        }
         It 'ids invalidos, repetidos ou ausentes sao recusados' {
             $e = New-EntradaTeste 'ri1'
             (Invoke-Q 'restaurar' @{}).ok | Should -BeFalse
@@ -421,6 +536,38 @@ Describe 'quarentena.ps1' {
             { Add-ItemQuarentena -Entrada $e -Caminho 'HKCU\Software\NexTuneTeste\NaoExiste' } | Should -Throw
             $e.itens.Count | Should -Be 0
         }
+        It 'Test-ChaveRegistro recusa aspas duplas e quebras de linha' {
+            Test-ChaveRegistro 'HKCU\Software\NexTuneTeste\Com "Aspas"' | Should -BeFalse
+            Test-ChaveRegistro "HKCU\Software\NexTuneTeste\Linha`nNova" | Should -BeFalse
+            Test-ChaveRegistro 'HKCU\Software\NexTuneTeste\Teste Ação (1)' | Should -BeTrue
+        }
+        It 'Restore-ChaveRegistro recusa .reg que nomeia outra chave e aceita o da propria chave' {
+            $esperada = 'HKCU\Software\NexTuneTeste\Esperada'
+            $outra = 'HKCU\Software\NexTuneTeste\Outra'
+            $arq = Join-Path $Script:Raiz 'manual.reg'
+            $texto = "Windows Registry Editor Version 5.00`r`n`r`n[HKEY_CURRENT_USER\Software\NexTuneTeste\Outra]`r`n`"V`"=`"x`"`r`n`r`n[HKEY_CURRENT_USER\Software\NexTuneTeste\Outra\Sub]`r`n`"W`"=`"y`"`r`n"
+            New-Item -ItemType Directory -Path $Script:Raiz -Force | Out-Null
+            [IO.File]::WriteAllText($arq, $texto, [System.Text.Encoding]::Unicode)
+            # chave esperada diferente da nomeada: recusa antes de importar
+            { Restore-ChaveRegistro -Arquivo $arq -Chave $esperada -Teste $true } | Should -Throw -ExpectedMessage '*não corresponde*'
+            Test-Path -LiteralPath 'HKCU:\Software\NexTuneTeste\Outra' | Should -BeFalse
+            # linha de apagamento [-HKEY_...] de outra chave tambem e recusada
+            $apaga = $texto + "[-HKEY_CURRENT_USER\Software\NexTuneTeste\Esperada]`r`n"
+            [IO.File]::WriteAllText($arq, $apaga, [System.Text.Encoding]::Unicode)
+            { Restore-ChaveRegistro -Arquivo $arq -Chave $outra -Teste $true } | Should -Throw -ExpectedMessage '*não corresponde*'
+            # .reg sem nenhuma chave tambem e recusado
+            [IO.File]::WriteAllText($arq, "Windows Registry Editor Version 5.00`r`n", [System.Text.Encoding]::Unicode)
+            { Restore-ChaveRegistro -Arquivo $arq -Chave $outra -Teste $true } | Should -Throw -ExpectedMessage '*não corresponde*'
+            # chave certa (com subchave): importa
+            [IO.File]::WriteAllText($arq, $texto, [System.Text.Encoding]::Unicode)
+            Restore-ChaveRegistro -Arquivo $arq -Chave $outra -Teste $true
+            (Get-ItemProperty -LiteralPath 'HKCU:\Software\NexTuneTeste\Outra').V | Should -Be 'x'
+            (Get-ItemProperty -LiteralPath 'HKCU:\Software\NexTuneTeste\Outra\Sub').W | Should -Be 'y'
+            # funcao pura: caixa e forma curta da raiz nao importam
+            Test-ConteudoReg @('[hkey_current_user\software\nextuneteste\outra]') 'HKEY_CURRENT_USER\Software\NexTuneTeste\Outra' | Should -BeTrue
+            Test-ConteudoReg @('[HKEY_CURRENT_USER\Software\NexTuneTeste\OutraCoisa]') $outra | Should -BeFalse
+            Test-ConteudoReg @('"V"="x"') $outra | Should -BeFalse
+        }
     }
 
     Context 'purgar' {
@@ -452,26 +599,20 @@ Describe 'quarentena.ps1' {
             $r.dados.falhas[0].id | Should -Be '20200101-000000-abcd'
         }
         It 'nao segue junction dentro da pasta em quarentena' {
+            # Add-ItemQuarentena recusa pasta com junction dentro; aqui a junction e plantada DEPOIS, ja na quarentena.
             $alvo = Join-Path $env:TEMP 'NexTuneTeste\foraPurga'
             New-ArquivoTeste (Join-Path $alvo 'preciso.txt') 10
-            $pasta = Join-Path $Script:Raiz 'comLink'
-            New-ArquivoTeste (Join-Path $pasta 'normal.txt') 10
-            $j = Join-Path $pasta 'jn'
+            $e = New-EntradaTeste 'pj1'
+            $j = Join-Path (Get-PastaDaEntrada $e.id) 'itens\2\pasta\jn'
             New-Juncao $j $alvo
-            $e = $null
             try {
-                $e = New-EntradaQuarentena -Modulo 'teste' -Descricao 'pasta com junction' -Teste $true
-                Add-ItemQuarentena -Entrada $e -Caminho $pasta | Out-Null
-                $e = Complete-EntradaQuarentena -Entrada $e
+                Test-Path -LiteralPath (Join-Path $j 'preciso.txt') | Should -BeTrue
                 $r = Invoke-Q 'purgar' @{ ids = @($e.id); confirmado = $true }
                 $r.ok | Should -BeTrue
                 @($r.dados.removidas) | Should -Be @($e.id)
                 Test-Path -LiteralPath (Join-Path $alvo 'preciso.txt') | Should -BeTrue
                 Test-Path -LiteralPath (Get-PastaDaEntrada $e.id) | Should -BeFalse
-            } finally {
-                Remove-Juncao $j
-                if ($null -ne $e) { Remove-Juncao (Join-Path (Get-PastaDaEntrada $e.id) 'itens\1\comLink\jn') }
-            }
+            } finally { Remove-Juncao $j }
         }
     }
 

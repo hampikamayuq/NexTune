@@ -45,7 +45,7 @@ function Test-ChaveRegistro {
     # Puro: o texto tem a forma de chave aceita pelo reg.exe (HKCU\..., HKEY_LOCAL_MACHINE\...)?
     param([string]$Chave)
     if ([string]::IsNullOrWhiteSpace($Chave)) { return $false }
-    if ($Chave -match '[\r\n]') { return $false }
+    if ($Chave -match '[\r\n"]') { return $false }
     if ($Chave -notmatch '^[A-Za-z_]+\\[^\\]') { return $false }
     $raiz = @($Chave -split '\\', 2)[0]
     return $Script:RaizRegistro.ContainsKey($raiz)
@@ -88,13 +88,40 @@ function Export-ChaveRegistro {
     if (-not (Test-Path -LiteralPath $Arquivo -PathType Leaf)) { throw "reg.exe não gerou o arquivo $Arquivo" }
 }
 
+function Test-ConteudoReg {
+    # Puro: toda chave nomeada no .reg ([HKEY_...] ou [-HKEY_...]) e a chave esperada ou subchave dela,
+    # e ha pelo menos uma? Compara pelo nome longo da raiz, sem diferenciar caixa.
+    param([string[]]$Linhas, [string]$Chave)
+    $alvo = (ConvertTo-CaminhoRegistro $Chave).Substring('Registry::'.Length)
+    $achou = $false
+    foreach ($l in @($Linhas)) {
+        if ($l -notmatch '^\[-?HKEY_') { continue }
+        if ($l -match '^\[-?(HKEY_.*)\]\s*$') { $k = $Matches[1].TrimEnd('\') } else { return $false }
+        if (-not ($k.Equals($alvo, [StringComparison]::OrdinalIgnoreCase) -or $k.StartsWith($alvo + '\', [StringComparison]::OrdinalIgnoreCase))) { return $false }
+        $achou = $true
+    }
+    return $achou
+}
+
+function Get-LinhaReg {
+    # Linhas de um .reg (UTF-16 LE com BOM, como o reg.exe gera; UTF-8 se nao houver BOM).
+    param([string]$Arquivo)
+    $sr = New-Object System.IO.StreamReader($Arquivo, [System.Text.Encoding]::UTF8, $true)
+    try { $texto = $sr.ReadToEnd() } finally { $sr.Dispose() }
+    return @($texto -split "`r?`n")
+}
+
 function Restore-ChaveRegistro {
-    # Reimporta um .reg gerado por Export-ChaveRegistro. -Chave e a origem do manifesto (conferida em modo teste).
+    # Reimporta um .reg gerado por Export-ChaveRegistro. -Chave e a origem do manifesto: em modo teste e
+    # conferida contra a area de teste e, sempre que informada, o .reg so pode nomear essa chave ou subchaves.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
     param([string]$Arquivo, [string]$Chave = '', [bool]$Teste = $false)
     if ($Teste -or -not [string]::IsNullOrEmpty($Chave)) { Confirm-ChavePermitida $Chave $Teste }
     if (-not (Test-Path -LiteralPath $Arquivo -PathType Leaf)) { throw "arquivo .reg não encontrado: $Arquivo" }
+    if (-not [string]::IsNullOrEmpty($Chave) -and -not (Test-ConteudoReg (Get-LinhaReg $Arquivo) $Chave)) {
+        throw "o arquivo .reg não corresponde à chave $Chave (nomeia outra chave ou nenhuma)"
+    }
     $saida = @(& $Script:RegExe import $Arquivo 2>&1 | ForEach-Object { [string]$_ })
     if ($LASTEXITCODE -ne 0) { throw "reg.exe import falhou (código ${LASTEXITCODE}): $(($saida -join ' ').Trim())" }
 }
@@ -119,6 +146,23 @@ function Remove-PastaSegura {
         }
     }
     Remove-Item -LiteralPath $Pasta -Force -ErrorAction Stop
+}
+
+function Test-ArvoreSemLink {
+    # $true se nenhum descendente da pasta for junction/link. Desce sem seguir links (mesma pilha de
+    # Get-PathSize); pasta ilegivel conta como inseguro.
+    param([string]$Pasta)
+    try {
+        $pilha = New-Object System.Collections.Generic.Stack[string]
+        $pilha.Push($Pasta)
+        while ($pilha.Count -gt 0) {
+            foreach ($f in @(Get-ChildItem -LiteralPath $pilha.Pop() -Force -ErrorAction Stop)) {
+                if (Test-Reparse $f) { return $false }
+                if ($f.PSIsContainer) { $pilha.Push($f.FullName) }
+            }
+        }
+        return $true
+    } catch { return $false }
 }
 
 function ConvertTo-DataUtc {
@@ -152,8 +196,26 @@ function Get-Manifesto {
     } catch { return $null }
 }
 
+function Test-ItemManifesto {
+    # Puro: o item do manifesto tem forma segura para montar caminhos? n inteiro; nome e um nome simples
+    # (sem separadores, nem . ou ..); origem e chave valida ou caminho absoluto com letra de unidade.
+    param($Item)
+    if ($null -eq $Item) { return $false }
+    $tipo = [string]$Item.tipo
+    $nome = [string]$Item.nome
+    $origem = [string]$Item.origem
+    if ($Script:TiposItem -cnotcontains $tipo) { return $false }
+    if (([string]$Item.n) -notmatch '^[0-9]+$') { return $false }
+    if ([string]::IsNullOrWhiteSpace($nome) -or $nome -eq '.' -or $nome -eq '..') { return $false }
+    try { if ([IO.Path]::GetFileName($nome) -ne $nome) { return $false } } catch { return $false }
+    if ([string]::IsNullOrWhiteSpace($origem)) { return $false }
+    if ($tipo -eq 'chave') { return (Test-ChaveRegistro $origem) }
+    if ($origem -notmatch '^[A-Za-z]:\\' -or $origem -match '[\r\n]') { return $false }
+    try { return [IO.Path]::IsPathRooted($origem) } catch { return $false }
+}
+
 function Get-FonteItem {
-    # Caminho do item dentro da entrada: <pasta>\itens\<n>\<nome>.
+    # Caminho do item dentro da entrada: <pasta>\itens\<n>\<nome>. So para itens ja validados por Test-ItemManifesto.
     param([string]$Pasta, $Item)
     return (Join-Path (Join-Path (Join-Path $Pasta 'itens') ([string]$Item.n)) ([string]$Item.nome))
 }
@@ -225,12 +287,17 @@ function Add-ItemQuarentena {
     } else {
         if (Test-ProtectedPath $Caminho) { throw "caminho protegido, não vai para a quarentena: $Caminho" }
         $item = Get-Item -LiteralPath $Caminho -Force -ErrorAction Stop
-        if (Test-Reparse $item) { throw "link ou junção recusado, não vai para a quarentena: $Caminho" }
         $origem = $item.FullName
+        if (Test-ProtectedPath $origem) { throw "caminho protegido, não vai para a quarentena: $origem" }
+        if (Test-Reparse $item) { throw "link ou junção recusado, não vai para a quarentena: $origem" }
+        if (-not (Test-CadeiaSemLink $origem)) { throw "caminho dentro de link ou junção recusado, não vai para a quarentena: $origem" }
+        # Move-Item entre volumes vira copia + apagamento e SEGUIRIA junctions dentro da arvore.
+        if ($item.PSIsContainer -and -not (Test-ArvoreSemLink $origem)) { throw "pasta com link ou junção dentro recusada, não vai para a quarentena: $origem" }
         $nome = $item.Name
         if ($item.PSIsContainer) { $tipoFinal = 'pasta' } else { $tipoFinal = 'arquivo' }
     }
     New-Item -ItemType Directory -Path $destino -Force -ErrorAction Stop | Out-Null
+    $registro = [ordered]@{ n = $n; tipo = $tipoFinal; origem = $origem; nome = $nome }
     try {
         if ($ehChave) {
             Export-ChaveRegistro -Chave $origem -Arquivo (Join-Path $destino $nome) -Teste $teste
@@ -240,12 +307,19 @@ function Add-ItemQuarentena {
             Move-Item -LiteralPath $origem -Destination $destino -ErrorAction Stop
         }
     } catch {
-        # Se nada saiu da origem, descarta a pasta do item e repassa o erro.
-        if ($ehChave) { $aindaNaOrigem = Test-Path -LiteralPath $prov } else { $aindaNaOrigem = Test-Path -LiteralPath $origem }
-        if ($aindaNaOrigem) { try { Remove-PastaSegura $destino } catch { $null = $_ } }
-        throw
+        $erroOriginal = $_
+        if (@(Get-ChildItem -LiteralPath $destino -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+            # Nada chegou aqui: descarta a pasta do item e repassa o erro.
+            try { Remove-PastaSegura $destino } catch { $null = $_ }
+            throw $erroOriginal
+        }
+        # Algo ja esta aqui (ex.: .reg exportado e chave removida pela metade): e o unico backup, entao o
+        # item fica registrado para o manifesto e o erro avisa que foi parcial.
+        $Entrada.itens.Add($registro)
+        $msg = "item $n parcial na quarentena $($Entrada.id) ($tipoFinal $origem): $($erroOriginal.Exception.Message)"
+        Write-AppLog "quarentena $($Entrada.id): $msg" $teste
+        throw $msg
     }
-    $registro = [ordered]@{ n = $n; tipo = $tipoFinal; origem = $origem; nome = $nome }
     $Entrada.itens.Add($registro)
     Write-AppLog ("quarentena {0}: {1} movido para a quarentena: {2}" -f $Entrada.id, $tipoFinal, $origem) $teste
     return [pscustomobject]$registro
@@ -309,9 +383,8 @@ function Get-ConflitoRestauracao {
     foreach ($it in $Itens) {
         $origem = [string]$it.origem
         $tipo = [string]$it.tipo
-        if ([string]::IsNullOrWhiteSpace($origem) -or $Script:TiposItem -cnotcontains $tipo -or
-            [string]::IsNullOrEmpty([string]$it.nome) -or ([string]$it.n) -notmatch '^[0-9]+$') {
-            $probl.Add(@{ conflito = $false; item = $origem; motivo = 'manifesto inválido' })
+        if (-not (Test-ItemManifesto $it)) {
+            $probl.Add(@{ conflito = $false; item = $origem; motivo = 'manifesto inválido (item com nome ou origem fora do formato)' })
             continue
         }
         if (-not (Test-Path -LiteralPath (Get-FonteItem $Pasta $it))) {
@@ -319,11 +392,11 @@ function Get-ConflitoRestauracao {
             continue
         }
         if ($tipo -eq 'chave') {
-            if (-not (Test-ChaveRegistro $origem)) { $probl.Add(@{ conflito = $false; item = $origem; motivo = 'chave inválida no manifesto' }); continue }
             if ($Teste -and -not (Test-ChaveTeste $origem)) { $probl.Add(@{ conflito = $true; item = $origem; motivo = 'chave fora da área de teste' }); continue }
             if (Test-Path -LiteralPath (ConvertTo-CaminhoRegistro $origem)) { $probl.Add(@{ conflito = $true; item = $origem; motivo = 'a chave voltou a existir no registro' }) }
         } else {
             if (Test-ProtectedPath $origem) { $probl.Add(@{ conflito = $true; item = $origem; motivo = 'origem em caminho protegido' }); continue }
+            if (-not (Test-CadeiaSemLink $origem)) { $probl.Add(@{ conflito = $true; item = $origem; motivo = 'origem dentro de link ou junção' }); continue }
             if (Test-Path -LiteralPath $origem) { $probl.Add(@{ conflito = $true; item = $origem; motivo = 'já existe algo na origem' }) }
         }
     }
