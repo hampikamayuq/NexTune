@@ -70,7 +70,13 @@ fn resolver(p: &str) -> String {
                     partes.pop();
                 }
             }
-            outro => partes.push(outro),
+            outro => {
+                // Como GetFullPath: o Windows ignora pontos e espaços no fim de cada segmento.
+                let t = outro.trim_end_matches(['.', ' ']);
+                if !t.is_empty() {
+                    partes.push(t);
+                }
+            }
         }
     }
     partes.join("\\")
@@ -191,6 +197,15 @@ mod testes {
         assert!(caminho_protegido(Path::new("")));
         assert!(caminho_protegido(Path::new("relativo\\x")));
         assert!(caminho_protegido(Path::new("C:\\Temp\\..\\Windows")));
+    }
+
+    #[test]
+    fn pontos_e_espacos_no_fim_do_segmento() {
+        assert!(caminho_protegido(Path::new("C:\\Windows.\\System32")));
+        assert!(caminho_protegido(Path::new("C:\\Windows \\System32")));
+        assert!(!caminho_protegido(Path::new(
+            "C:\\Program Files\\Qualquer."
+        )));
     }
 
     #[test]

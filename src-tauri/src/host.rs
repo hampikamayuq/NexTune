@@ -43,10 +43,11 @@ pub enum ErroHost {
 }
 
 type Resposta = Result<Value, ErroHost>;
+type Callback = Arc<StdMutex<Box<dyn Fn(Evento) + Send>>>;
 
 struct Pendente {
     tx: oneshot::Sender<Resposta>,
-    progresso: Box<dyn Fn(Evento) + Send>,
+    progresso: Callback,
 }
 
 #[derive(Default)]
@@ -106,8 +107,11 @@ impl Interno {
         match &m {
             Mensagem::Progresso { id, .. } | Mensagem::Log { id, .. } => {
                 let id = id.clone();
-                if let Some(p) = self.pendentes().get(&id) {
-                    (p.progresso)(Evento { id, mensagem: m });
+                // Clona o callback e solta o lock do mapa antes de chamar (o callback pode bloquear).
+                let cb = self.pendentes().get(&id).map(|p| p.progresso.clone());
+                if let Some(cb) = cb {
+                    let f = cb.lock().unwrap_or_else(|e| e.into_inner());
+                    f(Evento { id, mensagem: m });
                 }
             }
             Mensagem::Resultado {
@@ -215,8 +219,13 @@ impl Interno {
             }
             self.iniciar(&mut proc)?;
         }
-        self.pendentes()
-            .insert(id.clone(), Pendente { tx, progresso });
+        self.pendentes().insert(
+            id.clone(),
+            Pendente {
+                tx,
+                progresso: Arc::new(StdMutex::new(progresso)),
+            },
+        );
         let linha = comando_json(&id, modulo, acao, params, teste);
         if let Err(e) = self.escrever(&mut proc, &linha).await {
             self.pendentes().remove(&id);
@@ -266,6 +275,12 @@ impl HostPowerShell {
         ocioso_segundos: u32,
         allowlist_extra: Vec<String>,
     ) -> Self {
+        // Nomes que colidem com módulos reais ou com "host" são descartados: um extra nunca
+        // pode desligar a validação de um módulo de produção.
+        let allowlist_extra = allowlist_extra
+            .into_iter()
+            .filter(|m| m != "host" && !acoes::modulos_permitidos().contains(&m.as_str()))
+            .collect();
         Self {
             interno: Arc::new(Interno {
                 script,
@@ -293,7 +308,13 @@ impl HostPowerShell {
         progresso: impl Fn(Evento) + Send + 'static,
     ) -> Result<Value, ErroHost> {
         let params = if self.interno.allowlist_extra.iter().any(|m| m == modulo) {
-            params
+            match params {
+                Value::Null => json!({}),
+                p @ Value::Object(_) => p,
+                _ => {
+                    return Err(ErroValidacao::Parametro("params deve ser um objeto".into()).into());
+                }
+            }
         } else {
             acoes::validar(modulo, acao, &params, teste)?
         };
@@ -471,6 +492,27 @@ mod testes {
             Err(ErroHost::Validacao(ErroValidacao::NaoPermitida(_)))
         ));
         assert!(h.pid().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn extra_exige_objeto_e_nao_desliga_modulo_real() {
+        let h = novo_host(120);
+        let r = h.executar("eco", "eco", json!("x"), true, |_| {}).await;
+        assert!(matches!(
+            r,
+            Err(ErroHost::Validacao(ErroValidacao::Parametro(_)))
+        ));
+        let h2 = HostPowerShell::novo(
+            raiz().join("scripts").join("host.ps1"),
+            false,
+            120,
+            vec!["limpeza".into(), "host".into()],
+        );
+        let r = h2
+            .executar("limpeza", "limpar", json!("x"), false, |_| {})
+            .await;
+        assert!(matches!(r, Err(ErroHost::Validacao(_))), "{r:?}");
+        assert!(h.pid().await.is_none() && h2.pid().await.is_none());
     }
 
     #[tokio::test]
