@@ -34,7 +34,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Instalar Pester e PSScriptAnalyzer
-        shell: pwsh
+        shell: powershell
         run: |
           Install-Module Pester -MinimumVersion 5.5 -Force -SkipPublisherCheck -Scope CurrentUser
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
