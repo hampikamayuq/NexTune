@@ -1,0 +1,110 @@
+{
+  "ajustes": [
+    { "id": "sugestoes_inicio", "grupo": "anuncios", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SubscribedContent-338388Enabled", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SystemPaneSuggestionsEnabled", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "dicas_windows", "grupo": "anuncios", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SubscribedContent-338389Enabled", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SoftLandingEnabled", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "sugestoes_configuracoes", "grupo": "anuncios", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SubscribedContent-338393Enabled", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SubscribedContent-353694Enabled", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SubscribedContent-353696Enabled", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "apps_sugeridos", "grupo": "anuncios", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SilentInstalledAppsEnabled", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "PreInstalledAppsEnabled", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "OemPreInstalledAppsEnabled", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager", "nome": "SubscribedContent-310093Enabled", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "avisos_onedrive_explorador", "grupo": "anuncios", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "ShowSyncProviderNotifications", "tipo": "DWord", "aplicar": 0 }
+      ] },
+
+    { "id": "id_publicidade", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo", "nome": "Enabled", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "experiencias_personalizadas", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Privacy", "nome": "TailoredExperiencesWithDiagnosticDataEnabled", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "telemetria_minima", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection", "nome": "AllowTelemetry", "tipo": "DWord", "aplicar": 1 }
+      ] },
+    { "id": "digitacao_personalizada", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\InputPersonalization", "nome": "RestrictImplicitInkCollection", "tipo": "DWord", "aplicar": 1 },
+        { "chave": "HKCU\\Software\\Microsoft\\InputPersonalization", "nome": "RestrictImplicitTextCollection", "tipo": "DWord", "aplicar": 1 },
+        { "chave": "HKCU\\Software\\Microsoft\\Personalization\\Settings", "nome": "AcceptedPrivacyPolicy", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "historico_atividades", "grupo": "privacidade", "politica": true, "avancado": true, "recomendadoPara": "nenhum", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System", "nome": "PublishUserActivities", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System", "nome": "UploadUserActivities", "tipo": "DWord", "aplicar": 0 }
+      ] },
+
+    { "id": "widgets_barra", "grupo": "copilot", "politica": false, "avancado": false, "recomendadoPara": "fraco", "soWin11": true, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "TaskbarDa", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "copilot_barra", "grupo": "copilot", "politica": false, "avancado": false, "recomendadoPara": "fraco", "soWin11": true, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "ShowCopilotButton", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "chat_teams_barra", "grupo": "copilot", "politica": false, "avancado": false, "recomendadoPara": "fraco", "soWin11": true, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "TaskbarMn", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "destaques_pesquisa", "grupo": "copilot", "politica": false, "avancado": false, "recomendadoPara": "fraco", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SearchSettings", "nome": "IsDynamicSearchBoxEnabled", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "noticias_barra_win10", "grupo": "copilot", "politica": false, "avancado": false, "recomendadoPara": "nenhum", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Feeds", "nome": "ShellFeedsTaskbarViewMode", "tipo": "DWord", "aplicar": 2 }
+      ] },
+    { "id": "copilot_desligar", "grupo": "copilot", "politica": true, "avancado": true, "recomendadoPara": "nenhum", "soWin11": true, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Policies\\Microsoft\\Windows\\WindowsCopilot", "nome": "TurnOffWindowsCopilot", "tipo": "DWord", "aplicar": 1 }
+      ] },
+
+    { "id": "extensoes_visiveis", "grupo": "explorador", "politica": false, "avancado": false, "recomendadoPara": "nenhum", "soWin11": false, "reiniciarExplorer": true,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "HideFileExt", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "abrir_este_computador", "grupo": "explorador", "politica": false, "avancado": false, "recomendadoPara": "nenhum", "soWin11": false, "reiniciarExplorer": true,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "LaunchTo", "tipo": "DWord", "aplicar": 1 }
+      ] },
+    { "id": "recentes_inicio_rapido", "grupo": "explorador", "politica": false, "avancado": false, "recomendadoPara": "nenhum", "soWin11": false, "reiniciarExplorer": true,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer", "nome": "ShowRecent", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer", "nome": "ShowFrequent", "tipo": "DWord", "aplicar": 0 }
+      ] },
+
+    { "id": "efeitos_visuais", "grupo": "desempenho", "politica": false, "avancado": false, "recomendadoPara": "fraco", "soWin11": false, "reiniciarExplorer": true,
+      "chaves": [
+        { "chave": "HKCU\\Control Panel\\Desktop\\WindowMetrics", "nome": "MinAnimate", "tipo": "String", "aplicar": "0" },
+        { "chave": "HKCU\\Control Panel\\Desktop", "nome": "DragFullWindows", "tipo": "String", "aplicar": "0" },
+        { "chave": "HKCU\\Control Panel\\Desktop", "nome": "MenuShowDelay", "tipo": "String", "aplicar": "0" },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "TaskbarAnimations", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "ListviewAlphaSelect", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "nome": "ListviewShadow", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\DWM", "nome": "EnableAeroPeek", "tipo": "DWord", "aplicar": 0 },
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\DWM", "nome": "AlwaysHibernateThumbnails", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "transparencia", "grupo": "desempenho", "politica": false, "avancado": false, "recomendadoPara": "fraco", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "nome": "EnableTransparency", "tipo": "DWord", "aplicar": 0 }
+      ] }
+  ]
+}

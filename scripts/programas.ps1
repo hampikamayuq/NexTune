@@ -20,10 +20,8 @@
 . "$PSScriptRoot\common.ps1"
 . "$PSScriptRoot\quarentena.ps1"
 
-$Script:PastaDeDados = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($PSScriptRoot))) 'data'
 $Script:Tabelas = $null
 $Script:ErroStore = $null
-$Script:WsShell = $null
 $Script:Hives = @('hklm64', 'hklm32', 'hkcu')
 $Script:TiposSilenciosos = @('msi', 'inno', 'nsis', 'installshield')
 $Script:TiposInstalador = @('msi', 'inno', 'nsis', 'installshield', 'quiet', 'loja', 'desconhecido')
@@ -40,29 +38,11 @@ $Script:SegmentosProibidos = @('microsoft', 'classes', 'policies', 'wow6432node'
 
 # ---------- dados ----------
 
-function Read-ArquivoJson {
-    # Le um JSON em UTF-8 (com ou sem BOM). Lanca se o arquivo nao existir ou nao for JSON.
-    param([string]$Caminho)
-    if (-not (Test-Path -LiteralPath $Caminho -PathType Leaf)) { throw "arquivo de dados não encontrado: $Caminho" }
-    $texto = [IO.File]::ReadAllText($Caminho, [Text.Encoding]::UTF8)
-    return ($texto.TrimStart([char]0xFEFF) | ConvertFrom-Json -ErrorAction Stop)
-}
-
-function New-RegexLista {
-    # Regex sem diferenciar caixa; $null se o padrao nao compilar (a entrada e ignorada).
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
-    [CmdletBinding()]
-    param($Padrao)
-    if ([string]::IsNullOrWhiteSpace([string]$Padrao)) { return $null }
-    try { return (New-Object System.Text.RegularExpressions.Regex -ArgumentList ([string]$Padrao), ([Text.RegularExpressions.RegexOptions]::IgnoreCase)) }
-    catch { return $null }
-}
-
 function Get-TabelaClassificacao {
     # Carrega bloatware.json e protegidos.json uma vez por runspace. Devolve @{ protegidos; store; classicos }.
     if ($null -ne $Script:Tabelas) { return $Script:Tabelas }
-    $bl = Read-ArquivoJson (Join-Path $Script:PastaDeDados 'bloatware.json')
-    $pr = Read-ArquivoJson (Join-Path $Script:PastaDeDados 'protegidos.json')
+    $bl = Read-ArquivoJson (Join-Path (Get-PastaDeDados) 'bloatware.json')
+    $pr = Read-ArquivoJson (Join-Path (Get-PastaDeDados) 'protegidos.json')
     $protegidos = New-Object System.Collections.Generic.List[object]
     foreach ($e in @($pr.programas)) {
         $rx = New-RegexLista $e.padrao
@@ -633,15 +613,6 @@ function Test-PastaCandidata {
     if (-not $r.ok -or $r.temExecutavel) { return $false }
     if ($ExigirIdade -and $r.maisRecente -gt (Get-Date).AddDays(-$Script:DiasResto)) { return $false }
     return $true
-}
-
-function Get-AlvoAtalho {
-    # TargetPath de um .lnk via WScript.Shell; $null se nao der para ler.
-    param([string]$Caminho)
-    try {
-        if ($null -eq $Script:WsShell) { $Script:WsShell = New-Object -ComObject WScript.Shell }
-        return [string]$Script:WsShell.CreateShortcut($Caminho).TargetPath
-    } catch { return $null }
 }
 
 function Test-ContemNome {

@@ -288,3 +288,72 @@ function Set-Perfil {
     $json = $o | ConvertTo-Json -Compress
     [IO.File]::WriteAllText($arq, $json, (New-Object System.Text.UTF8Encoding $false))
 }
+
+# ---------- dados, atalhos e registro (compartilhados por programas, inicializacao e ajusteswin) ----------
+
+function Get-PastaDeDados {
+    # Pasta 'data' ao lado de 'scripts' (repositorio e bundle).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
+    param()
+    return (Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($PSScriptRoot))) 'data')
+}
+
+function Read-ArquivoJson {
+    # Le um JSON em UTF-8 (com ou sem BOM). Lanca se o arquivo nao existir ou nao for JSON.
+    param([string]$Caminho)
+    if (-not (Test-Path -LiteralPath $Caminho -PathType Leaf)) { throw "arquivo de dados não encontrado: $Caminho" }
+    $texto = [IO.File]::ReadAllText($Caminho, [Text.Encoding]::UTF8)
+    return ($texto.TrimStart([char]0xFEFF) | ConvertFrom-Json -ErrorAction Stop)
+}
+
+function New-RegexLista {
+    # Regex sem diferenciar caixa; $null se o padrao nao compilar (a entrada e ignorada).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param($Padrao)
+    if ([string]::IsNullOrWhiteSpace([string]$Padrao)) { return $null }
+    try { return (New-Object System.Text.RegularExpressions.Regex -ArgumentList ([string]$Padrao), ([Text.RegularExpressions.RegexOptions]::IgnoreCase)) }
+    catch { return $null }
+}
+
+$Script:WsShell = $null
+function Get-AlvoAtalho {
+    # TargetPath de um .lnk via WScript.Shell; $null se nao der para ler.
+    param([string]$Caminho)
+    try {
+        if ($null -eq $Script:WsShell) { $Script:WsShell = New-Object -ComObject WScript.Shell }
+        return [string]$Script:WsShell.CreateShortcut($Caminho).TargetPath
+    } catch { return $null }
+}
+
+$Script:RaizRegistro = @{
+    HKCU                = 'HKEY_CURRENT_USER'
+    HKEY_CURRENT_USER   = 'HKEY_CURRENT_USER'
+    HKLM                = 'HKEY_LOCAL_MACHINE'
+    HKEY_LOCAL_MACHINE  = 'HKEY_LOCAL_MACHINE'
+    HKU                 = 'HKEY_USERS'
+    HKEY_USERS          = 'HKEY_USERS'
+    HKCR                = 'HKEY_CLASSES_ROOT'
+    HKEY_CLASSES_ROOT   = 'HKEY_CLASSES_ROOT'
+    HKCC                = 'HKEY_CURRENT_CONFIG'
+    HKEY_CURRENT_CONFIG = 'HKEY_CURRENT_CONFIG'
+}
+
+function Test-ChaveRegistro {
+    # Puro: o texto tem a forma de chave aceita pelo reg.exe (HKCU\..., HKEY_LOCAL_MACHINE\...)?
+    param([string]$Chave)
+    if ([string]::IsNullOrWhiteSpace($Chave)) { return $false }
+    if ($Chave -match '[\r\n"]') { return $false }
+    if ($Chave -notmatch '^[A-Za-z_]+\\[^\\]') { return $false }
+    $raiz = @($Chave -split '\\', 2)[0]
+    return $Script:RaizRegistro.ContainsKey($raiz)
+}
+
+function ConvertTo-CaminhoRegistro {
+    # 'HKCU\Software\X' (forma do reg.exe) -> 'Registry::HKEY_CURRENT_USER\Software\X' (forma do provedor).
+    param([string]$Chave)
+    if (-not (Test-ChaveRegistro $Chave)) { throw "chave de registro inválida: $Chave" }
+    $partes = @($Chave.TrimEnd('\') -split '\\', 2)
+    return ('Registry::' + $Script:RaizRegistro[$partes[0]] + '\' + $partes[1])
+}
