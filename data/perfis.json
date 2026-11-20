@@ -1,0 +1,8 @@
+{
+  "classes": {
+    "basico": { "ramGbMax": 4.5, "nucleosMax": 2 },
+    "gamer": { "gpuDedicada": true, "ramGbMin": 16 },
+    "padrao": "medio"
+  },
+  "limites": { "lixoNotificarMB": 500, "diasSemVerificarDisco": 90 }
+}
