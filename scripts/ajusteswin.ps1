@@ -168,13 +168,9 @@ function Write-Backups {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
     [CmdletBinding()]
     param($Dados, [bool]$Teste)
-    $arq = Get-ArquivoBackup $Teste
     $o = [ordered]@{}
     foreach ($k in @($Dados.Keys | Sort-Object)) { $o[$k] = $Dados[$k] }
-    $json = $o | ConvertTo-Json -Depth 6
-    $tmp = $arq + '.tmp'
-    [IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false))
-    Move-Item -LiteralPath $tmp -Destination $arq -Force -ErrorAction Stop
+    Write-JsonAtomico (Get-ArquivoBackup $Teste) $o
 }
 
 # ---------- aplicar / restaurar (um ajuste) ----------

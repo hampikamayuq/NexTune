@@ -357,3 +357,32 @@ function ConvertTo-CaminhoRegistro {
     $partes = @($Chave.TrimEnd('\') -split '\\', 2)
     return ('Registry::' + $Script:RaizRegistro[$partes[0]] + '\' + $partes[1])
 }
+
+# ---------- disco e arquivos JSON (compartilhados por diagnostico, disco e ajusteswin) ----------
+
+function Get-TipoDisco {
+    # Puro: MediaType/BusType do disco fisico -> 'HDD' | 'SSD' | 'NVMe'. Ilegivel conta como HDD.
+    param([string]$Media, [string]$Bus)
+    if ($Bus -eq 'NVMe') { return 'NVMe' }
+    if ($Media -eq 'SSD' -or $Media -eq 'SCM') { return 'SSD' }
+    return 'HDD'
+}
+
+function Get-InicioRapido {
+    # Inicializacao Rapida (HiberbootEnabled = 1); erro de leitura conta como desligada.
+    try {
+        $hb = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -ErrorAction Stop).HiberbootEnabled
+        return ($hb -eq 1)
+    } catch { return $false }
+}
+
+function Write-JsonAtomico {
+    # Grava JSON em UTF-8 sem BOM via .tmp + Move-Item -Force (quem le nunca ve arquivo pela metade).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param([string]$Caminho, $Objeto, [int]$Profundidade = 6)
+    $json = $Objeto | ConvertTo-Json -Depth $Profundidade
+    $tmp = $Caminho + '.tmp'
+    [IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false))
+    Move-Item -LiteralPath $tmp -Destination $Caminho -Force -ErrorAction Stop
+}

@@ -68,13 +68,6 @@ function Test-GpuDedicada {
     return $true
 }
 
-function Get-TipoDisco {
-    param([string]$Media, [string]$Bus)
-    if ($Bus -eq 'NVMe') { return 'NVMe' }
-    if ($Media -eq 'SSD' -or $Media -eq 'SCM') { return 'SSD' }
-    return 'HDD'
-}
-
 function Get-InfoDiscoFisico {
     # Devolve @{ Lista = object[]; MediaSistema; BusSistema }
     $sysDev = $null
@@ -177,11 +170,7 @@ function Get-Coleta {
     try { $versao = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).DisplayVersion } catch { $null = $_ }
     if ([string]::IsNullOrEmpty($versao) -and $null -ne $os) { $versao = [string]$os.Version }
 
-    $inicioRapido = $false
-    try {
-        $hb = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -ErrorAction Stop).HiberbootEnabled
-        $inicioRapido = ($hb -eq 1)
-    } catch { $null = $_ }
+    $inicioRapido = Get-InicioRapido
 
     $dias = 0
     if ($null -ne $os -and $null -ne $os.LastBootUpTime) { $dias = [math]::Round(((Get-Date) - $os.LastBootUpTime).TotalDays, 1) }
