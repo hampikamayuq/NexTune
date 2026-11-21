@@ -205,22 +205,38 @@ function Request-FecharJanela {
     return $true
 }
 
-function Get-PrioridadeAtual {
-    # Classe de prioridade atual do jogo ($null se nao esta rodando).
+function Get-PidsJogo {
+    # PIDs do jogo neste momento (so eles recebem prioridade alta; vazio = nao esta rodando).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
     param([string]$Exe, [bool]$Teste, $Sim)
-    if ($Teste) { if ($null -ne (Get-ProcessoSimulado $Sim $Exe)) { return 'Normal' } else { return $null } }
-    $p = @(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($Exe)) -ErrorAction SilentlyContinue | Select-Object -First 1)
-    if ($p.Count -eq 0) { return $null }
-    return [string]$p[0].PriorityClass
+    if ($Teste) {
+        if ($null -eq $Sim -or $null -eq $Sim.processos) { return @() }
+        return @(@($Sim.processos) | Where-Object { [string]$_.exe -eq $Exe -and $null -ne $_.pid } | ForEach-Object { [int]$_.pid })
+    }
+    return @(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($Exe)) -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.Id })
+}
+
+function Get-PrioridadeAtual {
+    # Classe de prioridade atual do primeiro PID ($null sem PIDs ou se o processo sumiu).
+    param($Pids, [bool]$Teste)
+    if (@($Pids).Count -eq 0) { return $null }
+    if ($Teste) { return 'Normal' }
+    $p = Get-Process -Id ([int]@($Pids)[0]) -ErrorAction SilentlyContinue
+    if ($null -eq $p) { return $null }
+    return [string]$p.PriorityClass
 }
 
 function Set-PrioridadeJogo {
+    # So nos PIDs guardados; confere o nome (PID reaproveitado) e ignora processo que ja morreu.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
-    param([string]$Exe, [string]$Classe, [bool]$Teste)
+    param([string]$Exe, $Pids, [string]$Classe, [bool]$Teste)
     if ($Teste) { Write-MarcadorJogo ('prioridade-' + $Exe + '-' + $Classe + '.txt') $Classe; return }
-    foreach ($p in @(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($Exe)) -ErrorAction SilentlyContinue)) {
-        $p.PriorityClass = $Classe
+    $nome = [IO.Path]::GetFileNameWithoutExtension($Exe)
+    foreach ($id in @($Pids)) {
+        $p = Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue
+        if ($null -ne $p -and $p.ProcessName -eq $nome) { $p.PriorityClass = $Classe }
     }
 }
 
@@ -270,7 +286,8 @@ function Get-PlanoAtivo {
 function Set-PlanoEnergia {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
-    param([string]$Guid, [bool]$Teste)
+    param([string]$Guid, [bool]$Teste, $Sim = $null)
+    if ($Teste -and $null -ne $Sim -and $Sim.falharPlano -eq $true) { throw 'powercfg simulado falhou' }
     if ($Teste) { Write-MarcadorJogo ('powercfg-' + $Guid + '.txt') 'powercfg /setactive'; return }
     & "$env:windir\System32\powercfg.exe" /setactive $Guid | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "powercfg terminou com código $LASTEXITCODE" }
@@ -315,7 +332,7 @@ function Restore-Notificacao {
 function Resolve-PedidoFechar {
     # Separa o pedido em programas a fechar (com caminho) e naoFechados (protegido ou nao esta aberto).
     # Protegido vale mesmo se nao estiver aberto: o motivo e mais util que "nao esta aberto".
-    param($Pedidos, $Processos, $Tabelas)
+    param($Pedidos, $Processos, $Tabelas, $Jogo = $null)
     $fechar = @()
     $nao = @()
     $vistos = @{}
@@ -323,6 +340,10 @@ function Resolve-PedidoFechar {
         $exe = [string]$pedido
         if ([string]::IsNullOrWhiteSpace($exe) -or $vistos.ContainsKey($exe.ToLowerInvariant())) { continue }
         $vistos[$exe.ToLowerInvariant()] = $true
+        if ($null -ne $Jogo -and [string]::Equals($exe, [string]$Jogo, [StringComparison]::OrdinalIgnoreCase)) {
+            $nao += [pscustomobject]@{ exe = $exe; motivo = 'é o jogo' }
+            continue
+        }
         $motivo = Get-ProcessoProtegido $exe $Tabelas
         if (-not [string]::IsNullOrEmpty($motivo)) { $nao += [pscustomobject]@{ exe = $exe; motivo = $motivo }; continue }
         $p = @($Processos | Where-Object { [string]::Equals($_.exe, $exe, [StringComparison]::OrdinalIgnoreCase) })
@@ -351,9 +372,18 @@ function Close-ProgramaPedido {
     }
 }
 
+function Add-Aviso {
+    # Falha de um passo que nao impede a ativacao: log + registro + entrada em 'avisos' (devolve a nova lista).
+    param($Avisos, [string]$Id, [string]$Item, [string]$Erro, [bool]$Teste)
+    Send-Log $Id 'aviso' ($Item + ': ' + $Erro)
+    Write-AppLog ('modojogo: aviso em ' + $Item + ': ' + $Erro) $Teste
+    return @(@($Avisos) + [pscustomobject]@{ item = $Item; erro = $Erro })
+}
+
 function Suspend-ServicosPreset {
-    # Para so os servicos que estavam rodando; cada um e anotado no estado ANTES de parar.
-    param($Estado, $Servicos, [bool]$Teste)
+    # Para so os servicos que estavam rodando; cada um e anotado no estado ANTES de parar. Devolve os avisos.
+    param($Estado, $Servicos, [string]$Id, [bool]$Teste)
+    $avisos = @()
     foreach ($s in @($Servicos)) {
         $antes = @($Estado.servicos | Where-Object { $_.nome -eq $s })
         if ($antes.Count -eq 0 -or $antes[0].status -ne 'Running') { continue }
@@ -366,15 +396,16 @@ function Suspend-ServicosPreset {
         } catch {
             $Estado.servicosPausados = @($Estado.servicosPausados | Where-Object { $_ -ne $s })
             Write-EstadoJogo $Estado $Teste
-            Write-AppLog ('modojogo: não pausou o serviço ' + $s + ': ' + $_.Exception.Message) $Teste
+            $avisos = Add-Aviso $avisos $Id ('serviço ' + $s) $_.Exception.Message $Teste
         }
     }
+    return @($avisos)
 }
 
 function New-EstadoJogo {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
-    param([string]$Preset, [bool]$Automatico, $Jogo, $Plano, $Fechar, $Naofechados, $Servicos, [bool]$Teste, $Sim)
+    param([string]$Preset, [bool]$Automatico, $Jogo, $Plano, $Fechar, $Naofechados, $Servicos, $Pids, [bool]$Teste, $Sim)
     $antes = @()
     foreach ($s in @($Servicos)) {
         $st = Get-StatusServico $s $Teste $Sim
@@ -393,7 +424,10 @@ function New-EstadoJogo {
         planoAnterior       = $Plano
         notificacoesAnterior = (Get-NotificacoesAtual $Teste)
         windowsInstalando   = (Test-WindowsInstalando $Teste $Sim)
-        prioridadeAnterior  = $(if ($Preset -eq 'a_fundo' -and $null -ne $Jogo) { Get-PrioridadeAtual $Jogo $Teste $Sim } else { $null })
+        planoAplicado       = $false
+        notificacoesAplicadas = $false
+        jogoPids            = @($Pids)
+        prioridadeAnterior  = $(if ($Preset -eq 'a_fundo') { Get-PrioridadeAtual $Pids $Teste } else { $null })
     }
 }
 
@@ -418,28 +452,16 @@ function Invoke-Ativar {
     }
 
     Send-Progress $Id 10 'Lendo o que está aberto'
-    $pedido = Resolve-PedidoFechar $Params.fechar (Get-ProcessosJanela $Teste $sim) (Get-TabelasProtegidos)
+    $pedido = Resolve-PedidoFechar $Params.fechar (Get-ProcessosJanela $Teste $sim) (Get-TabelasProtegidos) $jogo
     $dados = Read-ArquivoJson (Join-Path (Get-PastaDeDados) 'modojogo.json')
     $servicos = @(Get-ServicosDoPreset $preset $dados)
-    $plano = Get-PlanoAtivo $Teste $sim
-    $estado = New-EstadoJogo $preset (Test-ParamVerdadeiro $Params 'automatico') $jogo $plano $pedido.fechar $pedido.naoFechados $servicos $Teste $sim
+    $pids = @(); if ($null -ne $jogo) { $pids = @(Get-PidsJogo $jogo $Teste $sim) }
+    $estado = New-EstadoJogo $preset (Test-ParamVerdadeiro $Params 'automatico') $jogo (Get-PlanoAtivo $Teste $sim) $pedido.fechar $pedido.naoFechados $servicos $pids $Teste $sim
     Write-EstadoJogo $estado $Teste
     Write-AppLog ('modojogo: ativando preset ' + $preset) $Teste
 
     Close-ProgramaPedido $estado $Id $Teste $sim
-    Send-Progress $Id 65 'Trocando o plano de energia'
-    Set-PlanoEnergia ([string]$dados.planoDesempenho) $Teste
-    Write-AppLog ('modojogo: plano de desempenho ' + $dados.planoDesempenho) $Teste
-    if ($preset -ne 'suave') {
-        Send-Progress $Id 75 'Silenciando notificações e pausando serviços'
-        Set-NotificacoesValor 0 $Teste
-        Write-AppLog 'modojogo: notificações silenciadas' $Teste
-        Suspend-ServicosPreset $estado $servicos $Teste
-    }
-    if ($preset -eq 'a_fundo' -and $null -ne $estado.prioridadeAnterior) {
-        Set-PrioridadeJogo $jogo 'High' $Teste
-        Write-AppLog ('modojogo: prioridade alta em ' + $jogo) $Teste
-    }
+    $avisos = @(Invoke-PassosAtivacao $estado $dados $servicos $Id $Teste $sim)
     Send-Progress $Id 100 'Concluído'
     Send-Result $Id ([ordered]@{
         ativo             = $true
@@ -448,7 +470,47 @@ function Invoke-Ativar {
         naoFechados       = @($estado.naoFechados)
         servicosPausados  = @($estado.servicosPausados)
         windowsInstalando = $estado.windowsInstalando
+        avisos            = $avisos
     })
+}
+
+function Invoke-PassosAtivacao {
+    # Plano, notificacoes, servicos e prioridade: cada passo e marcado no estado ANTES de agir e desmarcado se
+    # falhar; a falha vira aviso e a ativacao segue. Devolve a lista de avisos.
+    param($Estado, $Dados, $Servicos, [string]$Id, [bool]$Teste, $Sim)
+    $avisos = @()
+    Send-Progress $Id 65 'Trocando o plano de energia'
+    if ([string]::IsNullOrEmpty([string]$Estado.planoAnterior)) {
+        $avisos = Add-Aviso $avisos $Id 'plano de energia' 'não foi possível ler o plano de energia atual; plano mantido' $Teste
+    } else {
+        $Estado.planoAplicado = $true
+        Write-EstadoJogo $Estado $Teste
+        try {
+            Set-PlanoEnergia ([string]$Dados.planoDesempenho) $Teste $Sim
+            Write-AppLog ('modojogo: plano de desempenho ' + $Dados.planoDesempenho) $Teste
+        } catch {
+            $Estado.planoAplicado = $false
+            Write-EstadoJogo $Estado $Teste
+            $avisos = Add-Aviso $avisos $Id 'plano de energia' $_.Exception.Message $Teste
+        }
+    }
+    if ([string]$Estado.preset -ne 'suave') {
+        Send-Progress $Id 75 'Silenciando notificações e pausando serviços'
+        $Estado.notificacoesAplicadas = $true
+        Write-EstadoJogo $Estado $Teste
+        try { Set-NotificacoesValor 0 $Teste; Write-AppLog 'modojogo: notificações silenciadas' $Teste }
+        catch {
+            $Estado.notificacoesAplicadas = $false
+            Write-EstadoJogo $Estado $Teste
+            $avisos = Add-Aviso $avisos $Id 'notificações' $_.Exception.Message $Teste
+        }
+        $avisos = @($avisos) + @(Suspend-ServicosPreset $Estado $Servicos $Id $Teste)
+    }
+    if ([string]$Estado.preset -eq 'a_fundo' -and $null -ne $Estado.prioridadeAnterior) {
+        try { Set-PrioridadeJogo ([string]$Estado.jogo) $Estado.jogoPids 'High' $Teste; Write-AppLog ('modojogo: prioridade alta em ' + $Estado.jogo) $Teste }
+        catch { $avisos = Add-Aviso $avisos $Id ('prioridade de ' + $Estado.jogo) $_.Exception.Message $Teste }
+    }
+    return @($avisos)
 }
 
 # ---------- desativar ----------
@@ -481,8 +543,11 @@ function Restore-ProgramaFechado {
         $exe = [string]$f.exe
         try {
             if ([string]::IsNullOrEmpty([string]$f.caminho)) { throw 'sem caminho para reabrir' }
-            if ($Teste) { Write-MarcadorJogo ('reabrir-' + $exe + '.txt') ([string]$f.caminho) }
-            else { Start-Process -FilePath ([string]$f.caminho) -ErrorAction Stop }
+            $cam = [string]$f.caminho
+            if ($cam -notmatch '\.exe$' -or (-not $Teste -and -not (Test-Path -LiteralPath $cam -PathType Leaf))) { throw 'caminho inválido para reabrir' }
+            if ($Teste) { Write-MarcadorJogo ('reabrir-' + $exe + '.txt') $cam }
+            # Via explorer.exe: o alvo abre com o token do usuario (integridade media), nao elevado como este host.
+            else { Start-Process -FilePath "$env:windir\explorer.exe" -ArgumentList @('"' + $cam + '"') -ErrorAction Stop }
             $reabertos += $exe
             Write-AppLog ('modojogo: reabriu ' + $exe) $Teste
         } catch { $falhas = Add-Falha $falhas $exe $_.Exception.Message }
@@ -494,17 +559,17 @@ function Restore-EstadoAnterior {
     # Desfaz na ordem inversa; cada passo que falha vai para 'falhas' e os demais continuam.
     param($Estado, [bool]$Teste)
     $falhas = @()
-    if (-not [string]::IsNullOrEmpty([string]$Estado.jogo) -and -not [string]::IsNullOrEmpty([string]$Estado.prioridadeAnterior)) {
-        try { Set-PrioridadeJogo ([string]$Estado.jogo) ([string]$Estado.prioridadeAnterior) $Teste }
+    if (-not [string]::IsNullOrEmpty([string]$Estado.jogo) -and -not [string]::IsNullOrEmpty([string]$Estado.prioridadeAnterior) -and @($Estado.jogoPids).Count -gt 0) {
+        try { Set-PrioridadeJogo ([string]$Estado.jogo) $Estado.jogoPids ([string]$Estado.prioridadeAnterior) $Teste }
         catch { $falhas = Add-Falha $falhas ([string]$Estado.jogo) $_.Exception.Message }
     }
     $sv = Restore-ServicoPausado $Estado $Teste
     $falhas = @($falhas) + @($sv.falhas)
-    if ([string]$Estado.preset -ne 'suave') {
+    if ($Estado.notificacoesAplicadas -eq $true) {
         try { Restore-Notificacao $Estado.notificacoesAnterior $Teste; Write-AppLog 'modojogo: notificações restauradas' $Teste }
         catch { $falhas = Add-Falha $falhas 'notificações' $_.Exception.Message }
     }
-    if (-not [string]::IsNullOrEmpty([string]$Estado.planoAnterior)) {
+    if ($Estado.planoAplicado -eq $true -and -not [string]::IsNullOrEmpty([string]$Estado.planoAnterior)) {
         try { Set-PlanoEnergia ([string]$Estado.planoAnterior) $Teste; Write-AppLog ('modojogo: plano ' + $Estado.planoAnterior + ' de volta') $Teste }
         catch { $falhas = Add-Falha $falhas 'plano de energia' $_.Exception.Message }
     }

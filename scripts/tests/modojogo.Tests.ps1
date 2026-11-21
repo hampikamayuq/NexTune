@@ -28,7 +28,7 @@
                 @{ exe = 'obs64.exe'; nome = 'OBS Studio'; caminho = 'C:\Program Files\obs-studio\bin\64bit\obs64.exe'; ramBytes = 400MB; janela = $true },
                 @{ exe = 'soffice.exe'; nome = 'Documento sem título'; caminho = 'C:\Program Files\LibreOffice\program\soffice.exe'; ramBytes = 150MB; janela = $true; naoFecha = $true },
                 @{ exe = 'svchost.exe'; nome = 'svchost.exe'; caminho = 'C:\Windows\System32\svchost.exe'; ramBytes = 50MB; janela = $false },
-                @{ exe = 'jogo.exe'; nome = 'Meu Jogo'; caminho = 'D:\Jogos\jogo.exe'; ramBytes = 800MB; janela = $true }
+                @{ exe = 'jogo.exe'; nome = 'Meu Jogo'; caminho = 'D:\Jogos\jogo.exe'; ramBytes = 800MB; janela = $true; pid = 4242 }
             )
             planoAtivo   = $Script:GuidEquilibrado
             servicos     = @{ wuauserv = 'Running'; BITS = 'Running'; DoSvc = 'Stopped'; WSearch = 'Running'; SysMain = 'Running' }
@@ -221,6 +221,7 @@ Describe 'modojogo.ps1' {
             $e = Get-EstadoGravado
             $e.jogo | Should -Be 'jogo.exe'
             $e.prioridadeAnterior | Should -Be 'Normal'
+            @($e.jogoPids) | Should -Be @(4242)
             Get-ValorNoc | Should -Be 0
 
             $d = Invoke-Jogo 'desativar' @{ confirmado = $true }
@@ -237,6 +238,39 @@ Describe 'modojogo.ps1' {
             Get-ValorNoc | Should -BeNullOrEmpty
             Test-Path -LiteralPath $Script:Arquivo | Should -BeFalse
             (Invoke-Jogo 'estado').dados.ativo | Should -BeFalse
+        }
+        It 'falha do plano vira aviso: a ativacao segue, notificacoes e servicos sao aplicados e o desativar nao mexe no plano' {
+            $sim = Get-SimPadrao
+            $sim.falharPlano = $true
+            $r = Invoke-Jogo 'ativar' @{ preset = 'equilibrado'; fechar = @('chrome.exe'); confirmado = $true; simular = $sim }
+            $r.ok | Should -BeTrue
+            @($r.dados.avisos | ForEach-Object { $_.item }) | Should -Contain 'plano de energia'
+            Test-Marcador "powercfg-$Script:GuidDesempenho.txt" | Should -BeFalse
+            Test-Marcador 'servico-wuauserv-stop.txt' | Should -BeTrue
+            Get-ValorNoc | Should -Be 0
+            $e = Get-EstadoGravado
+            $e.ativo | Should -BeTrue
+            $e.planoAplicado | Should -BeFalse
+            (Invoke-Jogo 'desativar' @{ confirmado = $true }).ok | Should -BeTrue
+            Test-Marcador "powercfg-$Script:GuidEquilibrado.txt" | Should -BeFalse
+            Test-Marcador 'servico-wuauserv-start.txt' | Should -BeTrue
+        }
+        It 'plano atual ilegivel: nao troca o plano, avisa e o desativar nao mexe nele' {
+            $sim = Get-SimPadrao
+            $sim.planoAtivo = ''
+            $r = Invoke-Jogo 'ativar' @{ preset = 'equilibrado'; fechar = @(); confirmado = $true; simular = $sim }
+            $r.ok | Should -BeTrue
+            @($r.dados.avisos | ForEach-Object { $_.item }) | Should -Contain 'plano de energia'
+            @(Get-Marcador | Where-Object { $_ -like 'powercfg-*' }).Count | Should -Be 0
+            (Invoke-Jogo 'desativar' @{ confirmado = $true }).ok | Should -BeTrue
+            @(Get-Marcador | Where-Object { $_ -like 'powercfg-*' }).Count | Should -Be 0
+        }
+        It 'o jogo nunca e fechado, mesmo se estiver em fechar' {
+            $r = Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @('JOGO.exe'); jogo = 'jogo.exe'; confirmado = $true; simular = $Script:Sim }
+            $r.ok | Should -BeTrue
+            @($r.dados.fechados).Count | Should -Be 0
+            $r.dados.naoFechados[0].motivo | Should -Be 'é o jogo'
+            Test-Marcador 'fechar-jogo.exe.txt' | Should -BeFalse
         }
         It 'restaura o valor anterior das notificacoes quando ele existia' {
             New-Item -Path $Script:ChaveNoc -Force | Out-Null
@@ -285,6 +319,15 @@ Describe 'modojogo.ps1' {
             $d.dados.falhas[0].erro | Should -Match 'sem caminho'
             Test-Path -LiteralPath $Script:Arquivo | Should -BeFalse
             Test-Marcador "powercfg-$Script:GuidEquilibrado.txt" | Should -BeTrue
+        }
+        It 'caminho que nao e .exe nao e reaberto: vai para falhas' {
+            $sim = Get-SimPadrao
+            $sim.processos[1].caminho = 'C:\x\documento.txt'
+            (Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @('Spotify.exe'); confirmado = $true; simular = $sim }).ok | Should -BeTrue
+            $d = Invoke-Jogo 'desativar' @{ confirmado = $true }
+            @($d.dados.reabertos).Count | Should -Be 0
+            $d.dados.falhas[0].erro | Should -Match 'caminho inválido'
+            Test-Marcador 'reabrir-Spotify.exe.txt' | Should -BeFalse
         }
         It 'sem confirmado recusa' {
             (Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @(); confirmado = $true; simular = $Script:Sim }).ok | Should -BeTrue

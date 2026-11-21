@@ -30,7 +30,14 @@ use std::sync::{Arc, Mutex as MutexSync};
 use tauri::{Emitter, State, Window};
 use tokio::sync::Mutex;
 
-const DADOS_PERMITIDOS: &[&str] = &["perfis", "bloatware", "protegidos", "inicio", "ajustes", "modojogo"];
+const DADOS_PERMITIDOS: &[&str] = &[
+    "perfis",
+    "bloatware",
+    "protegidos",
+    "inicio",
+    "ajustes",
+    "modojogo",
+];
 
 pub struct Estado {
     pub pastas: Pastas,
