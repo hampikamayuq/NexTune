@@ -47,7 +47,7 @@ Describe 'reparo.ps1: funcoes puras' {
             Test-ProdutoOrfao @{ localPackage = 'C:\nao\existe.msi'; packageName = 'vc.msi'; origens = @($Script:Origem) } | Should -BeFalse
         }
         It 'sem cache e sem origem utilizavel: orfao' {
-            Test-ProdutoOrfao @{ localPackage = 'C:\nao\existe.msi'; packageName = 'vc.msi'; origens = @('W:\Data\x64\', $Script:Origem + 'x') } | Should -BeTrue
+            Test-ProdutoOrfao @{ localPackage = 'C:\nao\existe.msi'; packageName = 'vc.msi'; origens = @('W:\Data\x64\', ($Script:Origem + 'x')) } | Should -BeTrue
         }
         It 'localPackage vazio e sem origens: orfao, sem excecao' {
             Test-ProdutoOrfao @{ localPackage = ''; packageName = ''; origens = @() } | Should -BeTrue
