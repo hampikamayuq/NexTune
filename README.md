@@ -97,4 +97,4 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. O p
 
 ## Créditos
 
-As listas iniciais de bloatware e de programas protegidos e a lógica de detecção do tipo de desinstalador partiram do [RetroLimpia](https://github.com/Retropunk94/RetroLimpia) (Retropunk94, licença MIT), reescritas em português com fabricantes brasileiros e com testes próprios. A detecção de produtos órfãos do Windows Installer parte do Unregister-MissingMSIs.ps1 (MIT, heaths e BrentHumphreys).
+As listas iniciais de bloatware e de programas protegidos e a lógica de detecção do tipo de desinstalador partiram do [RetroLimpia](https://github.com/Retropunk94/RetroLimpia) (Retropunk94, licença MIT), reescritas em português com fabricantes brasileiros e com testes próprios. A detecção de produtos órfãos do Windows Installer parte do Unregister-MissingMSIs.ps1 (MIT, heaths e BrentHumphreys). Os valores de registro dos ajustes de privacidade de feedback, idioma para sites, novidades do Windows e sugestões da web vêm do [Sophia Script for Windows](https://github.com/farag2/Sophia-Script-for-Windows) (farag2, licença MIT); o NexTune acrescenta o backup e a restauração exata.

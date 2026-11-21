@@ -51,6 +51,22 @@
         { "chave": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System", "nome": "PublishUserActivities", "tipo": "DWord", "aplicar": 0 },
         { "chave": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System", "nome": "UploadUserActivities", "tipo": "DWord", "aplicar": 0 }
       ] },
+    { "id": "feedback_frequencia", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Siuf\\Rules", "nome": "NumberOfSIUFInPeriod", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "idioma_sites", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Control Panel\\International\\User Profile", "nome": "HttpAcceptLanguageOptOut", "tipo": "DWord", "aplicar": 1 }
+      ] },
+    { "id": "novidades_windows", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\UserProfileEngagement", "nome": "ScoobeSystemSettingEnabled", "tipo": "DWord", "aplicar": 0 }
+      ] },
+    { "id": "sugestoes_pesquisa_web", "grupo": "privacidade", "politica": true, "avancado": true, "recomendadoPara": "nenhum", "soWin11": false, "reiniciarExplorer": false,
+      "chaves": [
+        { "chave": "HKCU\\Software\\Policies\\Microsoft\\Windows\\Explorer", "nome": "DisableSearchBoxSuggestions", "tipo": "DWord", "aplicar": 1 }
+      ] },
 
     { "id": "widgets_barra", "grupo": "copilot", "politica": false, "avancado": false, "recomendadoPara": "fraco", "soWin11": true, "reiniciarExplorer": false,
       "chaves": [

@@ -129,6 +129,48 @@ Describe 'ajusteswin.ps1' {
         }
     }
 
+    Context 'privacidade ampliada (dados do Sophia)' {
+        BeforeAll {
+            $Script:Novos = @(
+                @{ Id = 'feedback_frequencia'; Chave = 'HKCU\Software\Microsoft\Siuf\Rules'; Nome = 'NumberOfSIUFInPeriod'; Valor = 0; Pol = $false }
+                @{ Id = 'idioma_sites'; Chave = 'HKCU\Control Panel\International\User Profile'; Nome = 'HttpAcceptLanguageOptOut'; Valor = 1; Pol = $false }
+                @{ Id = 'novidades_windows'; Chave = 'HKCU\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement'; Nome = 'ScoobeSystemSettingEnabled'; Valor = 0; Pol = $false }
+                @{ Id = 'sugestoes_pesquisa_web'; Chave = 'HKCU\Software\Policies\Microsoft\Windows\Explorer'; Nome = 'DisableSearchBoxSuggestions'; Valor = 1; Pol = $true }
+            )
+        }
+        It 'os 4 ids aparecem em listar' {
+            $r = Invoke-Aj 'listar' @{ avancado = $true }
+            foreach ($n in $Script:Novos) {
+                $a = Get-Aj $r $n.Id
+                $a | Should -Not -BeNullOrEmpty
+                $a.grupo | Should -Be 'privacidade'
+                $a.politica | Should -Be $n.Pol
+            }
+        }
+        It 'aplicar e restaurar quando nada existia remove nome e chave' {
+            foreach ($n in $Script:Novos) {
+                Test-Path -LiteralPath (Get-ProvT $n.Chave) | Should -BeFalse
+                $r = Invoke-Aj 'aplicar' @{ ids = @($n.Id); confirmado = $true; avancado = $true }
+                @($r.dados.aplicados) | Should -Be @($n.Id)
+                Get-ValorT $n.Chave $n.Nome | Should -Be $n.Valor
+                Get-KindT $n.Chave $n.Nome | Should -Be 'DWord'
+                $r2 = Invoke-Aj 'restaurar' @{ ids = @($n.Id); confirmado = $true }
+                @($r2.dados.restaurados) | Should -Be @($n.Id)
+                Test-Path -LiteralPath (Get-ProvT $n.Chave) | Should -BeFalse
+            }
+        }
+        It 'restaurar devolve o valor anterior exato' {
+            foreach ($n in $Script:Novos) {
+                Set-ValorT $n.Chave $n.Nome 7 'DWord'
+                Invoke-Aj 'aplicar' @{ ids = @($n.Id); confirmado = $true; avancado = $true } | Out-Null
+                Get-ValorT $n.Chave $n.Nome | Should -Be $n.Valor
+                Invoke-Aj 'restaurar' @{ ids = @($n.Id); confirmado = $true } | Out-Null
+                Get-ValorT $n.Chave $n.Nome | Should -Be 7
+                Get-KindT $n.Chave $n.Nome | Should -Be 'DWord'
+            }
+        }
+    }
+
     Context 'aplicar e restaurar' {
         It 'Review Focus 4: chave ausente -> aplica como DWord, backup registra ausencia, restaurar remove nome e chave' {
             Test-Path -LiteralPath (Get-ProvT $Script:ChavePub) | Should -BeFalse
