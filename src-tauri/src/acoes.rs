@@ -38,6 +38,8 @@ const MODULOS: &[&str] = &[
     "programas",
     "inicializacao",
     "ajusteswin",
+    "disco",
+    "atualizacoes",
 ];
 
 /// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`). A UI roda
@@ -55,6 +57,11 @@ const ESCRITA: &[(&str, &str)] = &[
     ("inicializacao", "alternar"),
     ("ajusteswin", "aplicar"),
     ("ajusteswin", "restaurar"),
+    ("disco", "corrigir"),
+    ("disco", "reiniciar"),
+    ("disco", "otimizar"),
+    ("atualizacoes", "instalar"),
+    ("atualizacoes", "atualizarProgramas"),
 ];
 
 /// Tipos de item que `programas/limparRestos` aceita.
@@ -69,6 +76,8 @@ const MAX_TEXTO: usize = 260;
 const MAX_CAMINHO: usize = 1024;
 /// Máximo de ids por chamada de `ajusteswin/aplicar|restaurar`.
 const MAX_IDS_AJUSTES: usize = 50;
+/// Máximo de ids por chamada de `atualizacoes/instalar|atualizarProgramas`.
+const MAX_IDS_ATUALIZACOES: usize = 50;
 
 pub fn modulos_permitidos() -> &'static [&'static str] {
     MODULOS
@@ -104,6 +113,27 @@ fn re_id_inicio() -> &'static Regex {
 fn re_id_ajuste() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"^[a-z0-9_]{1,40}$").expect("regex válida"))
+}
+
+/// Letra de unidade como `estado` devolve: `C:` maiúsculo, sem barra.
+fn re_letra() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^[A-Z]:$").expect("regex válida"))
+}
+
+/// `Identity.UpdateID` do Windows Update: um GUID sem chaves.
+fn re_id_wu() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$").expect("regex válida")
+    })
+}
+
+/// Id de pacote do winget (`Google.Chrome`, `Microsoft.VCRedist.2015+.x64`): vai como argumento de
+/// lista para `winget --id`, então nada de espaço, aspas ou barra.
+fn re_id_winget() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$").expect("regex válida"))
 }
 
 fn erro(msg: impl Into<String>) -> ErroValidacao {
@@ -285,6 +315,19 @@ fn id_programa(m: &Map<String, Value>) -> Result<String, ErroValidacao> {
         return Err(erro("id de programa inválido"));
     }
     Ok(id.to_string())
+}
+
+/// `letra` obrigatória na forma `X:` maiúscula. O PowerShell resolve a letra contra as unidades fixas
+/// que ele mesmo lista; aqui ela nunca vira caminho.
+fn letra_unidade(m: &Map<String, Value>) -> Result<String, ErroValidacao> {
+    let letra = m
+        .get("letra")
+        .and_then(Value::as_str)
+        .ok_or_else(|| erro("letra é obrigatória (texto)"))?;
+    if !re_letra().is_match(letra) {
+        return Err(erro("letra de unidade inválida (esperado X:)"));
+    }
+    Ok(letra.to_string())
 }
 
 fn caminho_absoluto(s: &str) -> bool {
@@ -617,6 +660,75 @@ pub fn validar(
             saida.insert("confirmado".into(), Value::Bool(true));
             Ok(Value::Object(saida))
         }
+        ("disco", "estado") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["simular"])?;
+            let mut saida = Map::new();
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("disco", "verificar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["letra", "simular"])?;
+            let mut saida = Map::new();
+            saida.insert("letra".into(), Value::String(letra_unidade(&m)?));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("disco", "corrigir" | "otimizar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["letra", "confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert("letra".into(), Value::String(letra_unidade(&m)?));
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("disco", "reiniciar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("atualizacoes", "listar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["avancado", "simular"])?;
+            let mut saida = Map::new();
+            copiar_bool(&m, &mut saida, "avancado")?;
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("atualizacoes", "instalar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["ids", "confirmado", "avancado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert(
+                "ids".into(),
+                lista_de_ids(&m, re_id_wu(), MAX_IDS_ATUALIZACOES, "atualização")?,
+            );
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_bool(&m, &mut saida, "avancado")?;
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("atualizacoes", "atualizarProgramas") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["ids", "confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert(
+                "ids".into(),
+                lista_de_ids(&m, re_id_winget(), MAX_IDS_ATUALIZACOES, "programa")?,
+            );
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
         _ => Err(ErroValidacao::NaoPermitida(format!("{modulo}/{acao}"))),
     }
 }
@@ -823,7 +935,7 @@ mod testes {
 
     #[test]
     fn modulos() {
-        assert_eq!(modulos_permitidos().len(), 8);
+        assert_eq!(modulos_permitidos().len(), 10);
         for m in [
             "host",
             "diagnostico",
@@ -833,6 +945,8 @@ mod testes {
             "programas",
             "inicializacao",
             "ajusteswin",
+            "disco",
+            "atualizacoes",
         ] {
             assert!(modulos_permitidos().contains(&m), "{m}");
         }
@@ -853,6 +967,11 @@ mod testes {
             ("inicializacao", "alternar"),
             ("ajusteswin", "aplicar"),
             ("ajusteswin", "restaurar"),
+            ("disco", "corrigir"),
+            ("disco", "reiniciar"),
+            ("disco", "otimizar"),
+            ("atualizacoes", "instalar"),
+            ("atualizacoes", "atualizarProgramas"),
         ] {
             assert!(e_escrita(m, a), "{m}/{a} é escrita");
         }
@@ -867,6 +986,9 @@ mod testes {
             ("sistema", "sessao"),
             ("inicializacao", "listar"),
             ("ajusteswin", "listar"),
+            ("disco", "estado"),
+            ("disco", "verificar"),
+            ("atualizacoes", "listar"),
             ("limpeza", "Limpar"),
             ("inexistente", "limpar"),
         ] {
@@ -1672,5 +1794,117 @@ mod testes {
             parametro(v(json!({"ids": demais, "confirmado": true})));
             parametro(validar("ajusteswin", a, &json!({"ids": ["x"], "confirmado": true, "simular": {}}), true));
         }
+    }
+
+    // ---- disco ----
+
+    #[test]
+    fn disco_estado() {
+        assert_eq!(validar("disco", "estado", &json!(null), false).unwrap(), json!({}));
+        assert_eq!(validar("disco", "estado", &json!({}), false).unwrap(), json!({}));
+        let sim = json!({"simular": {"unidades": []}});
+        assert_eq!(validar("disco", "estado", &sim, true).unwrap(), sim);
+        parametro(validar("disco", "estado", &sim, false));
+        parametro(validar("disco", "estado", &json!({"x": 1}), false));
+    }
+
+    #[test]
+    fn disco_letra_valida() {
+        let p = json!({"letra": "C:"});
+        assert_eq!(validar("disco", "verificar", &p, false).unwrap(), p);
+        for a in ["corrigir", "otimizar"] {
+            let p = json!({"letra": "D:", "confirmado": true});
+            assert_eq!(validar("disco", a, &p, false).unwrap(), p);
+            let sim = json!({"letra": "D:", "confirmado": true, "simular": {"unidades": []}});
+            assert_eq!(validar("disco", a, &sim, true).unwrap(), sim);
+            parametro(validar("disco", a, &sim, false));
+        }
+        let r = json!({"confirmado": true});
+        assert_eq!(validar("disco", "reiniciar", &r, false).unwrap(), r);
+        let sim = json!({"confirmado": true, "simular": {}});
+        assert_eq!(validar("disco", "reiniciar", &sim, true).unwrap(), sim);
+    }
+
+    /// Review Focus 2 (lado Rust): só `X:` maiúsculo passa; o PowerShell ainda confere se a unidade existe.
+    #[test]
+    fn disco_letra_recusa() {
+        for ruim in ["c:", "C", "C:\\", "CC:", "1:", "", "C:\n", ":C"] {
+            parametro(validar("disco", "verificar", &json!({"letra": ruim}), false));
+            parametro(validar("disco", "corrigir", &json!({"letra": ruim, "confirmado": true}), false));
+            parametro(validar("disco", "otimizar", &json!({"letra": ruim, "confirmado": true}), false));
+        }
+        parametro(validar("disco", "verificar", &json!({}), false));
+        parametro(validar("disco", "verificar", &json!({"letra": 3}), false));
+        parametro(validar("disco", "verificar", &json!({"letra": "C:", "confirmado": true}), false));
+        for a in ["corrigir", "otimizar"] {
+            parametro(validar("disco", a, &json!({"letra": "C:"}), false));
+            parametro(validar("disco", a, &json!({"letra": "C:", "confirmado": "true"}), false));
+            parametro(validar("disco", a, &json!({"letra": "C:", "confirmado": false}), false));
+            parametro(validar("disco", a, &json!({"confirmado": true}), false));
+        }
+        parametro(validar("disco", "reiniciar", &json!({}), false));
+        parametro(validar("disco", "reiniciar", &json!({"confirmado": "true"}), false));
+        parametro(validar("disco", "reiniciar", &json!({"letra": "C:", "confirmado": true}), false));
+    }
+
+    // ---- atualizacoes ----
+
+    const ID_WU: &str = "7A3F1B2C-0000-4000-8000-000000000001";
+
+    #[test]
+    fn atualizacoes_listar() {
+        assert_eq!(validar("atualizacoes", "listar", &json!(null), false).unwrap(), json!({}));
+        let p = json!({"avancado": true});
+        assert_eq!(validar("atualizacoes", "listar", &p, false).unwrap(), p);
+        parametro(validar("atualizacoes", "listar", &json!({"avancado": 1}), false));
+        let sim = json!({"simular": {"windows": []}});
+        assert_eq!(validar("atualizacoes", "listar", &sim, true).unwrap(), sim);
+        parametro(validar("atualizacoes", "listar", &sim, false));
+        parametro(validar("atualizacoes", "listar", &json!({"x": 1}), false));
+    }
+
+    #[test]
+    fn atualizacoes_instalar_valido() {
+        let p = json!({"ids": [ID_WU, "7a3f1b2c-0000-4000-8000-000000000002"], "confirmado": true});
+        assert_eq!(validar("atualizacoes", "instalar", &p, false).unwrap(), p);
+        let av = json!({"ids": [ID_WU], "confirmado": true, "avancado": true});
+        assert_eq!(validar("atualizacoes", "instalar", &av, false).unwrap(), av);
+        let sim = json!({"ids": [ID_WU], "confirmado": true, "simular": {"windows": []}});
+        assert_eq!(validar("atualizacoes", "instalar", &sim, true).unwrap(), sim);
+        parametro(validar("atualizacoes", "instalar", &sim, false));
+
+        let w = json!({"ids": ["Google.Chrome", "Microsoft.VCRedist.2015+.x64", "7zip.7zip", "VideoLAN.VLC"], "confirmado": true});
+        assert_eq!(validar("atualizacoes", "atualizarProgramas", &w, false).unwrap(), w);
+        parametro(validar("atualizacoes", "atualizarProgramas", &json!({"ids": ["7zip.7zip"], "confirmado": true, "avancado": true}), false));
+        let sim = json!({"ids": ["7zip.7zip"], "confirmado": true, "simular": {"wingetAusente": true}});
+        assert_eq!(validar("atualizacoes", "atualizarProgramas", &sim, true).unwrap(), sim);
+    }
+
+    #[test]
+    fn atualizacoes_instalar_recusa() {
+        let inst = |p: Value| validar("atualizacoes", "instalar", &p, false);
+        let prog = |p: Value| validar("atualizacoes", "atualizarProgramas", &p, false);
+        for ruim in ["KB5048667", "{7A3F1B2C-0000-4000-8000-000000000001}", "7A3F1B2C000040008000000000000001", "", "Google.Chrome"] {
+            parametro(inst(json!({"ids": [ruim], "confirmado": true})));
+        }
+        let longo = "a".repeat(129);
+        for ruim in ["Google Chrome", "\"7zip\"", "a/b", ".comeca.com.ponto", "", "a\nb", longo.as_str()] {
+            parametro(prog(json!({"ids": [ruim], "confirmado": true})));
+        }
+        assert!(prog(json!({"ids": ["a".repeat(128)], "confirmado": true})).is_ok());
+        for v in [inst as fn(Value) -> Result<Value, ErroValidacao>, prog] {
+            parametro(v(json!({"ids": [], "confirmado": true})));
+            parametro(v(json!({"confirmado": true})));
+            parametro(v(json!({"ids": "x", "confirmado": true})));
+            parametro(v(json!({"ids": [1], "confirmado": true})));
+        }
+        parametro(inst(json!({"ids": [ID_WU, ID_WU], "confirmado": true})));
+        parametro(inst(json!({"ids": [ID_WU]})));
+        parametro(inst(json!({"ids": [ID_WU], "confirmado": "true"})));
+        parametro(prog(json!({"ids": ["7zip.7zip"]})));
+        let muitos: Vec<String> = (0..MAX_IDS_ATUALIZACOES).map(|i| format!("7A3F1B2C-0000-4000-8000-{i:012}")).collect();
+        assert!(inst(json!({"ids": muitos, "confirmado": true})).is_ok());
+        let demais: Vec<String> = (0..=MAX_IDS_ATUALIZACOES).map(|i| format!("7A3F1B2C-0000-4000-8000-{i:012}")).collect();
+        parametro(inst(json!({"ids": demais, "confirmado": true})));
     }
 }
