@@ -70,9 +70,9 @@ function Get-ServicosDoPreset {
 }
 
 function Test-NomeExe {
-    # Puro: nome simples de executavel (sem pasta), usado para o 'jogo'.
+    # Puro: nome simples de executavel (sem pasta), usado para o 'jogo'. Mesma regra do re_exe do Rust e do RE_EXE da UI.
     param([string]$Nome)
-    return ($Nome -match '^[A-Za-z0-9_.\- ]+\.exe$')
+    return ($Nome -match '^[^\\/:*?"<>|\x00-\x1f]{1,120}\.exe$')
 }
 
 # ---------- dados e estado ----------

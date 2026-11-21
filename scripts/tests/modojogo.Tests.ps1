@@ -281,6 +281,26 @@ Describe 'modojogo.ps1' {
             (Invoke-Jogo 'desativar' @{ confirmado = $true }).ok | Should -BeTrue
             Get-ValorNoc | Should -Be 1
         }
+        It 'Test-NomeExe segue a regra do Rust: aceita espacos, apostrofo, parenteses e acentos; recusa pasta' {
+            Test-NomeExe "Baldur's Gate (x64) Café.exe" | Should -BeTrue
+            Test-NomeExe 'JOGO.EXE' | Should -BeTrue
+            Test-NomeExe 'a\b.exe' | Should -BeFalse
+            Test-NomeExe 'a/b.exe' | Should -BeFalse
+            Test-NomeExe 'x.exe:y.exe' | Should -BeFalse
+            Test-NomeExe 'jogo.bat' | Should -BeFalse
+            Test-NomeExe (('a' * 121) + '.exe') | Should -BeFalse
+        }
+        It 'ativar aceita jogo com nome fora do ASCII simples e guarda os PIDs dele' {
+            $exe = "Baldur's Gate (x64) Café.exe"
+            $Script:Sim.processos += @{ exe = $exe; nome = 'BG'; caminho = 'D:\Jogos\bg.exe'; ramBytes = 900MB; janela = $true; pid = 777 }
+            $r = Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @(); jogo = $exe; confirmado = $true; simular = $Script:Sim }
+            $r.ok | Should -BeTrue
+            $e = Get-EstadoGravado
+            $e.jogo | Should -Be $exe
+            @($e.jogoPids) | Should -Be @(777)
+            (Invoke-Jogo 'desativar' @{ confirmado = $true }).ok | Should -BeTrue
+            (Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @(); jogo = 'a\b.exe'; confirmado = $true; simular = $Script:Sim }).ok | Should -BeFalse
+        }
         It 'sem confirmado, preset invalido ou jogo invalido: recusa sem tocar em nada' {
             (Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @(); simular = $Script:Sim }).ok | Should -BeFalse
             (Invoke-Jogo 'ativar' @{ preset = 'turbo'; fechar = @(); confirmado = $true; simular = $Script:Sim }).ok | Should -BeFalse
