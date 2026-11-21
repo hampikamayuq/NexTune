@@ -14,9 +14,14 @@ function New-PastaTeste {
 function Get-CaminhoLongo {
     param([string]$Caminho)
     try {
-        $fso = New-Object -ComObject Scripting.FileSystemObject
-        if (Test-Path -LiteralPath $Caminho -PathType Container) { return [string]$fso.GetFolder($Caminho).Path }
-        if (Test-Path -LiteralPath $Caminho -PathType Leaf) { return [string]$fso.GetFile($Caminho).Path }
+        if ($null -eq $Script:TipoCaminhoLongo) {
+            $Script:TipoCaminhoLongo = Add-Type -Namespace NexTuneTeste -Name CaminhoLongo -PassThru -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+public static extern uint GetLongPathNameW(string curto, System.Text.StringBuilder longo, uint tamanho);
+'@
+        }
+        $sb = New-Object System.Text.StringBuilder 2048
+        if ($Script:TipoCaminhoLongo::GetLongPathNameW($Caminho, $sb, 2048) -gt 0) { return $sb.ToString() }
     } catch { $null = $_ }
     return $Caminho
 }

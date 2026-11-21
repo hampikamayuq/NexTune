@@ -43,6 +43,15 @@ if ($testes.Count -eq 0) {
     Write-Host 'Nenhum teste Pester encontrado; ignorando.'
 } else {
     Import-Module Pester -MinimumVersion 5.5
+    # O runner do GitHub expõe %TEMP% com nome curto 8.3 (C:\Users\RUNNER~1\...), mas o PowerShell devolve os
+    # caminhos na forma longa; os testes comparam os dois. Normaliza TEMP/TMP para a forma longa antes do Pester.
+    $tipo = Add-Type -Namespace NexTuneCi -Name Caminho -PassThru -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+public static extern uint GetLongPathNameW(string curto, System.Text.StringBuilder longo, uint tamanho);
+'@
+    $sb = New-Object System.Text.StringBuilder 1024
+    if ($tipo::GetLongPathNameW($env:TEMP, $sb, 1024) -gt 0) { $env:TEMP = $sb.ToString(); $env:TMP = $env:TEMP }
+    Write-Host "TEMP dos testes: $env:TEMP"
     # Sem -CI: ele chama exit antes de devolver o resultado, e as anotações abaixo nunca sairiam.
     $cfg = New-PesterConfiguration
     $cfg.Run.Path = 'scripts/tests'
