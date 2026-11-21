@@ -171,6 +171,155 @@ Describe 'ajusteswin.ps1' {
         }
     }
 
+    Context 'servicos e tarefas de telemetria (dados do Sophia)' {
+        BeforeEach {
+            $m = Join-Path (Get-AppPastas $true).Base 'ajustes'
+            if (Test-Path -LiteralPath $m) { Remove-Item -LiteralPath $m -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        BeforeAll {
+            function Get-MarcT {
+                param([string]$Nome)
+                $p = Join-Path (Join-Path (Get-AppPastas $true).Base 'ajustes') $Nome
+                if (-not (Test-Path -LiteralPath $p)) { return $null }
+                return [IO.File]::ReadAllText($p)
+            }
+            function Get-SimSvcT {
+                param([string]$Nome, [string]$Inicio, [bool]$Rodando, [bool]$Atrasado = $false)
+                return @{ servicos = @{ $Nome = @{ inicio = $Inicio; rodando = $Rodando; atrasado = $Atrasado } } }
+            }
+        }
+        It 'os 3 ids aparecem em listar, no grupo privacidade' {
+            $r = Invoke-Aj 'listar'
+            foreach ($id in 'servico_telemetria', 'relatorio_erros', 'tarefas_telemetria') {
+                (Get-Aj $r $id).grupo | Should -Be 'privacidade'
+            }
+        }
+        It 'o catalogo traz os nomes exatos de servicos e tarefas' {
+            $c = @{}
+            foreach ($a in $Script:Catalogo) { $c[$a.id] = $a }
+            $c['servico_telemetria'].servicos[0].nome | Should -Be 'DiagTrack'
+            $c['servico_telemetria'].servicos[0].inicio | Should -Be 'Disabled'
+            $c['relatorio_erros'].servicos[0].nome | Should -Be 'WerSvc'
+            $c['relatorio_erros'].tarefas[0].caminho + $c['relatorio_erros'].tarefas[0].nome | Should -Be '\Microsoft\Windows\Windows Error Reporting\QueueReporting'
+            @($c['tarefas_telemetria'].tarefas | ForEach-Object { $_.nome }) | Should -Be @('MareBackup', 'Microsoft Compatibility Appraiser', 'Microsoft Compatibility Appraiser Exp', 'StartupAppTask', 'Proxy', 'Consolidator', 'UsbCeip', 'Microsoft-Windows-DiskDiagnosticDataCollector', 'MapsToastTask', 'MapsUpdateTask')
+        }
+        It 'listar mostra o estado atual de cada servico e tarefa' {
+            $sim = @{ servicos = @{ WerSvc = @{ inicio = 'Manual'; rodando = $false } }
+                tarefas = @(@{ caminho = '\Microsoft\Windows\Application Experience\'; nome = 'MareBackup'; ativa = $true }) }
+            $r = Invoke-Aj 'listar' @{ simular = $sim }
+            $e = Get-Aj $r 'relatorio_erros'
+            $e.aplicado | Should -BeFalse
+            $e.servicos[0].nome | Should -Be 'WerSvc'
+            $e.servicos[0].existe | Should -BeTrue
+            $e.servicos[0].inicio | Should -Be 'Manual'
+            $e.tarefas[0].nome | Should -Be 'QueueReporting'
+            $e.tarefas[0].existe | Should -BeFalse
+            $t = Get-Aj $r 'tarefas_telemetria'
+            $mare = @($t.tarefas | Where-Object { $_.nome -eq 'MareBackup' })[0]
+            $mare.existe | Should -BeTrue
+            $mare.ativa | Should -BeTrue
+            @($t.tarefas | Where-Object { $_.nome -eq 'MapsToastTask' })[0].existe | Should -BeFalse
+            $t.aplicado | Should -BeFalse
+        }
+        It 'listar marca aplicado quando todos os existentes ja estao no alvo; sem nada existente nao conta' {
+            $sim = @{ servicos = @{ DiagTrack = @{ inicio = 'Disabled'; rodando = $false } }
+                tarefas = @(@{ caminho = '\Microsoft\Windows\Customer Experience Improvement Program\'; nome = 'UsbCeip'; ativa = $false }) }
+            $r = Invoke-Aj 'listar' @{ simular = $sim }
+            (Get-Aj $r 'servico_telemetria').aplicado | Should -BeTrue
+            (Get-Aj $r 'tarefas_telemetria').aplicado | Should -BeTrue
+            (Get-Aj $r 'relatorio_erros').aplicado | Should -BeFalse
+            (Get-Aj (Invoke-Aj 'listar') 'servico_telemetria').aplicado | Should -BeFalse
+        }
+        It 'aplicar desliga o servico (marcador Disabled), para se rodava e guarda o estado no backup' {
+            $r = Invoke-Aj 'aplicar' @{ ids = @('servico_telemetria'); confirmado = $true; simular = (Get-SimSvcT 'DiagTrack' 'Automatic' $true) }
+            @($r.dados.aplicados) | Should -Be @('servico_telemetria')
+            @($r.dados.falhas).Count | Should -Be 0
+            Get-MarcT 'servico-DiagTrack-inicio.txt' | Should -Be 'Disabled'
+            Get-MarcT 'servico-DiagTrack-stop.txt' | Should -Not -BeNullOrEmpty
+            $b = (Get-Content -LiteralPath $Script:Backup -Raw -Encoding UTF8 | ConvertFrom-Json).servico_telemetria.servicos[0]
+            $b.nome | Should -Be 'DiagTrack'
+            $b.inicio | Should -Be 'Automatic'
+            $b.rodando | Should -BeTrue
+        }
+        It 'restaurar devolve o tipo de inicio anterior (Manual volta Manual, sem religar o que estava parado)' {
+            Invoke-Aj 'aplicar' @{ ids = @('servico_telemetria'); confirmado = $true; simular = (Get-SimSvcT 'DiagTrack' 'Manual' $false) } | Out-Null
+            Get-MarcT 'servico-DiagTrack-inicio.txt' | Should -Be 'Disabled'
+            Get-MarcT 'servico-DiagTrack-stop.txt' | Should -BeNullOrEmpty
+            $r = Invoke-Aj 'restaurar' @{ ids = @('servico_telemetria'); confirmado = $true }
+            @($r.dados.restaurados) | Should -Be @('servico_telemetria')
+            Get-MarcT 'servico-DiagTrack-inicio.txt' | Should -Be 'Manual'
+            Get-MarcT 'servico-DiagTrack-start.txt' | Should -BeNullOrEmpty
+        }
+        It 'restaurar devolve Disabled a quem ja estava desligado (nunca Automatic)' {
+            Invoke-Aj 'aplicar' @{ ids = @('servico_telemetria'); confirmado = $true; simular = (Get-SimSvcT 'DiagTrack' 'Disabled' $false) } | Out-Null
+            Invoke-Aj 'restaurar' @{ ids = @('servico_telemetria'); confirmado = $true } | Out-Null
+            Get-MarcT 'servico-DiagTrack-inicio.txt' | Should -Be 'Disabled'
+            Get-MarcT 'servico-DiagTrack-start.txt' | Should -BeNullOrEmpty
+        }
+        It 'restaurar devolve Automatic e religa o servico que rodava' {
+            Invoke-Aj 'aplicar' @{ ids = @('servico_telemetria'); confirmado = $true; simular = (Get-SimSvcT 'DiagTrack' 'Automatic' $true) } | Out-Null
+            Invoke-Aj 'restaurar' @{ ids = @('servico_telemetria'); confirmado = $true } | Out-Null
+            Get-MarcT 'servico-DiagTrack-inicio.txt' | Should -Be 'Automatic'
+            Get-MarcT 'servico-DiagTrack-start.txt' | Should -Not -BeNullOrEmpty
+        }
+        It 'restaurar preserva o inicio automatico atrasado' {
+            Invoke-Aj 'aplicar' @{ ids = @('relatorio_erros'); confirmado = $true; simular = (Get-SimSvcT 'WerSvc' 'Automatic' $false $true) } | Out-Null
+            Invoke-Aj 'restaurar' @{ ids = @('relatorio_erros'); confirmado = $true } | Out-Null
+            Get-MarcT 'servico-WerSvc-inicio.txt' | Should -Be 'AutomaticDelayed'
+        }
+        It 'tarefa inexistente vira naoAplica e o resto do ajuste segue' {
+            $r = Invoke-Aj 'aplicar' @{ ids = @('relatorio_erros'); confirmado = $true; simular = (Get-SimSvcT 'WerSvc' 'Manual' $false) }
+            @($r.dados.aplicados) | Should -Be @('relatorio_erros')
+            @($r.dados.falhas).Count | Should -Be 0
+            $na = @($r.dados.naoAplica)
+            $na.Count | Should -Be 1
+            $na[0].id | Should -Be 'relatorio_erros'
+            $na[0].tipo | Should -Be 'tarefa'
+            $na[0].nome | Should -Be 'QueueReporting'
+            Get-MarcT 'servico-WerSvc-inicio.txt' | Should -Be 'Disabled'
+            Get-MarcT 'tarefa-QueueReporting-disable.txt' | Should -BeNullOrEmpty
+        }
+        It 'servico inexistente tambem e naoAplica e nao falha' {
+            $r = Invoke-Aj 'aplicar' @{ ids = @('servico_telemetria'); confirmado = $true }
+            @($r.dados.aplicados) | Should -Be @('servico_telemetria')
+            @($r.dados.falhas).Count | Should -Be 0
+            @($r.dados.naoAplica)[0].tipo | Should -Be 'servico'
+            Get-MarcT 'servico-DiagTrack-inicio.txt' | Should -BeNullOrEmpty
+        }
+        It 'tarefas por nome sob \Microsoft\Windows\ (recursivo): so as existentes sao desativadas, o resto e naoAplica' {
+            $sim = @{ tarefas = @(
+                    @{ caminho = '\Microsoft\Windows\Application Experience\'; nome = 'MareBackup'; ativa = $true }
+                    @{ caminho = '\Microsoft\Windows\Maps\'; nome = 'MapsToastTask'; ativa = $false }
+                    @{ caminho = '\Outro\Fabricante\'; nome = 'Proxy'; ativa = $true }) }
+            $r = Invoke-Aj 'aplicar' @{ ids = @('tarefas_telemetria'); confirmado = $true; simular = $sim }
+            @($r.dados.aplicados) | Should -Be @('tarefas_telemetria')
+            @($r.dados.falhas).Count | Should -Be 0
+            @($r.dados.naoAplica).Count | Should -Be 8
+            Get-MarcT 'tarefa-MareBackup-disable.txt' | Should -Be '\Microsoft\Windows\Application Experience\'
+            Get-MarcT 'tarefa-MapsToastTask-disable.txt' | Should -BeNullOrEmpty
+            Get-MarcT 'tarefa-Proxy-disable.txt' | Should -BeNullOrEmpty
+        }
+        It 'restaurar devolve cada tarefa ao estado anterior: ativa volta ativa, desativada continua desativada' {
+            $sim = @{ tarefas = @(
+                    @{ caminho = '\Microsoft\Windows\Application Experience\'; nome = 'MareBackup'; ativa = $true }
+                    @{ caminho = '\Microsoft\Windows\Maps\'; nome = 'MapsToastTask'; ativa = $false }) }
+            Invoke-Aj 'aplicar' @{ ids = @('tarefas_telemetria'); confirmado = $true; simular = $sim } | Out-Null
+            $r = Invoke-Aj 'restaurar' @{ ids = @('tarefas_telemetria'); confirmado = $true }
+            @($r.dados.restaurados) | Should -Be @('tarefas_telemetria')
+            Get-MarcT 'tarefa-MareBackup-enable.txt' | Should -Be '\Microsoft\Windows\Application Experience\'
+            Get-MarcT 'tarefa-MapsToastTask-enable.txt' | Should -BeNullOrEmpty
+            Get-MarcT 'tarefa-MapsToastTask-disable.txt' | Should -Not -BeNullOrEmpty
+            (Get-Aj (Invoke-Aj 'listar') 'tarefas_telemetria').temBackup | Should -BeFalse
+        }
+        It 'restaurar ignora servico e tarefa do backup que o catalogo nao lista' {
+            Invoke-Aj 'aplicar' @{ ids = @('servico_telemetria'); confirmado = $true; simular = (Get-SimSvcT 'DiagTrack' 'Manual' $false) } | Out-Null
+            $b = Get-Content -LiteralPath $Script:Backup -Raw -Encoding UTF8 | ConvertFrom-Json
+            $b.servico_telemetria.servicos[0].nome = 'Spooler'
+            [IO.File]::WriteAllText($Script:Backup, ($b | ConvertTo-Json -Depth 8))
+            Invoke-Aj 'restaurar' @{ ids = @('servico_telemetria'); confirmado = $true } | Out-Null
+            Get-MarcT 'servico-Spooler-inicio.txt' | Should -BeNullOrEmpty
+        }
+    }
     Context 'aplicar e restaurar' {
         It 'Review Focus 4: chave ausente -> aplica como DWord, backup registra ausencia, restaurar remove nome e chave' {
             Test-Path -LiteralPath (Get-ProvT $Script:ChavePub) | Should -BeFalse

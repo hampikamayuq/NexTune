@@ -67,6 +67,24 @@
       "chaves": [
         { "chave": "HKCU\\Software\\Policies\\Microsoft\\Windows\\Explorer", "nome": "DisableSearchBoxSuggestions", "tipo": "DWord", "aplicar": 1 }
       ] },
+    { "id": "servico_telemetria", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "servicos": [ { "nome": "DiagTrack", "inicio": "Disabled" } ] },
+    { "id": "relatorio_erros", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "nenhum", "soWin11": false, "reiniciarExplorer": false,
+      "servicos": [ { "nome": "WerSvc", "inicio": "Disabled" } ],
+      "tarefas": [ { "caminho": "\\Microsoft\\Windows\\Windows Error Reporting\\", "nome": "QueueReporting" } ] },
+    { "id": "tarefas_telemetria", "grupo": "privacidade", "politica": false, "avancado": false, "recomendadoPara": "todos", "soWin11": false, "reiniciarExplorer": false,
+      "tarefas": [
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "MareBackup" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "Microsoft Compatibility Appraiser" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "Microsoft Compatibility Appraiser Exp" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "StartupAppTask" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "Proxy" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "Consolidator" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "UsbCeip" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "Microsoft-Windows-DiskDiagnosticDataCollector" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "MapsToastTask" },
+        { "caminho": "\\Microsoft\\Windows\\", "nome": "MapsUpdateTask" }
+      ] },
 
     { "id": "widgets_barra", "grupo": "copilot", "politica": false, "avancado": false, "recomendadoPara": "fraco", "soWin11": true, "reiniciarExplorer": false,
       "chaves": [
