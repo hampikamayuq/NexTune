@@ -4,7 +4,8 @@
 //! (`versao, demo, esAdmin, perfil, modoLeve, equipo, sessaoOk`). O progresso chega no evento
 //! `progresso` com `{id, modulo, tipo:"progresso"|"log", ...}`.
 //!
-//! Comandos: `executar(modulo, acao, params)`, `cancelar()`, `ajustes_ler()`, `ajustes_gravar(a)`,
+//! Comandos: `executar(modulo, acao, params)`, `cancelar()`, `ajustes_ler()`, `ajustes_gravar(a)`
+//! (cria/remove a bandeja quando `bandeja_ativa` muda),
 //! `dados(nome)`, `info()` e `ponto_sessao() -> bool` (se `sistema/criarPonto` já devolveu
 //! `criado:true` neste processo).
 //!
@@ -18,6 +19,7 @@
 
 use crate::acoes;
 use crate::ajustes::{self, Ajustes};
+use crate::bandeja;
 use crate::caminhos::Pastas;
 use crate::host::{Evento, HostPowerShell};
 use crate::perfil::{self, Perfil};
@@ -27,7 +29,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as MutexSync};
-use tauri::{Emitter, State, Window};
+use tauri::{AppHandle, Emitter, State, Window};
 use tokio::sync::Mutex;
 
 const DADOS_PERMITIDOS: &[&str] = &[
@@ -230,6 +232,23 @@ pub async fn executar(
     r
 }
 
+/// Executa uma ação sem janela (vigia do Modo Jogo): mesma validação e mesmo bloqueio por sessão
+/// de `executar`, sem eventos de progresso.
+pub(crate) async fn executar_interno(
+    estado: &Estado,
+    modulo: &str,
+    acao: &str,
+    params: Value,
+) -> Result<Value, String> {
+    let host = estado.host.lock().await.clone();
+    if acoes::e_escrita(modulo, acao) {
+        verificar_sessao(estado, &host).await?;
+    }
+    host.executar(modulo, acao, params, false, |_| {})
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// `true` se um ponto de restauração já foi criado neste processo (`sistema/criarPonto` com
 /// `criado:true`); a UI usa para não criar outro antes de cada ação de escrita.
 #[tauri::command]
@@ -251,11 +270,25 @@ pub fn ajustes_ler(estado: State<'_, Estado>) -> Ajustes {
 }
 
 #[tauri::command]
-pub async fn ajustes_gravar(a: Ajustes, estado: State<'_, Estado>) -> Result<Ajustes, String> {
+pub async fn ajustes_gravar(
+    a: Ajustes,
+    app: AppHandle,
+    estado: State<'_, Estado>,
+) -> Result<Ajustes, String> {
     a.validar()?;
     let perfil = perfil::ler(&estado.pastas);
-    let antes = perfil::modo_leve(&perfil, &ajustes::ler(&estado.pastas));
+    let anteriores = ajustes::ler(&estado.pastas);
+    let antes = perfil::modo_leve(&perfil, &anteriores);
     ajustes::gravar(&estado.pastas, &a).map_err(|e| format!("não foi possível gravar: {e}"))?;
+    match (anteriores.bandeja_ativa(), a.bandeja_ativa()) {
+        (false, true) => {
+            if let Err(e) = bandeja::criar_bandeja(&app) {
+                eprintln!("bandeja: não foi possível criar: {e}");
+            }
+        }
+        (true, false) => bandeja::remover_bandeja(&app),
+        _ => {}
+    }
     let depois = perfil::modo_leve(&perfil, &a);
     if antes != depois {
         let novo = Arc::new(criar_host(&estado.pastas, depois));

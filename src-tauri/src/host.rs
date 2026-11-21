@@ -18,7 +18,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex, oneshot};
 
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const ESPERA_CANCELAR: Duration = Duration::from_secs(5);
 /// Depois de um cancelamento confirmado, quanto esperar o host ficar ocioso (os `finally` das
 /// ações religam serviços e restauram o registro) antes de matar o processo.
