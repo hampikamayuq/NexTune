@@ -68,15 +68,30 @@ fn ambiente_host(cmd: &mut Command) {
     }
     let sys32 = s.windir.join("System32");
     let ps = sys32.join("WindowsPowerShell").join("v1.0");
-    let path = std::env::join_paths([&sys32, &s.windir, &sys32.join("Wbem"), &ps]);
-    let modulos = std::env::join_paths([
-        ps.join("Modules"),
-        s.program_files.join("WindowsPowerShell").join("Modules"),
-    ]);
-    if let (Ok(path), Ok(modulos)) = (path, modulos) {
-        cmd.env("PATH", path).env("PSModulePath", modulos);
-    }
-    cmd.env("ComSpec", sys32.join("cmd.exe"))
+    // Junção com ';' feita à mão: `join_paths` falharia (e deixaria o host sem PATH) se uma pasta
+    // tivesse ';' ou '"', o que não acontece com pastas do sistema.
+    let juntar = |pastas: &[PathBuf]| {
+        let mut saida = std::ffi::OsString::new();
+        for (i, p) in pastas.iter().enumerate() {
+            if i > 0 {
+                saida.push(";");
+            }
+            saida.push(p);
+        }
+        saida
+    };
+    cmd.env(
+        "PATH",
+        juntar(&[sys32.clone(), s.windir.clone(), sys32.join("Wbem"), ps.clone()]),
+    )
+    .env(
+        "PSModulePath",
+        juntar(&[
+            ps.join("Modules"),
+            s.program_files.join("WindowsPowerShell").join("Modules"),
+        ]),
+    )
+    .env("ComSpec", sys32.join("cmd.exe"))
         .env("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC");
     for k in AMBIENTE_HERDADO {
         if let Some(v) = std::env::var_os(k) {

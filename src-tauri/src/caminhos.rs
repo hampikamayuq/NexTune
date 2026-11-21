@@ -122,7 +122,8 @@ fn pasta_conhecida(id: &windows_sys::core::GUID) -> Option<PathBuf> {
     let mut p: *mut u16 = std::ptr::null_mut();
     // SAFETY: `id` e `p` são válidos; a string devolvida termina em zero e é liberada com CoTaskMemFree.
     unsafe {
-        if SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut p) != 0 || p.is_null() {
+        let ok = SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut p) == 0;
+        if p.is_null() {
             return None;
         }
         let mut n = 0;
@@ -130,8 +131,9 @@ fn pasta_conhecida(id: &windows_sys::core::GUID) -> Option<PathBuf> {
             n += 1;
         }
         let s = String::from_utf16_lossy(std::slice::from_raw_parts(p, n));
-        CoTaskMemFree(p as _);
-        Some(PathBuf::from(s))
+        // A documentação pede o CoTaskMemFree também quando a chamada falha.
+        CoTaskMemFree(p.cast());
+        ok.then(|| PathBuf::from(s))
     }
 }
 
@@ -341,7 +343,8 @@ mod testes {
         let s = sistema();
         let v = s.variaveis();
         assert_eq!(v.len(), 12);
-        for (k, p) in &v {
+        // "C:" sozinho não conta como absoluto para o Path do Rust; o assert do system_drive cobre ele.
+        for (k, p) in v.iter().filter(|(k, _)| *k != "SystemDrive") {
             assert!(p.is_absolute(), "{k}: {}", p.display());
         }
         assert!(
