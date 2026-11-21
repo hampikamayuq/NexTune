@@ -65,6 +65,58 @@ async function aplicarPerfil(classe, disco) {
   } catch (e) { mostrarErro(e); }
 }
 
+// "Por que o PC reiniciou": leitura sob demanda (botão), só leitura.
+const R = { eventos: null, carregando: false, erro: null };
+
+async function carregarReinicios() {
+  if (R.carregando) return;
+  R.carregando = true; R.erro = null;
+  renderAtual();
+  try {
+    const r = await api.executar('diagnostico', 'reinicios', {}, null);
+    R.eventos = r.eventos || [];
+  } catch (e) { R.erro = String(e && e.message ? e.message : e); }
+  R.carregando = false;
+  renderAtual();
+}
+
+function rotuloTipoReinicio(tipo) {
+  if (tipo === 'desligamento') return t('diagnostico.reiniciosTipoDesligamento');
+  if (tipo === 'queda') return t('diagnostico.reiniciosTipoQueda');
+  if (tipo === 'telaAzul') return t('diagnostico.reiniciosTipoTelaAzul');
+  return t('diagnostico.reiniciosTipoReinicio');
+}
+
+function itemReinicio(ev) {
+  const data = new Date(ev.data);
+  const quando = isNaN(data) ? '' : data.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  return h('div', { class: 'item-disco' },
+    h('div', { class: 'nome-item' },
+      h('span', { text: quando }),
+      h('span', { class: 'selo' + (ev.tipo === 'telaAzul' || ev.tipo === 'queda' ? ' destaque' : ''), text: rotuloTipoReinicio(ev.tipo) }),
+      h('span', { text: ev.quem }),
+      ev.codigo ? h('span', { class: 'selo', text: t('diagnostico.reiniciosCodigo', { codigo: ev.codigo }) }) : null),
+    h('p', { class: 'suave pequeno', text: ev.motivo }));
+}
+
+function cartaoReinicios() {
+  const c = h('div', { class: 'cartao' }, h('h3', { text: t('diagnostico.reiniciosTitulo') }));
+  if (R.carregando) {
+    c.append(h('div', { class: 'carregando' }, h('span', { class: 'giro' }), h('span', { text: t('diagnostico.reiniciosLendo') })));
+    return c;
+  }
+  if (R.erro) c.append(h('p', { class: 'aviso pequeno', text: t('diagnostico.reiniciosErro', { erro: R.erro }) }));
+  if (R.eventos == null) {
+    c.append(h('p', { class: 'suave pequeno', text: t('diagnostico.reiniciosIntro') }));
+  } else if (R.eventos.length === 0) {
+    c.append(h('p', { text: t('diagnostico.reiniciosVazio') }));
+  } else {
+    for (const ev of R.eventos) c.append(itemReinicio(ev));
+  }
+  c.append(h('p', {}, h('button', { type: 'button', class: 'btn sec acao', text: R.eventos == null ? t('diagnostico.reiniciosVer') : t('diagnostico.reiniciosAtualizar'), onclick: () => carregarReinicios() })));
+  return c;
+}
+
 VISTAS.diagnostico = {
   render(main) {
     const v = h('section', { class: 'vista' }, h('h1', { text: t('diagnostico.titulo') }));
@@ -171,6 +223,8 @@ VISTAS.diagnostico = {
         h('div', { class: 'suave pequeno', text: t('diagnostico.livreDe', { livre: fmtBytes(u.livre), total: fmtBytes(u.total) }) })));
     }
     v.append(h('div', { class: 'grade' }, discos, unidades));
+
+    v.append(cartaoReinicios());
 
     v.append(h('p', {}, h('button', { type: 'button', class: 'btn sec acao', text: t('diagnostico.atualizar'), onclick: async () => {
       try { await recoletar({}); renderAtual(); } catch (e) { mostrarErro(e); }

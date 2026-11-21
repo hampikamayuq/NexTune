@@ -716,6 +716,13 @@ pub fn validar(
             saida.insert("confirmado".into(), Value::Bool(true));
             Ok(Value::Object(saida))
         }
+        ("diagnostico", "reinicios") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["simular"])?;
+            let mut saida = Map::new();
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
         ("disco", "estado") => {
             let m = como_objeto(params)?;
             so_chaves(&m, &["simular"])?;
@@ -1104,6 +1111,7 @@ mod testes {
         for (m, a) in [
             ("host", "ping"),
             ("diagnostico", "coletar"),
+            ("diagnostico", "reinicios"),
             ("limpeza", "analisar"),
             ("programas", "listar"),
             ("programas", "restos"),
@@ -1922,6 +1930,20 @@ mod testes {
             parametro(v(json!({"ids": demais, "confirmado": true})));
             parametro(validar("ajusteswin", a, &json!({"ids": ["x"], "confirmado": true, "simular": {}}), true));
         }
+    }
+
+    // ---- diagnostico/reinicios ----
+
+    #[test]
+    fn diagnostico_reinicios() {
+        assert_eq!(validar("diagnostico", "reinicios", &json!(null), false).unwrap(), json!({}));
+        assert_eq!(validar("diagnostico", "reinicios", &json!({}), false).unwrap(), json!({}));
+        let sim = json!({"simular": {"eventos": []}});
+        assert_eq!(validar("diagnostico", "reinicios", &sim, true).unwrap(), sim);
+        parametro(validar("diagnostico", "reinicios", &sim, false));
+        parametro(validar("diagnostico", "reinicios", &json!({"simular": 1}), true));
+        parametro(validar("diagnostico", "reinicios", &json!({"x": 1}), false));
+        assert!(!e_escrita("diagnostico", "reinicios"));
     }
 
     // ---- disco ----

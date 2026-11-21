@@ -155,10 +155,27 @@ const demo = {
     };
   },
 
+  _reinicios() {
+    const dia = 24 * 3600 * 1000;
+    const quando = (dias, hora) => new Date(Date.now() - dias * dia + hora * 3600 * 1000).toISOString();
+    return {
+      eventos: [
+        { data: quando(1, 0), tipo: 'reinicio', quem: 'Windows Update', motivo: 'O Windows reiniciou para instalar atualizações. É normal; para evitar que aconteça enquanto você usa o PC, defina as "horas ativas" em Configurações > Windows Update.' },
+        { data: quando(4, -3), tipo: 'telaAzul', quem: 'Windows', motivo: 'A placa de vídeo parou de responder (driver de vídeo, ou placa forçada demais ou muito quente).', codigo: '0x00000116' },
+        { data: quando(9, -5), tipo: 'queda', quem: 'Windows', motivo: 'O PC desligou de repente, sem aviso do Windows: falta de energia, botão de ligar mantido pressionado, fonte ou temperatura. Se acontecer jogando, vigie as temperaturas.' },
+        { data: quando(15, -2), tipo: 'desligamento', quem: 'Você', motivo: 'Você desligou o PC pelo menu Iniciar ou por um programa que pediu.' },
+      ],
+    };
+  },
+
   async executar(modulo, acao, params, onProgresso) {
     if (modulo === 'diagnostico' && acao === 'coletar') {
       await this._simular(onProgresso, modulo, ['Lendo o equipamento…', 'Lendo discos e memória…', 'Definindo o perfil…']);
       return this._coletar(params);
+    }
+    if (modulo === 'diagnostico' && acao === 'reinicios') {
+      await this._simular(onProgresso, modulo, ['Lendo o histórico do Windows…']);
+      return this._reinicios();
     }
     if (modulo === 'limpeza' && acao === 'analisar') {
       if (!this._cats) this._cats = this._categoriasIniciais();

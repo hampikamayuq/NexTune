@@ -193,4 +193,111 @@ Describe 'diagnostico.ps1' {
             $r.erro | Should -Be 'ação desconhecida'
         }
     }
+
+    Context 'reinicios (classificacao pura)' {
+        BeforeAll {
+            function Get-EvFalso {
+                param([int]$Id, [string]$Data, [string]$Provedor = 'Microsoft-Windows-Kernel-Power', [string[]]$Props = @())
+                return @{ Id = $Id; Data = [datetime]::Parse($Data, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind); Provedor = $Provedor; Props = $Props }
+            }
+            $Script:Wer = 'Microsoft-Windows-WER-SystemErrorReporting'
+        }
+        It 'tabela de telas azuis tem os 14 codigos, todos com texto' {
+            $Script:TelasAzuis.Count | Should -Be 14
+            foreach ($k in $Script:TelasAzuis.Keys) { $k | Should -Match '^0x[0-9a-f]{8}$'; $Script:TelasAzuis[$k] | Should -Not -BeNullOrEmpty }
+        }
+        It '41 sem codigo vira queda' {
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 41 '2026-11-01T10:00:00Z' -Props @('0')))
+            $r.Count | Should -Be 1
+            $r[0].tipo | Should -Be 'queda'
+            $r[0].motivo | Should -Match 'energia'
+            $r[0].Contains('codigo') | Should -BeFalse
+        }
+        It '41 com codigo e sem 1001 vira tela azul' {
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 41 '2026-11-01T10:00:00Z' -Props @('278')))
+            $r[0].tipo | Should -Be 'telaAzul'
+            $r[0].codigo | Should -Be '0x00000116'
+        }
+        It '41 + 1001 de bugcheck juntos viram uma tela azul so, com o codigo do 1001' {
+            $r = @(Get-ClassificacaoReinicio @(
+                    (Get-EvFalso 41 '2026-11-01T10:05:00Z' -Props @('0')),
+                    (Get-EvFalso 1001 '2026-11-01T10:06:00Z' $Script:Wer @('0x00000116 (0x1, 0x2, 0x3, 0x4)'))))
+            $r.Count | Should -Be 1
+            $r[0].tipo | Should -Be 'telaAzul'
+            $r[0].codigo | Should -Be '0x00000116'
+            $r[0].motivo | Should -Match 'placa de vídeo'
+        }
+        It '1001 sozinho com codigo vira tela azul' {
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 1001 '2026-11-01T10:06:00Z' $Script:Wer @('0x0000001A (0x1)')))
+            $r[0].tipo | Should -Be 'telaAzul'
+            $r[0].codigo | Should -Be '0x0000001a'
+            $r[0].motivo | Should -Match 'memória RAM'
+        }
+        It '1001 de outro provedor (relatorio de erro comum) e ignorado' {
+            @(Get-ClassificacaoReinicio @(Get-EvFalso 1001 '2026-11-01T10:06:00Z' 'Windows Error Reporting' @('x'))).Count | Should -Be 0
+        }
+        It 'codigo desconhecido vira Tela azul (codigo X)' {
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 1001 '2026-11-01T10:06:00Z' $Script:Wer @('0x00000ABC (0x1)')))
+            $r[0].motivo | Should -Match '^Tela azul \(código 0x00000abc\)'
+        }
+        It '1074 de usuario: reinicio ou desligamento conforme o tipo' {
+            $props = @('C:\Windows\Explorer.EXE (PC)', 'PC', 'Outro (planejado)', '0x80020002', 'reiniciar', '', 'PC\ana')
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 1074 '2026-11-01T10:00:00Z' -Props $props))
+            $r[0].tipo | Should -Be 'reinicio'
+            $r[0].quem | Should -Be 'Você'
+            $props[4] = 'power off'
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 1074 '2026-11-01T10:00:00Z' -Props $props))
+            $r[0].tipo | Should -Be 'desligamento'
+            $props[4] = 'desligar'
+            @(Get-ClassificacaoReinicio @(Get-EvFalso 1074 '2026-11-01T10:00:00Z' -Props $props))[0].tipo | Should -Be 'desligamento'
+        }
+        It '1074 do Windows Update: reinicio normal' {
+            $props = @('C:\Windows\servicing\TrustedInstaller.exe (PC)', 'PC', 'Instalação', '0x80020010', 'restart', '', 'NT AUTHORITY\SYSTEM')
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 1074 '2026-11-01T10:00:00Z' -Props $props))
+            $r[0].tipo | Should -Be 'reinicio'
+            $r[0].quem | Should -Be 'Windows Update'
+            $r[0].motivo | Should -Match 'atualizações'
+        }
+        It '1074 de programa (conta do sistema): reinicio por programa' {
+            $props = @('C:\Program Files\Setup\instalador.exe (PC)', 'PC', 'Instalação', '0x80020010', 'restart', '', 'NT AUTHORITY\SISTEMA')
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 1074 '2026-11-01T10:00:00Z' -Props $props))
+            $r[0].tipo | Should -Be 'reinicio'
+            $r[0].quem | Should -Be 'Programa instalador'
+        }
+        It '6008 sozinho vira queda; junto de um 41 nao duplica' {
+            $r = @(Get-ClassificacaoReinicio @(Get-EvFalso 6008 '2026-11-01T10:00:00Z' 'EventLog' @('x')))
+            $r[0].tipo | Should -Be 'queda'
+            $r = @(Get-ClassificacaoReinicio @((Get-EvFalso 41 '2026-11-01T10:00:00Z' -Props @('0')), (Get-EvFalso 6008 '2026-11-01T10:03:00Z' 'EventLog' @('x'))))
+            $r.Count | Should -Be 1
+        }
+        It 'ordena do mais recente e limita a 50' {
+            $evs = @(1..60 | ForEach-Object { Get-EvFalso 41 ([datetime]'2026-10-01T00:00:00Z').AddHours($_ * 2).ToString('o') -Props @('0') })
+            $r = @(Get-ClassificacaoReinicio $evs)
+            $r.Count | Should -Be 50
+            [datetime]$r[0].data | Should -BeGreaterThan ([datetime]$r[49].data)
+        }
+    }
+
+    Context 'Invoke-Acao reinicios' {
+        It 'le simular.eventos e devolve o formato combinado; nunca le o log real em teste' {
+            Mock Get-WinEvent { throw 'nao deveria ler o log real' }
+            $sim = @{ eventos = @(
+                    @{ id = 41; data = '2026-11-01T10:00:00Z'; provedor = 'Microsoft-Windows-Kernel-Power'; props = @('0') },
+                    @{ id = 1001; data = '2026-11-02T10:00:00Z'; provedor = 'Microsoft-Windows-WER-SystemErrorReporting'; props = @('0x00000116 (0x1)') }) }
+            $r = Invoke-Coleta 'reinicios' @{ simular = $sim }
+            $r.ok | Should -BeTrue
+            @($r.dados.eventos).Count | Should -Be 2
+            $r.dados.eventos[0].tipo | Should -Be 'telaAzul'
+            $r.dados.eventos[0].codigo | Should -Be '0x00000116'
+            $r.dados.eventos[1].tipo | Should -Be 'queda'
+            Should -Invoke Get-WinEvent -Times 0 -Exactly
+        }
+        It 'sem simular em teste: lista vazia, sem ler o log' {
+            Mock Get-WinEvent { throw 'nao deveria ler o log real' }
+            $r = Invoke-Coleta 'reinicios' @{}
+            $r.ok | Should -BeTrue
+            @($r.dados.eventos).Count | Should -Be 0
+            Should -Invoke Get-WinEvent -Times 0 -Exactly
+        }
+    }
 }

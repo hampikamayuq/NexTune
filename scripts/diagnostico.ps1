@@ -1,5 +1,5 @@
 ﻿# diagnostico.ps1 - coleta de hardware/sistema e perfil da maquina (classe + disco).
-# Acao: coletar. Params opcionais: forcarPerfil {classe, disco}; simular (somente em modo de teste).
+# Acoes: coletar (params opcionais: forcarPerfil {classe, disco}; simular, somente em modo de teste) e reinicios (somente leitura).
 . "$PSScriptRoot\common.ps1"
 
 $Script:ClassesValidas = @('basico', 'medio', 'gamer')
@@ -323,14 +323,175 @@ function Invoke-Coletar {
     Send-Result $Id $dados
 }
 
+# --- reinicios: por que o PC reiniciou (somente leitura) ---
+# Baseado em reinicios.ps1 do RetroLimpia (MIT, Retropunk94)
+# Usa so campos independentes de idioma (Id, provedor, valores das propriedades), nunca o texto da mensagem.
+$Script:DiasReinicios = 30
+$Script:MaxReinicios = 50
+$Script:MaxEventosLidos = 200
+$Script:JanelaTelaAzulMin = 10
+$Script:JanelaQuedaMin = 15
+$Script:ProvedorTelaAzul = 'WER-SystemErrorReporting|BugCheck'
+$Script:ProcessosUpdate = 'trustedinstaller|musnotification|mousocoreworker|usoclient|wuauclt|tiworker|svchost'
+$Script:ProcessosUsuario = 'explorer|shutdown|startmenuexperiencehost|winlogon|logonui'
+$Script:MotivoTelaAzulGenerico = 'O Windows encontrou um erro grave e reiniciou para se proteger. Se acontecer de novo, revise os drivers e as temperaturas.'
+
+$Script:TelasAzuis = @{
+    '0x00000116' = 'A placa de vídeo parou de responder (driver de vídeo, ou placa forçada demais ou muito quente).'
+    '0x00000117' = 'A placa de vídeo parou de responder (driver de vídeo).'
+    '0x00000133' = 'Um driver ficou travado por tempo demais (costuma ser driver antigo de disco, rede ou som).'
+    '0x0000001a' = 'Falha na memória RAM (pode ser um módulo com defeito ou overclock/XMP instável).'
+    '0x00000050' = 'Um programa ou driver leu uma memória que não devia (driver com defeito ou RAM).'
+    '0x0000007e' = 'Um driver falhou (costuma resolver atualizando o driver).'
+    '0x0000003b' = 'Um driver ou componente do sistema falhou (costuma ser a placa de vídeo ou o antivírus).'
+    '0x00000124' = 'Falha de hardware detectada pelo processador (temperatura, tensão ou overclock).'
+    '0x000000ef' = 'Um processo crítico do Windows foi encerrado (arquivos do sistema danificados ou disco com problemas).'
+    '0x0000009f' = 'Um driver não respondeu ao suspender ou desligar.'
+    '0x000000d1' = 'Um driver (muitas vezes de rede ou Wi-Fi) acessou uma memória incorreta.'
+    '0x0000000a' = 'Um driver acessou uma memória incorreta.'
+    '0x0000001e' = 'Um driver fez algo que o Windows não soube tratar (driver com defeito ou antigo; às vezes a RAM ou um overclock instável).'
+    '0x00000139' = 'Um driver corrompeu uma estrutura do sistema.'
+}
+
+function Format-CodigoTelaAzul {
+    # '0x116 (0x1, ...)' -> '0x00000116' (minusculo, 8 digitos); $null se nao houver codigo.
+    param([string]$Texto)
+    if ($Texto -match '0[xX]([0-9a-fA-F]{1,8})') { return '0x' + $Matches[1].ToLowerInvariant().PadLeft(8, '0') }
+    return $null
+}
+
+function Get-ReinicioItem {
+    param([datetime]$Data, [string]$Tipo, [string]$Quem, [string]$Motivo, [string]$Codigo)
+    $r = [ordered]@{ data = $Data.ToString('o'); tipo = $Tipo; quem = $Quem; motivo = $Motivo }
+    if (-not [string]::IsNullOrEmpty($Codigo)) { $r.codigo = $Codigo }
+    return $r
+}
+
+function Get-ReinicioTelaAzul {
+    param([datetime]$Data, [string]$Codigo)
+    $motivo = $Script:TelasAzuis[$Codigo]
+    if ([string]::IsNullOrEmpty($motivo)) { $motivo = "Tela azul (código $Codigo): " + $Script:MotivoTelaAzulGenerico }
+    return (Get-ReinicioItem $Data 'telaAzul' 'Windows' $motivo $Codigo)
+}
+
+function Get-ReinicioDe1074 {
+    # 1074: processo [0], tipo [4] ("restart"/"power off"/...), usuario [6].
+    param($Ev)
+    $p = @($Ev.Props)
+    $campo = { param($i) if ($p.Count -gt $i) { [string]$p[$i] } else { '' } }
+    $proc = & $campo 0
+    $tipo = & $campo 4
+    $usuario = & $campo 6
+    $nome = [IO.Path]::GetFileName(($proc -replace '\s*\(.*$', '')).ToLowerInvariant()
+    if ($nome -match $Script:ProcessosUpdate) {
+        return (Get-ReinicioItem $Ev.Data 'reinicio' 'Windows Update' 'O Windows reiniciou para instalar atualizações. É normal; para evitar que aconteça enquanto você usa o PC, defina as "horas ativas" em Configurações > Windows Update.')
+    }
+    $contaSistema = [string]::IsNullOrWhiteSpace($usuario) -or $usuario -match 'SYSTEM|SISTEMA'
+    if ($nome -match $Script:ProcessosUsuario -or -not $contaSistema) {
+        $desliga = $tipo -match 'power ?off|shutdown|desligar|desligamento'
+        $t = if ($desliga) { 'desligamento' } else { 'reinicio' }
+        $m = if ($desliga) { 'Você desligou o PC pelo menu Iniciar ou por um programa que pediu.' } else { 'Você reiniciou o PC pelo menu Iniciar ou por um programa que pediu.' }
+        return (Get-ReinicioItem $Ev.Data $t 'Você' $m)
+    }
+    $prog = [IO.Path]::GetFileNameWithoutExtension($nome)
+    return (Get-ReinicioItem $Ev.Data 'reinicio' ('Programa ' + $prog) 'Um programa pediu o reinício, em geral um instalador ou um driver que precisava disso.')
+}
+
+function Get-ClassificacaoReinicio {
+    # Puro: eventos normalizados (@{ Id; Data; Provedor; Props }) -> lista [{ data, tipo, quem, motivo, codigo? }],
+    # do mais recente para o mais antigo, no maximo MaxReinicios. 41 + 1001 (tela azul) e 6008 proximos viram um item so.
+    param($Eventos)
+    $lista = @($Eventos)
+    $telas = @($lista | Where-Object { $_.Id -eq 1001 -and $_.Provedor -match $Script:ProvedorTelaAzul })
+    $usadas = @{}
+    $pares = New-Object System.Collections.Generic.List[object]
+    $add = { param($item, $dt) $pares.Add(@{ Dt = $dt; Item = $item }) }
+
+    foreach ($e in $lista) {
+        if ($e.Id -eq 1074) { & $add (Get-ReinicioDe1074 $e) $e.Data }
+        elseif ($e.Id -eq 41) {
+            $codigo = $null
+            $n = 0
+            if ($e.Props.Count -gt 0 -and [int64]::TryParse([string]$e.Props[0], [ref]$n) -and $n -ne 0) { $codigo = '0x{0:x8}' -f $n }
+            for ($i = 0; $i -lt $telas.Count; $i++) {
+                if ($usadas.ContainsKey($i)) { continue }
+                if ([Math]::Abs(($telas[$i].Data - $e.Data).TotalMinutes) -lt $Script:JanelaTelaAzulMin) {
+                    $usadas[$i] = $true
+                    $c = if ($telas[$i].Props.Count -gt 0) { Format-CodigoTelaAzul ([string]$telas[$i].Props[0]) } else { $null }
+                    if ($c) { $codigo = $c }
+                    if (-not $codigo) { $codigo = '0x00000000' }
+                    break
+                }
+            }
+            if ($codigo) { & $add (Get-ReinicioTelaAzul $e.Data $codigo) $e.Data }
+            else { & $add (Get-ReinicioItem $e.Data 'queda' 'Windows' 'O PC desligou de repente, sem aviso do Windows: falta de energia, botão de ligar mantido pressionado, fonte ou temperatura. Se acontecer jogando, vigie as temperaturas.') $e.Data }
+        }
+    }
+    for ($i = 0; $i -lt $telas.Count; $i++) {
+        if ($usadas.ContainsKey($i)) { continue }
+        $c = if ($telas[$i].Props.Count -gt 0) { Format-CodigoTelaAzul ([string]$telas[$i].Props[0]) } else { $null }
+        if ($c) { & $add (Get-ReinicioTelaAzul $telas[$i].Data $c) $telas[$i].Data }
+    }
+    # 6008 sem outro registro por perto (Windows antigo, sem o 41)
+    foreach ($e in @($lista | Where-Object { $_.Id -eq 6008 })) {
+        $perto = @($pares | Where-Object { [Math]::Abs(($_.Dt - $e.Data).TotalMinutes) -lt $Script:JanelaQuedaMin })
+        if ($perto.Count -eq 0) {
+            & $add (Get-ReinicioItem $e.Data 'queda' 'Windows' 'O Windows não foi encerrado direito da vez anterior: falta de energia ou botão de ligar mantido pressionado.') $e.Data
+        }
+    }
+    return @($pares | Sort-Object { $_.Dt } -Descending | Select-Object -First $Script:MaxReinicios | ForEach-Object { $_.Item })
+}
+
+function Convert-EventoSimulado {
+    param($Ev)
+    $props = @()
+    if ($null -ne $Ev.props) { $props = @(@($Ev.props) | ForEach-Object { [string]$_ }) }
+    $dt = [datetime]::Parse([string]$Ev.data, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+    return @{ Id = [int]$Ev.id; Data = $dt; Provedor = [string]$Ev.provedor; Props = $props }
+}
+
+function Convert-EventoReal {
+    param($Ev)
+    $props = @()
+    try { $props = @(@($Ev.Properties) | ForEach-Object { [string]$_.Value }) } catch { $null = $_ }
+    return @{ Id = [int]$Ev.Id; Data = [datetime]$Ev.TimeCreated; Provedor = [string]$Ev.ProviderName; Props = $props }
+}
+
+function Read-EventoReinicio {
+    # Leitura do log System; "nenhum evento" e lista vazia, qualquer outro erro sobe.
+    $desde = (Get-Date).AddDays(-$Script:DiasReinicios)
+    try {
+        $ev = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 41, 1074, 6008, 1001; StartTime = $desde } -MaxEvents $Script:MaxEventosLidos -ErrorAction Stop)
+    } catch {
+        if ($_.FullyQualifiedErrorId -match 'NoMatchingEventsFound|NoMatchingLogsFound') { return @() }
+        throw
+    }
+    return @($ev | ForEach-Object { Convert-EventoReal $_ })
+}
+
+function Invoke-Reinicio {
+    param([string]$Id, $Params, [bool]$Teste)
+    $sim = Get-Simulacao $Params $Teste
+    Send-Progress $Id 20 'Lendo o histórico do Windows'
+    if ($Teste) {
+        # Em teste nunca le o log real: so o que veio em simular.eventos.
+        $eventos = @()
+        if ($null -ne $sim -and $null -ne $sim.eventos) { $eventos = @(@($sim.eventos) | ForEach-Object { Convert-EventoSimulado $_ }) }
+    } else {
+        $eventos = @(Read-EventoReinicio)
+    }
+    Send-Progress $Id 100 'Concluído'
+    Send-Result $Id @{ eventos = @(Get-ClassificacaoReinicio $eventos) }
+}
+
 function Invoke-Acao {
     param([string]$Id, [string]$Acao, $Params, [bool]$Teste)
-    if ($Acao -ne 'coletar') {
+    if ($Acao -ne 'coletar' -and $Acao -ne 'reinicios') {
         Send-Result $Id $null $false 'ação desconhecida'
         return
     }
     try {
-        Invoke-Coletar $Id $Params $Teste
+        if ($Acao -eq 'reinicios') { Invoke-Reinicio $Id $Params $Teste } else { Invoke-Coletar $Id $Params $Teste }
     } catch {
         $msg = 'diagnóstico falhou: ' + $_.Exception.Message
         Write-AppLog $msg $Teste
