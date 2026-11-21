@@ -120,10 +120,17 @@ jobs:
       - name: Commitar Cargo.lock regenerado
         if: github.ref == 'refs/heads/main'
         run: |
-          # O lock vem do job de build (código de terceiros rodou lá): só fontes do crates.io passam.
-          if grep '^source = ' lock/Cargo.lock | grep -vxF 'source = "registry+https://github.com/rust-lang/crates.io-index"'; then
-            echo '::error::Cargo.lock com fonte fora do crates.io'; exit 1
-          fi
+          # O lock vem do job de build (código de terceiros rodou lá): parser TOML de verdade, só pacotes do
+          # crates.io (ou sem fonte, o próprio nextune) e nenhuma seção além de version/package.
+          python3 - <<'PY'
+          import sys, tomllib
+          lock = tomllib.load(open('lock/Cargo.lock', 'rb'))
+          ok = 'registry+https://github.com/rust-lang/crates.io-index'
+          ruins = [p.get('name') for p in lock.get('package', []) if p.get('source', ok) != ok]
+          extras = sorted(set(lock) - {'version', 'package'})
+          if ruins or extras:
+              print(f'::error::Cargo.lock suspeito: fontes {ruins}, seções {extras}'); sys.exit(1)
+          PY
           cp lock/Cargo.lock src-tauri/Cargo.lock
           git fetch -q origin main
           if git diff --quiet -- src-tauri/Cargo.lock; then

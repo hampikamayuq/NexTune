@@ -113,6 +113,11 @@ function Get-AppPastas {
                     $aviso = "aviso: permissões de $base corrigidas"
                 }
             } catch { $aviso = "aviso: não foi possível proteger ${base}: $($_.Exception.Message)" }
+            # Releitura depois de proteger: se a base ainda nao e nossa (dono estranho ou virou link), para aqui.
+            $item = Get-Item -LiteralPath $base -Force -ErrorAction Stop
+            if ((Test-Reparse $item) -or -not (Test-SidConfiavel (Get-DonoSid $base))) {
+                throw "a pasta de dados $base não pôde ser protegida: recusada"
+            }
             # Subpastas plantadas antes (dono nao confiavel ou link) saem do caminho: o dono mantem WRITE_DAC
             # mesmo depois de reaplicar a DACL do pai. Se nao der para renomear, nada aqui e confiavel: throw.
             foreach ($sub in @(Get-ChildItem -LiteralPath $base -Directory -Force -ErrorAction Stop)) {
