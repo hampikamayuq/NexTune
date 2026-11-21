@@ -68,7 +68,7 @@ function linhaWindows(w, aoMudar) {
     h('span', { class: 'tam', text: w.tamanhoBytes > 0 ? fmtBytes(w.tamanhoBytes) : '' }));
 }
 
-function linhaPrograma(p, aoMudar) {
+function linhaProgramaAtu(p, aoMudar) {
   const A = S.atualiz;
   const id = 'atu-p-' + p.id;
   return h('label', { class: 'atu', for: id },
@@ -142,7 +142,7 @@ VISTAS.atualizacoes = {
     else if (wg.erro) cp.append(h('p', { class: 'aviso pequeno', text: t('atualizacoes.wingetErro', { erro: wg.erro }) }));
     else if (!programas.length) cp.append(h('p', { class: 'suave', text: t('atualizacoes.nenhumPrograma') }));
     if (programas.length) {
-      cp.append(h('div', { class: 'lista-atu' }, programas.map((p) => linhaPrograma(p, atualizarBotoes))));
+      cp.append(h('div', { class: 'lista-atu' }, programas.map((p) => linhaProgramaAtu(p, atualizarBotoes))));
       cp.append(h('div', { class: 'acoes' }, btnProg));
     }
     v.append(cp);
