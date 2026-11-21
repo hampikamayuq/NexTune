@@ -146,11 +146,28 @@ function Get-ItensWindows {
 
 # ---------- winget ----------
 
+function Test-WingetConfiavel {
+    # O host roda elevado: so aceita winget.exe dentro de %ProgramFiles%\WindowsApps (pasta que o usuario
+    # nao grava) e com assinatura Authenticode valida. Nunca pelo PATH nem por %LOCALAPPDATA%.
+    param([string]$Caminho)
+    if ([string]::IsNullOrEmpty($Caminho) -or -not (Test-Path -LiteralPath $Caminho -PathType Leaf)) { return $false }
+    $raiz = (Join-Path $env:ProgramFiles 'WindowsApps').TrimEnd('\').ToLowerInvariant() + '\'
+    if (-not ([IO.Path]::GetFullPath($Caminho)).ToLowerInvariant().StartsWith($raiz)) { return $false }
+    try { return ((Get-AuthenticodeSignature -LiteralPath $Caminho -ErrorAction Stop).Status -eq 'Valid') } catch { return $false }
+}
+
 function Get-ComandoWinget {
-    $c = Get-Command winget.exe -ErrorAction SilentlyContinue
-    if ($null -ne $c) { return [string]$c.Source }
-    $p = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\winget.exe'
-    if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+    $candidatos = New-Object System.Collections.Generic.List[string]
+    try {
+        foreach ($pk in @(Get-AppxPackage Microsoft.DesktopAppInstaller -ErrorAction Stop | Sort-Object Version -Descending)) {
+            $candidatos.Add((Join-Path ([string]$pk.InstallLocation) 'winget.exe'))
+        }
+    } catch { $null = $_ }
+    $raiz = Join-Path $env:ProgramFiles 'WindowsApps'
+    foreach ($d in @(Get-ChildItem -LiteralPath $raiz -Directory -Filter 'Microsoft.DesktopAppInstaller_*' -ErrorAction SilentlyContinue | Sort-Object Name -Descending)) {
+        $candidatos.Add((Join-Path $d.FullName 'winget.exe'))
+    }
+    foreach ($c in $candidatos) { if (Test-WingetConfiavel $c) { return $c } }
     return $null
 }
 

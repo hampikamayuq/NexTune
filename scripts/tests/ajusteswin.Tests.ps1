@@ -250,6 +250,18 @@ Describe 'ajusteswin.ps1' {
             @($ap.dados.aplicados).Count | Should -Be 0
             Get-ValorT $Script:ChavePub 'Enabled' | Should -Be 1
         }
+        It 'restaurar ignora entradas do backup fora das chaves do catalogo (arquivo adulterado nao escreve em outra chave)' {
+            Set-ValorT $Script:ChavePub 'Enabled' 1 'DWord'
+            Invoke-Aj 'aplicar' @{ ids = @('id_publicidade'); confirmado = $true } | Out-Null
+            $bk = Get-Content -LiteralPath $Script:Backup -Raw -Encoding UTF8 | ConvertFrom-Json
+            $estranha = [pscustomobject]@{ chave = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\System'; nome = 'EnableLUA'; chaveExistia = $true; existia = $true; tipo = 'DWord'; valor = 0 }
+            $bk.id_publicidade.valores = @($bk.id_publicidade.valores) + @($estranha)
+            [IO.File]::WriteAllText($Script:Backup, ($bk | ConvertTo-Json -Depth 6), (New-Object System.Text.UTF8Encoding $false))
+            $r = Invoke-Aj 'restaurar' @{ ids = @('id_publicidade'); confirmado = $true }
+            @($r.dados.restaurados) | Should -Be @('id_publicidade')
+            Get-ValorT $Script:ChavePub 'Enabled' | Should -Be 1
+            Test-Path -LiteralPath (Get-ProvT 'HKLM\SOFTWARE\Policies\Microsoft\Windows\System') | Should -BeFalse
+        }
         It 'recusa sem confirmado e sem ids' {
             (Invoke-Aj 'aplicar' @{ ids = @('id_publicidade') }).ok | Should -BeFalse
             (Invoke-Aj 'aplicar' @{ ids = @('id_publicidade'); confirmado = 'true' }).ok | Should -BeFalse

@@ -25,6 +25,18 @@ function Get-Catalogo {
     return $Script:Catalogo
 }
 
+$Script:TiposRegistro = @('DWord', 'String', 'QWord', 'Binary', 'MultiString', 'ExpandString')
+
+function Test-ChaveDoAjuste {
+    # Puro: chave\nome pertence ao ajuste do catalogo? (sem diferenciar caixa)
+    param($Ajuste, [string]$Chave, [string]$Nome)
+    foreach ($c in @($Ajuste.chaves)) {
+        if ([string]::Equals([string]$c.chave, $Chave, [StringComparison]::OrdinalIgnoreCase) -and
+            [string]::Equals([string]$c.nome, $Nome, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
 function Get-AjustePorId {
     param([string]$IdAjuste)
     foreach ($a in (Get-Catalogo)) { if ([string]::Equals([string]$a.id, $IdAjuste, [StringComparison]::Ordinal)) { return $a } }
@@ -199,6 +211,9 @@ function Invoke-RestaurarAjuste {
     $backups = Read-Backups $Teste
     if (-not $backups.ContainsKey($id)) { throw 'sem backup para este ajuste (ele não foi aplicado por este programa)' }
     foreach ($v in @($backups[$id].valores)) {
+        # So as chaves que o catalogo lista para este ajuste: o backup e um arquivo e nao manda no registro.
+        if (-not (Test-ChaveDoAjuste $Ajuste ([string]$v.chave) ([string]$v.nome))) { continue }
+        if ($v.existia -eq $true -and $Script:TiposRegistro -notcontains [string]$v.tipo) { continue }
         if ($v.existia -eq $true) { Set-ValorRegistro ([string]$v.chave) ([string]$v.nome) (ConvertFrom-ValorBackup $v) ([string]$v.tipo) $Teste }
         else { Remove-ValorRegistro ([string]$v.chave) ([string]$v.nome) ([bool]$v.chaveExistia) $Teste }
     }
