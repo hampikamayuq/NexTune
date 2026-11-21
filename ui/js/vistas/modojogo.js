@@ -82,7 +82,8 @@ async function desativarModoJogo() {
   await carregarModoJogo();
 }
 
-// Liga/desliga o automático. Ligar também liga o início com o Windows (sem ele o vigia não roda).
+// Liga/desliga o automático. Ligar também liga o início com o Windows (sem ele o vigia não roda);
+// desligar desliga o início com o Windows se nada mais (lembretes, bandeja) depende dele.
 async function mudarAuto(caixa) {
   if (caixa.checked) {
     const ok = await perguntar({ titulo: t('modojogo.autoTitulo'), corpo: [h('p', { text: t('modojogo.autoTexto') })] });
@@ -96,7 +97,13 @@ async function mudarAuto(caixa) {
     try {
       S.ajustes = await api.ajustes.gravar({ modoJogoAuto: false });
       toast(t('modojogo.autoDesligado'), 'ok');
-    } catch (e) { mostrarErro(e); caixa.checked = true; }
+    } catch (e) { mostrarErro(e); caixa.checked = true; return; }
+    // Desfaz o que o "ligar" fez, a menos que lembretes ou bandeja ainda precisem do início com o Windows.
+    if (S.ajustes.lembretes || S.ajustes.bandeja) return;
+    try {
+      await api.autostart(false);
+      toast(t('modojogo.autostartDesligado'), 'ok');
+    } catch (e) { toast(t('opcoes.autostartErro', { erro: e.message || String(e) }), 'aviso'); }
   }
 }
 
