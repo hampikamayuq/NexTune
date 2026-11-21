@@ -96,25 +96,32 @@ function Get-AppPastas {
         # A nossa pasta precisa de dono e DACL proprios; subpastas plantadas antes (dono nao confiavel ou
         # link) saem do caminho, porque o dono mantem WRITE_DAC mesmo depois de reaplicar a DACL do pai.
         if (-not $Script:BaseVerificada) {
+            $carimbo = '.suspeito-' + [DateTime]::UtcNow.Ticks
+            if (Test-Path -LiteralPath $base) {
+                # Base com dono estranho: nao se "corrige" a ACL de uma pasta alheia (TOCTOU com junction);
+                # ela sai do caminho e uma nova nasce ja protegida. Falha aqui e falha de verdade (throw).
+                $dono = Get-DonoSid $base
+                if (-not (Test-SidConfiavel $dono)) {
+                    Rename-Item -LiteralPath $base -NewName ((Split-Path -Leaf $base) + $carimbo) -Force -ErrorAction Stop
+                    $aviso = "aviso: $base tinha dono $dono; renomeada para $(Split-Path -Leaf $base)$carimbo"
+                }
+            }
             try {
                 if (-not (Test-Path -LiteralPath $base)) { Set-SegurancaPastaApp $base }
-                else {
-                    $acl = Get-Acl -LiteralPath $base -ErrorAction Stop
-                    $dono = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
-                    if (-not (Test-SidConfiavel $dono) -or -not $acl.AreAccessRulesProtected) {
-                        Set-SegurancaPastaApp $base
-                        $aviso = "aviso: permissões de $base corrigidas (dono anterior $dono)"
-                    }
-                    foreach ($sub in @(Get-ChildItem -LiteralPath $base -Directory -Force -ErrorAction Stop)) {
-                        if ((Test-Reparse $sub) -or -not (Test-SidConfiavel (Get-DonoSid $sub.FullName))) {
-                            $novo = $sub.Name + '.suspeito-' + [DateTime]::UtcNow.Ticks
-                            Rename-Item -LiteralPath $sub.FullName -NewName $novo -Force -ErrorAction Stop
-                            $aviso = "aviso: $($sub.FullName) não era nossa (link ou dono estranho); renomeada para $novo"
-                        }
-                    }
+                elseif (-not (Get-Acl -LiteralPath $base -ErrorAction Stop).AreAccessRulesProtected) {
+                    Set-SegurancaPastaApp $base
+                    $aviso = "aviso: permissões de $base corrigidas"
                 }
-                $Script:BaseVerificada = $true
             } catch { $aviso = "aviso: não foi possível proteger ${base}: $($_.Exception.Message)" }
+            # Subpastas plantadas antes (dono nao confiavel ou link) saem do caminho: o dono mantem WRITE_DAC
+            # mesmo depois de reaplicar a DACL do pai. Se nao der para renomear, nada aqui e confiavel: throw.
+            foreach ($sub in @(Get-ChildItem -LiteralPath $base -Directory -Force -ErrorAction Stop)) {
+                if ((Test-Reparse $sub) -or -not (Test-SidConfiavel (Get-DonoSid $sub.FullName))) {
+                    Rename-Item -LiteralPath $sub.FullName -NewName ($sub.Name + $carimbo) -Force -ErrorAction Stop
+                    $aviso = "aviso: $($sub.FullName) não era nossa (link ou dono estranho); renomeada para $($sub.Name)$carimbo"
+                }
+            }
+            $Script:BaseVerificada = $true
         }
     }
     $p = @{

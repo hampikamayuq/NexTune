@@ -120,7 +120,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           # O lock vem do job de build (código de terceiros rodou lá): só fontes do crates.io passam.
-          if grep '^source = ' lock/Cargo.lock | grep -v 'registry+https://github.com/rust-lang/crates.io-index'; then
+          if grep '^source = ' lock/Cargo.lock | grep -vxF 'source = "registry+https://github.com/rust-lang/crates.io-index"'; then
             echo '::error::Cargo.lock com fonte fora do crates.io'; exit 1
           fi
           cp lock/Cargo.lock src-tauri/Cargo.lock
