@@ -35,6 +35,7 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 - A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário não estava nesta máquina e entra depois.
 - Abrir links (loja, site do fabricante) a partir da interface depende de um comando Rust `abrir_url` (só HTTPS e `ms-windows-store:`), previsto para o Plano 5; hoje a tela mostra o endereço para copiar.
 - Atualizações: drivers via Windows Update ficam fora (critério `Type='Software'`); o atualizador do próprio NexTune é do Plano 5. O COM do Windows Update e o `winget` não rodam nos testes (só o parser e a forma da saída): a primeira rodada real é manual, depois do build do Actions.
+- Disco: os textos por resultado seguem o enum `RepairStatus` do `Repair-Volume` lido nesta máquina (`ScanNoErrorsFound`, `ScanErrorsFoundNeedSpotFix`, `NeedOfflineScanAndFix`…), mas qual valor o `-Scan` devolve na prática ainda não foi conferido elevado; um valor fora da lista cai no texto genérico e conta como "com erros". Unidade cujo tipo (HDD/SSD) não dá para ler fica com Otimizar travado.
 - Disco: a última verificação vem do registro do NexTune (`Estado\disco.json`) e dos eventos Wininit 1001 / Chkdsk 26226; verificações feitas por outros caminhos podem não aparecer. `corrigir` marca o bit sujo do volume (`fsutil dirty set`, o mesmo efeito de `chkdsk /f` agendado) em vez de `Repair-Volume -OfflineScanAndFix`, para nunca desmontar uma unidade de dados em uso.
 
 ## Créditos

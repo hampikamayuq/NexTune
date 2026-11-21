@@ -43,12 +43,15 @@ function Test-Excluida {
 }
 
 function Get-IniciosColunas {
-    # Puro: posicoes onde o cabecalho tem palavra precedida de >= 2 espacos (ou coluna 0).
+    # Puro: posicoes onde o cabecalho tem palavra precedida de espaco (ou coluna 0). Os titulos sao
+    # palavras unicas em todo idioma, e o winget separa colunas com 1 espaco quando o titulo preenche a largura.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
     param([string]$Cabecalho)
     $inicios = New-Object System.Collections.Generic.List[int]
     for ($i = 0; $i -lt $Cabecalho.Length; $i++) {
         if ($Cabecalho[$i] -eq ' ') { continue }
-        if ($i -eq 0 -or ($Cabecalho[$i - 1] -eq ' ' -and ($i -lt 2 -or $Cabecalho[$i - 2] -eq ' '))) { $inicios.Add($i) }
+        if ($i -eq 0 -or $Cabecalho[$i - 1] -eq ' ') { $inicios.Add($i) }
     }
     return $inicios.ToArray()
 }
@@ -69,7 +72,9 @@ function ConvertFrom-TabelaWinget {
     if ($inicios.Count -lt 2) { return $saida.ToArray() }
     for ($j = $sep + 1; $j -lt $limpas.Count; $j++) {
         $l = $limpas[$j]
-        if ($l.Length -le $inicios[1] -or $l -match '^\d+ ') { break }
+        # Rodape "N atualizações disponíveis." comeca por numero e nao alcanca a coluna Versao (um nome como
+        # "360 Total Security" alcanca).
+        if ($l.Length -le $inicios[1] -or ($l -match '^\d+ ' -and $l.Length -le $inicios[[math]::Min(2, $inicios.Count - 1)])) { break }
         $campos = New-Object System.Collections.Generic.List[string]
         for ($k = 0; $k -lt $inicios.Count; $k++) {
             $ini = $inicios[$k]
@@ -77,7 +82,8 @@ function ConvertFrom-TabelaWinget {
             $campos.Add($(if ($ini -ge $l.Length) { '' } else { $l.Substring($ini, $fim - $ini).Trim() }))
         }
         while ($campos.Count -lt 5) { $campos.Add('') }
-        if ([string]::IsNullOrEmpty($campos[1])) { continue }
+        # Id truncado pelo winget ("Microsoft.VCRedi…") nao serve para --id --exact: fica fora da lista.
+        if ([string]::IsNullOrEmpty($campos[1]) -or $campos[1].EndsWith([string][char]0x2026)) { continue }
         $saida.Add([ordered]@{ id = $campos[1]; nome = $campos[0]; versaoAtual = $campos[2]; versaoNova = $campos[3]; origem = $campos[4] })
     }
     return $saida.ToArray()
@@ -252,7 +258,7 @@ function Invoke-InstalarCom {
         $r = $ri.GetUpdateResult($i)
         $ok = ($r.ResultCode -eq 2 -or $r.ResultCode -eq 3)
         $erro = $null
-        if (-not $ok) { $erro = ('código {0} (HResult 0x{1:X8})' -f [int]$r.ResultCode, [int64]$r.HResult) }
+        if (-not $ok) { $erro = ('código {0} (HResult 0x{1:X8})' -f [int]$r.ResultCode, [int]$r.HResult) }
         $resultados.Add(@{ id = $Aceitos[$i].item.id; ok = $ok; erro = $erro })
     }
     return @{ resultados = $resultados.ToArray(); reiniciar = [bool]$ri.RebootRequired }
@@ -312,6 +318,8 @@ function Invoke-Instalar {
 }
 
 function Invoke-AtualizarProgramas {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
     param([string]$Id, $Params, [bool]$Teste)
     if (-not (Test-ParamVerdadeiro $Params 'confirmado')) { Send-Result $Id $null $false 'ação exige confirmação'; return }
     $ids = Get-IdsParam $Params
@@ -329,8 +337,9 @@ function Invoke-AtualizarProgramas {
         try {
             if ($Teste) { Write-Marcador ('winget-' + $idProg + '.txt') 'upgrade' }
             else {
-                & $cmd upgrade --id $idProg --exact --silent --accept-package-agreements @($Script:ArgsWinget) | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "winget terminou com código $LASTEXITCODE" }
+                # --include-unknown: listar tambem usou; sem ele, pacote com versao "Desconhecida" e recusado.
+                & $cmd upgrade --id $idProg --exact --silent --include-unknown --accept-package-agreements @($Script:ArgsWinget) | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw ('winget terminou com código 0x{0:X8}' -f [int]$LASTEXITCODE) }
             }
             $atualizados.Add($idProg)
             Write-AppLog ("atualizacoes: winget upgrade {0} ok" -f $idProg) $Teste

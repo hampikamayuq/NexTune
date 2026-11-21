@@ -174,3 +174,15 @@ README.md                     "O que já existe" e pendências
 - **Consistência de nomes:** módulo `disco`/`atualizacoes` iguais em PS, Rust, `api.executar` e demo; `letra` sempre `X:` maiúscula; `operacao` `desfragmentar|trim`; `excluido` `upgrade|preview`; `S.atualiz` ≠ `S.ajustes`.
 - **Review Focus:** 1, 3, 7 → Task 2; 2 → Tasks 1 e 2; 4, 5, 6 → Task 3. Todos com teste nomeado.
 - **Risco assumido:** sem Rust nem Pester 5 locais, a prova dos testes acontece no Actions após o push da Task 5; COM do Windows Update e `winget` não são exercitados em teste (só a forma da saída e o parser), então a primeira rodada real é manual, na própria máquina, depois do build do Actions.
+
+## Correções após a revisão independente (2026-11-21)
+
+A revisão do branch (Pester 6 e PSScriptAnalyzer existem nesta máquina, ao contrário do que o cabeçalho supunha; 295 testes rodaram) mudou estes pontos dos contratos acima:
+
+- `tipoDisco` passa a ser `'hdd' | 'ssd' | 'desconhecido'`: `MediaType` ilegível ou `Unspecified` não vira mais `hdd` (desfragmentar um SSD é tão proibido quanto TRIM em HDD); `otimizar` recusa `desconhecido` e a interface trava o botão com o motivo.
+- `resultado` de `verificar` segue o enum real `RepairStatus` (`NoErrorsFound`, `ScanNoErrorsFound`, `ErrorsFixed`, `MinorErrorsFixedOrCleanup`, `ScanErrorsFoundAndFixedOnline` contam como limpo; `ScanErrorsFoundNeedSpotFix`, `NeedOfflineScanAndFix`, `Failed`… pedem correção). `ErrorsFound` e `ScanNeeded` não existem.
+- Quando o evento do Windows é mais novo que o registro próprio, `semErros` vem `null` (o evento não diz se houve erro), em vez de repetir o "com erros" antigo.
+- Parser do winget: início de coluna é qualquer palavra do cabeçalho precedida de **um** espaço (o winget separa com 1 espaço quando o título preenche a largura); linha com id truncado (`…`) fica fora; rodapé "N atualizações" só é rodapé se não alcançar a coluna Versão. `atualizarProgramas` usa `--include-unknown`, como `listar`.
+- `Get-ComandoWinget` não usa PATH nem `%LOCALAPPDATA%`: só `winget.exe` sob `%ProgramFiles%\WindowsApps` com assinatura Authenticode válida (o host roda elevado).
+- Interface: `preview` (só no avançado) tem caixa de seleção, desmarcada por padrão, e selo "prévia"; só `upgrade` fica travado.
+- `ajusteswin/restaurar` só escreve `chave\nome` listados no catálogo do ajuste e tipos de registro conhecidos.

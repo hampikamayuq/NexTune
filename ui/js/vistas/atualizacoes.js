@@ -47,17 +47,20 @@ async function executarAtualizacoes(acao, ids, nomes) {
   await carregarAtualizacoes();
 }
 
+// Só 'upgrade' fica travado; 'preview' só chega aqui no modo avançado e pode ser marcada (desmarcada por padrão).
 function linhaWindows(w, aoMudar) {
   const A = S.atualiz;
+  const travado = w.excluido === 'upgrade';
   const selos = [h('span', { class: 'selo' + (w.tipo === 'seguranca' ? ' destaque' : ''), text: t('atualizacoes.tipo.' + w.tipo) })];
+  if (w.excluido === 'preview') selos.push(h('span', { class: 'selo', text: t('atualizacoes.selo.preview') }));
   if (w.kb) selos.push(h('span', { class: 'selo', text: w.kb }));
   if (w.exigeReinicio) selos.push(h('span', { class: 'selo', text: t('atualizacoes.reinicio') }));
   const id = 'atu-w-' + w.id;
-  const caixa = w.excluido ? h('span', { class: 'sem-caixa' }) : h('input', {
+  const caixa = travado ? h('span', { class: 'sem-caixa' }) : h('input', {
     type: 'checkbox', class: 'acao', id, checked: A.selWin.has(w.id),
     onchange: (e) => { if (e.target.checked) A.selWin.add(w.id); else A.selWin.delete(w.id); aoMudar(); },
   });
-  return h(w.excluido ? 'div' : 'label', { class: 'atu' + (w.excluido ? ' indisp' : ''), for: w.excluido ? null : id },
+  return h(travado ? 'div' : 'label', { class: 'atu' + (travado ? ' indisp' : ''), for: travado ? null : id },
     caixa,
     h('div', { class: 'atu-info' },
       h('div', { class: 'atu-nome' }, h('span', { text: w.titulo }), selos),

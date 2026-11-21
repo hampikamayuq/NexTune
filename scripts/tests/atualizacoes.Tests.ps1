@@ -22,9 +22,9 @@
         return $linhas[0].Substring(9) | ConvertFrom-Json
     }
     # Linha de tabela do winget com as colunas nas posicoes 0, 30, 60, 76 e 92 (como o winget alinha).
-    function New-LinhaWinget {
-        param([string[]]$Campos)
-        $inicios = @(0, 30, 60, 76, 92)
+    function Get-LinhaWinget {
+        param([string[]]$Campos, [int[]]$Inicios = @(0, 30, 60, 76, 92))
+        $inicios = $Inicios
         $s = ''
         for ($i = 0; $i -lt $Campos.Count; $i++) { $s = $s.PadRight($inicios[$i]) + $Campos[$i] }
         return $s
@@ -32,25 +32,25 @@
     function Get-SaidaWinget {
         param([string]$Idioma)
         $pt = ($Idioma -eq 'pt')
-        $cab = if ($pt) { New-LinhaWinget 'Nome', 'Id', 'Versão', 'Disponível', 'Origem' } else { New-LinhaWinget 'Name', 'Id', 'Version', 'Available', 'Source' }
+        $cab = if ($pt) { Get-LinhaWinget 'Nome', 'Id', 'Versão', 'Disponível', 'Origem' } else { Get-LinhaWinget 'Name', 'Id', 'Version', 'Available', 'Source' }
         $spinner = "-`b\`b|`b/`b"
         return @(
             $(if ($pt) { $spinner } else { $spinner + "`r" + $cab }),
             $(if ($pt) { $cab } else { ('-' * 100) }),
-            $(if ($pt) { ('-' * 100) } else { (New-LinhaWinget 'Google Chrome', 'Google.Chrome', '130.0.6723.117', '131.0.6778.86', 'winget') }),
-            $(if ($pt) { (New-LinhaWinget 'Google Chrome', 'Google.Chrome', '130.0.6723.117', '131.0.6778.86', 'winget') } else { (New-LinhaWinget 'VLC media player', 'VideoLAN.VLC', '3.0.20', '3.0.21', 'winget') }),
-            $(if ($pt) { (New-LinhaWinget 'VLC media player', 'VideoLAN.VLC', '3.0.20', '3.0.21', 'winget') } else { (New-LinhaWinget 'Microsoft Visual C++ 2015-20…', 'Microsoft.VCRedist.2015+.x64', '14.40.33810.0', '14.42.34433.0', 'winget') }),
-            $(if ($pt) { (New-LinhaWinget 'Microsoft Visual C++ 2015-20…', 'Microsoft.VCRedist.2015+.x64', '14.40.33810.0', '14.42.34433.0', 'winget') } else { '' }),
+            $(if ($pt) { ('-' * 100) } else { (Get-LinhaWinget 'Google Chrome', 'Google.Chrome', '130.0.6723.117', '131.0.6778.86', 'winget') }),
+            $(if ($pt) { (Get-LinhaWinget 'Google Chrome', 'Google.Chrome', '130.0.6723.117', '131.0.6778.86', 'winget') } else { (Get-LinhaWinget 'VLC media player', 'VideoLAN.VLC', '3.0.20', '3.0.21', 'winget') }),
+            $(if ($pt) { (Get-LinhaWinget 'VLC media player', 'VideoLAN.VLC', '3.0.20', '3.0.21', 'winget') } else { (Get-LinhaWinget 'Microsoft Visual C++ 2015-20…', 'Microsoft.VCRedist.2015+.x64', '14.40.33810.0', '14.42.34433.0', 'winget') }),
+            $(if ($pt) { (Get-LinhaWinget 'Microsoft Visual C++ 2015-20…', 'Microsoft.VCRedist.2015+.x64', '14.40.33810.0', '14.42.34433.0', 'winget') } else { '' }),
             $(if ($pt) { '' } else { '3 upgrades available.' }),
             $(if ($pt) { '3 atualizações disponíveis.' } else { '' }),
             '',
             $(if ($pt) { 'Os pacotes a seguir têm uma atualização disponível, mas exigem instalação explícita:' } else { 'The following packages have an upgrade available, but require explicit targeting for upgrade:' }),
             $cab,
             ('-' * 100),
-            (New-LinhaWinget 'Spotify', 'Spotify.Spotify', '1.2.40', '1.2.50', 'winget')
+            (Get-LinhaWinget 'Spotify', 'Spotify.Spotify', '1.2.40', '1.2.50', 'winget')
         )
     }
-    function New-Sim {
+    function Get-SimPadrao {
         return @{
             windows      = @(
                 @{ id = $Script:IdSeg; titulo = '2026-11 Atualização Cumulativa para Windows 11 (KB5048667)'; kb = 'KB5048667'; tamanhoBytes = 320MB; categorias = @($Script:CatSeg); exigeReinicio = $true },
@@ -73,7 +73,7 @@ AfterAll {
 Describe 'atualizacoes.ps1' {
     BeforeEach {
         if (Test-Path -LiteralPath $Script:PastaT) { Remove-Item -LiteralPath $Script:PastaT -Recurse -Force -ErrorAction SilentlyContinue }
-        $Script:Sim = New-Sim
+        $Script:Sim = Get-SimPadrao
     }
 
     Context 'funcoes puras' {
@@ -87,6 +87,24 @@ Describe 'atualizacoes.ps1' {
                 $lista[0].origem | Should -Be 'winget'
                 $lista[2].nome | Should -Be 'Microsoft Visual C++ 2015-20…'
             }
+        }
+        It 'Review Focus 5: saida real do winget (um espaco so entre Disponivel e Origem), nome com numero e id truncado' {
+            # Larguras como o winget 1.29 imprime em pt-BR: "Disponível" ocupa a coluna inteira e sobra 1 espaco antes de "Origem".
+            $ini = @(0, 21, 55, 64, 75)
+            $linhas = @(
+                (Get-LinhaWinget @('Nome', 'ID', 'Versão', 'Disponível', 'Origem') $ini),
+                ('-' * 81),
+                (Get-LinhaWinget @('Google Chrome', 'Google.Chrome', '26.8.0.3', '26.8.3.1', 'winget') $ini),
+                (Get-LinhaWinget @('360 Total Security', 'Qihoo.360TotalSecurity', '11.0.0.1', '11.0.0.2', 'winget') $ini),
+                (Get-LinhaWinget @('Microsoft Visual C…', 'Microsoft.VCRedi…', '14.40.33810.0', '14.42.34433.0', 'winget') $ini),
+                '',
+                '3 atualizações disponíveis.'
+            )
+            $lista = @(ConvertFrom-TabelaWinget $linhas)
+            @($lista | ForEach-Object { $_.id }) | Should -Be @('Google.Chrome', 'Qihoo.360TotalSecurity')
+            $lista[0].versaoNova | Should -Be '26.8.3.1'
+            $lista[0].origem | Should -Be 'winget'
+            $lista[1].nome | Should -Be '360 Total Security'
         }
         It 'Review Focus 5: saida vazia ou sem tabela da lista vazia' {
             @(ConvertFrom-TabelaWinget @()).Count | Should -Be 0
@@ -135,7 +153,7 @@ Describe 'atualizacoes.ps1' {
             (Get-Win $r $Script:IdUpg).kb | Should -BeNullOrEmpty
         }
         It 'Review Focus 6: winget ausente nao derruba listar' {
-            $sim = New-Sim
+            $sim = Get-SimPadrao
             $sim.wingetAusente = $true
             $r = Invoke-Atu 'listar' @{ simular = $sim }
             $r.ok | Should -BeTrue
@@ -145,7 +163,7 @@ Describe 'atualizacoes.ps1' {
             @($r.dados.windows).Count | Should -Be 2
         }
         It 'Review Focus 6: erro do Windows Update vai no campo e os programas ainda vem' {
-            $sim = New-Sim
+            $sim = Get-SimPadrao
             $sim.windowsErro = 'Exceção de HRESULT: 0x80240438'
             $r = Invoke-Atu 'listar' @{ simular = $sim }
             $r.ok | Should -BeTrue
@@ -176,7 +194,7 @@ Describe 'atualizacoes.ps1' {
             Test-Marcador "instalar-$($Script:IdUpg).txt" | Should -BeFalse
         }
         It 'id desconhecido e falha simulada vao para falhas; precisaReiniciar segue os instalados' {
-            $sim = New-Sim
+            $sim = Get-SimPadrao
             $sim.falharIds = @($Script:IdSeg)
             $r = Invoke-Atu 'instalar' @{ ids = @($Script:IdQual, $Script:IdSeg, '99999999-9999-4999-8999-999999999999'); confirmado = $true; simular = $sim }
             @($r.dados.instalados) | Should -Be @($Script:IdQual)
@@ -202,7 +220,7 @@ Describe 'atualizacoes.ps1' {
             Test-Marcador 'winget-Google.Chrome.txt' | Should -BeTrue
         }
         It 'Review Focus 6: winget ausente recusa a chamada inteira' {
-            $sim = New-Sim
+            $sim = Get-SimPadrao
             $sim.wingetAusente = $true
             $r = Invoke-Atu 'atualizarProgramas' @{ ids = @('Google.Chrome'); confirmado = $true; simular = $sim }
             $r.ok | Should -BeFalse

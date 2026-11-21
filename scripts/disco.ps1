@@ -12,7 +12,8 @@
 . "$PSScriptRoot\common.ps1"
 
 $Script:ArquivoRegistro = 'disco.json'
-$Script:ResultadosSemErro = @('NoErrorsFound', 'ErrorsFixed')
+# Valores do enum RepairStatus do Repair-Volume que significam "volume limpo" (os demais pedem correcao).
+$Script:ResultadosSemErro = @('NoErrorsFound', 'ErrorsFixed', 'ScanNoErrorsFound', 'MinorErrorsFixedOrCleanup', 'ScanErrorsFoundAndFixedOnline')
 $Script:ChaveSessionManager = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
 
 # ---------- funcoes puras ----------
@@ -33,12 +34,39 @@ function Get-OperacaoOtimizar {
     return 'desfragmentar'
 }
 
+function Test-ResultadoLimpo {
+    # Puro: o resultado do Repair-Volume -Scan significa volume limpo?
+    param([string]$Resultado)
+    return ($Script:ResultadosSemErro -contains $Resultado)
+}
+
 function Test-PodeOtimizar {
-    # Puro: @{ pode; motivo }. Exige bit sujo desligado e verificacao registrada sem erros.
+    # Puro: @{ pode; motivo }. Exige bit sujo desligado, tipo de disco conhecido (desfragmentar um SSD
+    # por engano e tao proibido quanto TRIM em HDD) e verificacao registrada sem erros.
     param($Unidade)
     if ($Unidade.sujo -eq $true) { return @{ pode = $false; motivo = 'o volume está marcado para verificação; reinicie o PC antes de otimizar' } }
+    if ([string]$Unidade.tipoDisco -notin @('hdd', 'ssd')) { return @{ pode = $false; motivo = 'tipo do disco não identificado (HDD ou SSD); otimize pelo Windows em Otimizar Unidades' } }
     if ($Unidade.semErros -ne $true) { return @{ pode = $false; motivo = 'verifique a unidade antes de otimizar (a verificação precisa terminar sem erros)' } }
     return @{ pode = $true; motivo = '' }
+}
+
+function Merge-UltimaVerificacao {
+    # Puro: junta o registro proprio (data ISO + semErros) com o evento do Windows ([DateTime] ou $null).
+    # Evento mais novo vence a data e zera semErros: o evento nao diz se houve erro.
+    param([string]$RegIso, $RegSemErros, $Evento)
+    $ultima = $null
+    $semErros = $null
+    $dReg = $null
+    if (-not [string]::IsNullOrEmpty($RegIso)) {
+        $ultima = $RegIso
+        $semErros = $RegSemErros
+        try { $dReg = [DateTime]::Parse($RegIso, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } catch { $dReg = $null }
+    }
+    if ($null -ne $Evento) {
+        $ev = [DateTime]$Evento
+        if ($null -eq $dReg -or $ev -gt $dReg) { $ultima = $ev.ToString('o'); $semErros = $null }
+    }
+    return @{ ultima = $ultima; semErros = $semErros }
 }
 
 function Get-DiasDesde {
@@ -104,18 +132,23 @@ function Write-Marcador {
 }
 
 function Get-TipoDiscoUnidade {
-    # 'hdd' | 'ssd' pelo disco fisico da letra; qualquer falha conta como hdd (conservador).
+    # 'hdd' | 'ssd' | 'desconhecido' pelo disco fisico da letra. Unspecified (VM, RAID/RST) e qualquer
+    # falha ficam 'desconhecido': otimizar fica travado em vez de arriscar a operacao errada.
     param([string]$Letra)
     try {
         $pd = Get-Partition -DriveLetter $Letra[0] -ErrorAction Stop | Get-Disk -ErrorAction Stop | Get-PhysicalDisk -ErrorAction Stop | Select-Object -First 1
-        if ($null -eq $pd) { return 'hdd' }
-        if ((Get-TipoDisco ([string]$pd.MediaType) ([string]$pd.BusType)) -eq 'HDD') { return 'hdd' }
-        return 'ssd'
-    } catch { return 'hdd' }
+        if ($null -eq $pd) { return 'desconhecido' }
+        $media = [string]$pd.MediaType
+        if ($media -eq 'HDD') { return 'hdd' }
+        if ($media -eq 'SSD' -or $media -eq 'SCM' -or [string]$pd.BusType -eq 'NVMe') { return 'ssd' }
+        return 'desconhecido'
+    } catch { return 'desconhecido' }
 }
 
 function Get-UltimaVerificacaoEventos {
     # Hashtable letra -> [DateTime] da verificacao mais recente registrada pelo Windows.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
     param([string]$LetraSistema)
     $r = @{}
     try {
@@ -134,6 +167,9 @@ function Get-UltimaVerificacaoEventos {
 }
 
 function Get-UnidadesReais {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
+    param()
     $lista = New-Object System.Collections.Generic.List[object]
     $volumes = @{}
     try {
@@ -164,6 +200,8 @@ function Get-UnidadesReais {
 }
 
 function Get-UnidadesSimuladas {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
     param($Sim)
     $lista = New-Object System.Collections.Generic.List[object]
     if ($null -eq $Sim -or $null -eq $Sim.unidades) { return @() }
@@ -194,21 +232,18 @@ function Get-Unidades {
     if (-not $Teste) { $eventos = Get-UltimaVerificacaoEventos $env:SystemDrive }
     $agora = Get-Date
     foreach ($u in $unidades) {
-        $ultima = $null
-        $semErros = $null
+        $regIso = $null
+        $regSemErros = $null
         if ($registro.ContainsKey($u.letra)) {
-            $ultima = [string]$registro[$u.letra].verificadoEm
-            $semErros = ($registro[$u.letra].semErros -eq $true)
+            $regIso = [string]$registro[$u.letra].verificadoEm
+            $regSemErros = ($registro[$u.letra].semErros -eq $true)
         }
-        if ($eventos.ContainsKey($u.letra)) {
-            $ev = [DateTime]$eventos[$u.letra]
-            $dReg = $null
-            if (-not [string]::IsNullOrEmpty($ultima)) { try { $dReg = [DateTime]::Parse($ultima, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } catch { $dReg = $null } }
-            if ($null -eq $dReg -or $ev -gt $dReg) { $ultima = $ev.ToString('o') }
-        }
-        $u.ultimaVerificacao = $ultima
-        $u.semErros = $semErros
-        $u.diasSemVerificar = Get-DiasDesde $ultima $agora
+        $evento = $null
+        if ($eventos.ContainsKey($u.letra)) { $evento = $eventos[$u.letra] }
+        $m = Merge-UltimaVerificacao $regIso $regSemErros $evento
+        $u.ultimaVerificacao = $m.ultima
+        $u.semErros = $m.semErros
+        $u.diasSemVerificar = Get-DiasDesde $m.ultima $agora
     }
     return $unidades
 }
@@ -247,7 +282,7 @@ function Invoke-Verificar {
     } else {
         $resultado = [string](Repair-Volume -DriveLetter $letra[0] -Scan -ErrorAction Stop)
     }
-    $semErros = ($Script:ResultadosSemErro -contains $resultado)
+    $semErros = Test-ResultadoLimpo $resultado
     $agora = (Get-Date).ToString('o')
     $registro = Read-RegistroVerificacao $Teste
     $registro[$letra] = [ordered]@{ verificadoEm = $agora; semErros = $semErros }

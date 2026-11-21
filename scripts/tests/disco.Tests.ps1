@@ -15,12 +15,13 @@
         if ($linhas.Count -ne 1) { return $null }
         return $linhas[0].Substring(9) | ConvertFrom-Json
     }
-    function New-Sim {
+    function Get-SimPadrao {
         param([bool]$SujoC = $false)
         return @{
             unidades     = @(
                 @{ letra = 'C:'; rotulo = 'Windows'; total = 1000GB; livre = 400GB; tipoDisco = 'hdd'; sistema = $true; sujo = $SujoC; agendada = $false },
-                @{ letra = 'D:'; rotulo = 'Dados'; total = 500GB; livre = 200GB; tipoDisco = 'ssd'; sistema = $false; sujo = $false; agendada = $false }
+                @{ letra = 'D:'; rotulo = 'Dados'; total = 500GB; livre = 200GB; tipoDisco = 'ssd'; sistema = $false; sujo = $false; agendada = $false },
+                @{ letra = 'E:'; rotulo = 'Externo'; total = 2000GB; livre = 900GB; tipoDisco = 'desconhecido'; sistema = $false; sujo = $false; agendada = $false }
             )
             inicioRapido = $true
         }
@@ -38,7 +39,7 @@ Describe 'disco.ps1' {
     BeforeEach {
         if (Test-Path -LiteralPath $Script:PastaT) { Remove-Item -LiteralPath $Script:PastaT -Recurse -Force -ErrorAction SilentlyContinue }
         if (Test-Path -LiteralPath $Script:Registro) { Remove-Item -LiteralPath $Script:Registro -Force -ErrorAction SilentlyContinue }
-        $Script:Sim = New-Sim
+        $Script:Sim = Get-SimPadrao
     }
 
     Context 'funcoes puras' {
@@ -67,11 +68,37 @@ Describe 'disco.ps1' {
             $r = Test-PodeOtimizar @{ sujo = $true; semErros = $true }
             $r.pode | Should -BeFalse
             $r.motivo | Should -Match 'verifica'
-            $r2 = Test-PodeOtimizar @{ sujo = $false; semErros = $null }
+            $r2 = Test-PodeOtimizar @{ sujo = $false; semErros = $null; tipoDisco = 'hdd' }
             $r2.pode | Should -BeFalse
             $r2.motivo | Should -Match 'erifique'
-            (Test-PodeOtimizar @{ sujo = $false; semErros = $false }).pode | Should -BeFalse
-            (Test-PodeOtimizar @{ sujo = $false; semErros = $true }).pode | Should -BeTrue
+            (Test-PodeOtimizar @{ sujo = $false; semErros = $false; tipoDisco = 'ssd' }).pode | Should -BeFalse
+            (Test-PodeOtimizar @{ sujo = $false; semErros = $true; tipoDisco = 'hdd' }).pode | Should -BeTrue
+        }
+        It 'Review Focus 1: tipo de disco desconhecido nunca otimiza (nem desfragmenta SSD por engano)' {
+            $r = Test-PodeOtimizar @{ sujo = $false; semErros = $true; tipoDisco = 'desconhecido' }
+            $r.pode | Should -BeFalse
+            $r.motivo | Should -Match 'identificado'
+        }
+        It 'Test-ResultadoLimpo segue o enum real do Repair-Volume' {
+            foreach ($ok in @('NoErrorsFound', 'ErrorsFixed', 'ScanNoErrorsFound', 'MinorErrorsFixedOrCleanup', 'ScanErrorsFoundAndFixedOnline')) { Test-ResultadoLimpo $ok | Should -BeTrue }
+            foreach ($ruim in @('ScanErrorsFoundNeedSpotFix', 'NeedOfflineScanAndFix', 'Failed', 'ScanNeedsRetry', '', $null)) { Test-ResultadoLimpo $ruim | Should -BeFalse }
+        }
+        It 'Merge-UltimaVerificacao: evento mais novo vence a data e zera semErros; registro mais novo mantem semErros' {
+            $agora = Get-Date
+            $reg = $agora.AddDays(-5).ToString('o')
+            $m = Merge-UltimaVerificacao $reg $false $agora.AddDays(-1)
+            ([DateTime]::Parse($m.ultima, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)).Date | Should -Be $agora.AddDays(-1).Date
+            $m.semErros | Should -BeNullOrEmpty
+            $m2 = Merge-UltimaVerificacao $reg $false $agora.AddDays(-9)
+            $m2.ultima | Should -Be $reg
+            $m2.semErros | Should -BeFalse
+            $m3 = Merge-UltimaVerificacao $reg $true $null
+            $m3.ultima | Should -Be $reg
+            $m3.semErros | Should -BeTrue
+            $m4 = Merge-UltimaVerificacao $null $null $agora.AddDays(-2)
+            $m4.ultima | Should -Not -BeNullOrEmpty
+            $m4.semErros | Should -BeNullOrEmpty
+            (Merge-UltimaVerificacao $null $null $null).ultima | Should -BeNullOrEmpty
         }
     }
 
@@ -84,7 +111,7 @@ Describe 'disco.ps1' {
         It 'com simulado devolve as unidades, nunca verificadas, e inicioRapido' {
             $r = Invoke-Disco 'estado' @{ simular = $Script:Sim }
             $r.ok | Should -BeTrue
-            @($r.dados.unidades | ForEach-Object { $_.letra }) | Should -Be @('C:', 'D:')
+            @($r.dados.unidades | ForEach-Object { $_.letra }) | Should -Be @('C:', 'D:', 'E:')
             $r.dados.inicioRapido | Should -BeTrue
             $c = Get-Un $r 'C:'
             $c.tipoDisco | Should -Be 'hdd'
@@ -123,8 +150,8 @@ Describe 'disco.ps1' {
             (Get-Un (Invoke-Disco 'estado' @{ simular = $Script:Sim }) 'D:').ultimaVerificacao | Should -BeNullOrEmpty
         }
         It 'resultado com erros fica registrado como semErros false' {
-            $sim = New-Sim
-            $sim.resultado = 'ErrorsFound'
+            $sim = Get-SimPadrao
+            $sim.resultado = 'ScanErrorsFoundNeedSpotFix'
             $r = Invoke-Disco 'verificar' @{ letra = 'C:'; simular = $sim }
             $r.dados.semErros | Should -BeFalse
             (Get-Un (Invoke-Disco 'estado' @{ simular = $Script:Sim }) 'C:').semErros | Should -BeFalse
@@ -147,7 +174,7 @@ Describe 'disco.ps1' {
             $r.dados.agendada | Should -BeTrue
             $r.dados.inicioRapido | Should -BeTrue
             Test-Marcador 'corrigir-C.txt' | Should -BeTrue
-            $c = Get-Un (Invoke-Disco 'estado' @{ simular = (New-Sim -SujoC $true) }) 'C:'
+            $c = Get-Un (Invoke-Disco 'estado' @{ simular = (Get-SimPadrao -SujoC $true) }) 'C:'
             $c.sujo | Should -BeTrue
             $c.agendada | Should -BeTrue
         }
@@ -183,15 +210,21 @@ Describe 'disco.ps1' {
             $r3 = Invoke-Disco 'otimizar' @{ letra = 'D:'; confirmado = $true; simular = $Script:Sim }
             $r3.dados.operacao | Should -Be 'trim'
             Get-Content -LiteralPath (Join-Path $Script:PastaT 'otimizar-D.txt') -Raw | Should -Match 'trim'
+
+            Invoke-Disco 'verificar' @{ letra = 'E:'; simular = $Script:Sim } | Out-Null
+            $r4 = Invoke-Disco 'otimizar' @{ letra = 'E:'; confirmado = $true; simular = $Script:Sim }
+            $r4.ok | Should -BeFalse
+            $r4.erro | Should -Match 'identificado'
+            Test-Marcador 'otimizar-E.txt' | Should -BeFalse
         }
         It 'Review Focus 1: verificacao com erros ou bit sujo impedem otimizar' {
-            $sim = New-Sim
-            $sim.resultado = 'ErrorsFound'
+            $sim = Get-SimPadrao
+            $sim.resultado = 'ScanErrorsFoundNeedSpotFix'
             Invoke-Disco 'verificar' @{ letra = 'C:'; simular = $sim } | Out-Null
             (Invoke-Disco 'otimizar' @{ letra = 'C:'; confirmado = $true; simular = $Script:Sim }).ok | Should -BeFalse
 
             Invoke-Disco 'verificar' @{ letra = 'C:'; simular = $Script:Sim } | Out-Null
-            $r = Invoke-Disco 'otimizar' @{ letra = 'C:'; confirmado = $true; simular = (New-Sim -SujoC $true) }
+            $r = Invoke-Disco 'otimizar' @{ letra = 'C:'; confirmado = $true; simular = (Get-SimPadrao -SujoC $true) }
             $r.ok | Should -BeFalse
             $r.erro | Should -Match 'einicie'
             Test-Marcador 'otimizar-C.txt' | Should -BeFalse

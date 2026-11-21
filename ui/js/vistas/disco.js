@@ -28,12 +28,16 @@ function discoSistema() {
 // Motivo para o botão Otimizar ficar travado (mesma regra de Test-PodeOtimizar no script) ou null.
 function discoMotivoBloqueio(u) {
   if (u.sujo) return t('disco.otimizarBloqueadoSujo');
+  if (u.tipoDisco !== 'hdd' && u.tipoDisco !== 'ssd') return t('disco.otimizarBloqueadoTipo');
   if (u.semErros !== true) return t('disco.otimizarBloqueadoVerifique');
   return null;
 }
 
+// 'desfragmentar' | 'trim' | 'otimizar' (tipo desconhecido: o botão fica travado com rótulo genérico).
 function discoOperacao(u) {
-  return u.tipoDisco === 'ssd' ? 'trim' : 'desfragmentar';
+  if (u.tipoDisco === 'ssd') return 'trim';
+  if (u.tipoDisco === 'hdd') return 'desfragmentar';
+  return 'otimizar';
 }
 
 async function verificarDisco(u) {
@@ -113,7 +117,7 @@ function textoUltimaVerificacao(u) {
 
 function cartaoUnidade(u) {
   const usado = u.total > 0 ? Math.round(((u.total - u.livre) / u.total) * 100) : 0;
-  const selos = [h('span', { class: 'selo', text: t('disco.tipo.' + u.tipoDisco) })];
+  const selos = [h('span', { class: 'selo', text: t('disco.tipo.' + (u.tipoDisco === 'hdd' || u.tipoDisco === 'ssd' ? u.tipoDisco : 'desconhecido')) })];
   if (u.sistema) selos.push(h('span', { class: 'selo destaque', text: t('disco.sistema') }));
   if (u.agendada) selos.push(h('span', { class: 'selo destaque', text: t('disco.agendada') }));
   const motivo = discoMotivoBloqueio(u);
