@@ -299,7 +299,7 @@ const demo = {
       if (x.reiniciarExplorer) precisaReiniciar = true;
       feitos.push(id);
     }
-    return acao === 'aplicar' ? { aplicados: feitos, falhas, precisaReiniciar } : { restaurados: feitos, falhas, precisaReiniciar };
+    return acao === 'aplicar' ? { aplicados: feitos, falhas, avisos: [], precisaReiniciar } : { restaurados: feitos, falhas, avisos: [], precisaReiniciar };
   },
 
   // C: HDD do sistema nunca verificado (o Início recomenda verificar); D: SSD verificado há 10 dias.

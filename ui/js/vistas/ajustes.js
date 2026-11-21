@@ -50,6 +50,7 @@ async function executarAjustes(acao, ids) {
     if (feitos.length) toast(feitos.length === 1 ? t('ajustes.' + acao + 'FeitoUm') : t('ajustes.' + acao + 'Feitos', { n: feitos.length }), 'ok');
     else if (!falhas.length) toast(t('ajustes.nadaFeito'), 'aviso');
     falhas.forEach((f) => toast(t('ajustes.falha', { nome: nomeAjuste(f.id), erro: f.erro }), 'erro'));
+    (r.avisos || []).forEach((w) => toast(w.aviso, 'aviso'));
     if (r.precisaReiniciar) toast(t('ajustes.reiniciar'), 'aviso');
   } catch (e) {
     mostrarErroEscrita(e);
