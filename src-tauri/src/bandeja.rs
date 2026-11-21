@@ -6,7 +6,7 @@
 //!   WebView2); "Abrir" recria a janela `main` a partir de `tauri.conf.json`.
 //! - `autostart(ligar)`: tarefa agendada `NexTune` (logon, privilégio mais alto) que roda
 //!   `"<exe>" --bandeja`, criada por XML (`schtasks /XML`) para rodar na bateria e sem limite de
-//!   tempo; o XML vai para `%ProgramData%\NexTune\Estado` com nome novo e é apagado depois.
+//!   tempo; o XML vai para `<Windows>\Temp` (via `GetSystemDirectoryW`) com nome novo e é apagado.
 //!   Recusa quando o executável não está sob `%ProgramFiles%`/`%ProgramFiles(x86)%` (nunca
 //!   aponta para pasta gravável pelo usuário). `autostart_estado()` consulta a tarefa.
 //! - `abrir_url(url)`: só `https://<host>/...` ou `ms-windows-store://pdp/?ProductId=<12>`; abre por
@@ -233,13 +233,16 @@ fn e_link(p: &Path) -> bool {
 /// `schtasks /XML` sempre aceita) e devolve o caminho.
 fn gravar_xml_tarefa(pasta: &Path, texto: &str) -> std::io::Result<PathBuf> {
     use std::io::Write;
+    if !pasta.is_absolute() {
+        return Err(std::io::Error::other("pasta temporária sem caminho absoluto"));
+    }
     std::fs::create_dir_all(pasta)?;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let caminho = pasta.join(format!("autostart-{}-{nanos}.xml", std::process::id()));
     if pasta.parent().is_some_and(e_link) || e_link(pasta) || e_link(&caminho) {
-        return Err(std::io::Error::other("a pasta de estado é um link"));
+        return Err(std::io::Error::other("a pasta temporária é um link"));
     }
     let mut bytes = vec![0xFF, 0xFE];
     bytes.extend(texto.encode_utf16().flat_map(u16::to_le_bytes));
@@ -274,13 +277,11 @@ pub fn autostart(ligar: bool, estado: State<'_, Estado>) -> Result<bool, String>
     let mut cmd = comando_oculto("schtasks.exe");
     let mut xml = None;
     if ligar {
-        // %ProgramData%\NexTune (DACL só leitura para Users, via `Get-AppPastas`), não %APPDATA%:
-        // lá outro processo do usuário trocaria o XML antes do schtasks elevado ler.
-        let c = gravar_xml_tarefa(
-            &estado.pastas.programdata.join("Estado"),
-            &xml_tarefa(&exe.to_string_lossy()),
-        )
-        .map_err(|e| format!("não foi possível gravar a definição da tarefa: {e}"))?;
+        // `<Windows>\Temp` por chamada de sistema, não %APPDATA%/%ProgramData% (o usuário controla
+        // o ambiente): ali outro processo do usuário não altera o arquivo que o schtasks elevado lê.
+        let texto = xml_tarefa(&exe.to_string_lossy());
+        let c = gravar_xml_tarefa(&pasta_windows().join("Temp"), &texto)
+            .map_err(|e| format!("não foi possível gravar a definição da tarefa: {e}"))?;
         cmd.args(["/Create", "/TN", "NexTune", "/XML"])
             .arg(&c)
             .arg("/F");
