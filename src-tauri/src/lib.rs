@@ -16,6 +16,13 @@ use tauri::Manager;
 pub fn run() {
     let demo = std::env::args().any(|a| a == "--demo") || !cfg!(windows);
     let app = tauri::Builder::default()
+        // Primeiro plugin: um segundo `NexTune.exe` (ex.: pelo menu Iniciar com o app na bandeja)
+        // só pede para mostrar a janela desta instância e sai (sem segundo ícone, vigia ou host).
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !args.iter().any(|a| a == "--bandeja") {
+                bandeja::abrir_janela(app);
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {

@@ -5,10 +5,15 @@
 //! `automatico:true`); o jogo que ativou ausente por 30 s desativa (`modojogo/desativar`). Só
 //! desativa o que o próprio vigia ativou. Nunca executa outra ação. Cada mudança emite o evento
 //! `modojogo` com `{ativo, jogo}`; falha emite `{erro}`.
+//!
+//! O que "o vigia ativou" vem de `modojogo/estado` a cada ciclo (`adotar_estado`): um Modo Jogo
+//! ativo com `automatico:true` que sobrou de outra sessão é adotado e desativado quando o jogo
+//! fecha; ligado à mão, o vigia não mexe. Desligar o automático com o Modo Jogo ligado por ele
+//! restaura uma vez.
 
 use crate::ajustes;
 use crate::comandos::{self, Estado};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -67,11 +72,46 @@ async fn processos() -> Result<HashSet<String>, String> {
     Ok(exes_de_tasklist(&String::from_utf8_lossy(&out.stdout)))
 }
 
+/// Jogo a adotar a partir de `modojogo/estado`: só um Modo Jogo ativo **pelo automático** com o
+/// nome do jogo. Cobre o estado que sobrou de outra sessão (PC desligado com o jogo aberto, "Sair"
+/// na bandeja, `ativar` interrompido). Ligado à mão (`automatico` diferente de `true`) → `None`.
+pub fn adotar_estado(estado: &Value) -> Option<String> {
+    if estado["ativo"] != true || estado["automatico"] != true {
+        return None;
+    }
+    estado["jogo"]
+        .as_str()
+        .filter(|j| !j.is_empty())
+        .map(String::from)
+}
+
+/// `modojogo/estado`; erro vai para o log e vira `None` (o vigia segue com o que tem na memória).
+async fn ler_estado(estado: &Estado) -> Option<Value> {
+    comandos::executar_interno(estado, "modojogo", "estado", json!({}))
+        .await
+        .inspect_err(|e| eprintln!("vigia: estado: {e}"))
+        .ok()
+}
+
+async fn desativar(estado: &Estado) -> Result<Value, String> {
+    comandos::executar_interno(estado, "modojogo", "desativar", json!({"confirmado": true}))
+        .await
+        .map(|_| json!({"ativo": false, "jogo": null}))
+}
+
+fn emitir(app: &AppHandle, r: Result<Value, String>) {
+    let evento = r.unwrap_or_else(|e| {
+        eprintln!("vigia: {e}");
+        json!({"erro": e})
+    });
+    let _ = app.emit("modojogo", evento);
+}
+
 pub fn iniciar(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut ativo_por_vigia: Option<String> = None;
         let mut ausente_desde: Option<Instant> = None;
-        // Jogo cuja ativação falhou (ex.: Modo Jogo já ligado à mão): não tenta de novo enquanto roda.
+        // Jogo cuja ativação falhou: não tenta de novo enquanto ele roda.
         let mut recusado: Option<String> = None;
         loop {
             tokio::time::sleep(INTERVALO).await;
@@ -80,9 +120,25 @@ pub fn iniciar(app: AppHandle) {
                 continue;
             }
             let a = ajustes::ler(&estado.pastas);
+            if !a.modo_jogo_auto && ativo_por_vigia.is_some() {
+                // Automático desligado com o Modo Jogo ligado por ele: restaura uma vez.
+                ativo_por_vigia = None;
+                ausente_desde = None;
+                emitir(&app, desativar(&estado).await);
+                continue;
+            }
             if !a.modo_jogo_auto || a.jogos.is_empty() {
                 ausente_desde = None;
                 continue;
+            }
+            // O arquivo de estado é a verdade (sobrevive a reinício); a memória só vale se a leitura falhar.
+            if let Some(v) = ler_estado(&estado).await {
+                ativo_por_vigia = adotar_estado(&v);
+                if v["ativo"] == true && ativo_por_vigia.is_none() {
+                    // Ligado à mão: o vigia não mexe (nem ativa, nem mostra erro).
+                    ausente_desde = None;
+                    continue;
+                }
             }
             let rodando = match processos().await {
                 Ok(r) => r,
@@ -122,8 +178,19 @@ pub fn iniciar(app: AppHandle) {
                             Ok(json!({"ativo": true, "jogo": j}))
                         }
                         Err(e) => {
-                            recusado = Some(j);
-                            Err(e)
+                            // `ativar` pode ter gravado o estado antes de falhar (ou alguém ligou à
+                            // mão no meio): confere antes de recusar o jogo.
+                            let v = ler_estado(&estado).await.unwrap_or_default();
+                            if let Some(adotado) = adotar_estado(&v) {
+                                ativo_por_vigia = Some(adotado.clone());
+                                ausente_desde = None;
+                                Ok(json!({"ativo": true, "jogo": adotado}))
+                            } else if v["ativo"] == true {
+                                continue;
+                            } else {
+                                recusado = Some(j);
+                                Err(e)
+                            }
                         }
                     }
                 }
@@ -132,17 +199,10 @@ pub fn iniciar(app: AppHandle) {
                     // cada ciclo) e `desativar` é idempotente, a UI pode repetir.
                     ativo_por_vigia = None;
                     ausente_desde = None;
-                    let p = json!({"confirmado": true});
-                    comandos::executar_interno(&estado, "modojogo", "desativar", p)
-                        .await
-                        .map(|_| json!({"ativo": false, "jogo": null}))
+                    desativar(&estado).await
                 }
             };
-            let evento = r.unwrap_or_else(|e| {
-                eprintln!("vigia: {e}");
-                json!({"erro": e})
-            });
-            let _ = app.emit("modojogo", evento);
+            emitir(&app, r);
         }
     });
 }
@@ -166,6 +226,29 @@ mod testes {
             conjunto(&["nextune.exe", "jogo legal.exe", "obs64.exe"])
         );
         assert!(exes_de_tasklist("").is_empty());
+    }
+
+    #[test]
+    fn adotar_estado_so_o_automatico_com_jogo() {
+        assert_eq!(
+            adotar_estado(&json!({"ativo": true, "automatico": true, "jogo": "Jogo.exe"})),
+            Some("Jogo.exe".to_string())
+        );
+        assert_eq!(
+            adotar_estado(&json!({"ativo": true, "automatico": false, "jogo": "Jogo.exe"})),
+            None
+        );
+        assert_eq!(adotar_estado(&json!({"ativo": true, "jogo": "Jogo.exe"})), None);
+        assert_eq!(
+            adotar_estado(&json!({"ativo": true, "automatico": true, "jogo": null})),
+            None
+        );
+        assert_eq!(
+            adotar_estado(&json!({"ativo": true, "automatico": true, "jogo": ""})),
+            None
+        );
+        assert_eq!(adotar_estado(&json!({"ativo": false})), None);
+        assert_eq!(adotar_estado(&Value::Null), None);
     }
 
     #[test]

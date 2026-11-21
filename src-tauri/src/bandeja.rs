@@ -4,11 +4,13 @@
 //! - Bandeja `principal` com o menu "Abrir o NexTune" / "Sair"; clique esquerdo abre a janela.
 //! - Com a bandeja ativa (`Ajustes::bandeja_ativa`), fechar a janela a **destrói** (libera o
 //!   WebView2); "Abrir" recria a janela `main` a partir de `tauri.conf.json`.
-//! - `autostart(ligar)`: tarefa agendada `NexTune` (ONLOGON, HIGHEST) que roda `"<exe>" --bandeja`;
-//!   recusa quando o executável não está sob `%ProgramFiles%`/`%ProgramFiles(x86)%` (nunca aponta
-//!   para pasta gravável pelo usuário). `autostart_estado()` consulta a tarefa.
+//! - `autostart(ligar)`: tarefa agendada `NexTune` (logon, privilégio mais alto) que roda
+//!   `"<exe>" --bandeja`, criada por XML (`schtasks /XML`) para rodar na bateria e sem limite de
+//!   tempo; recusa quando o executável não está sob `%ProgramFiles%`/`%ProgramFiles(x86)%` (nunca
+//!   aponta para pasta gravável pelo usuário). `autostart_estado()` consulta a tarefa.
 //! - `abrir_url(url)`: só `https://<host>/...` ou `ms-windows-store://pdp/?ProductId=<12>`; abre por
-//!   `rundll32.exe url.dll,FileProtocolHandler` sem shell e sem janela de console.
+//!   `%SystemRoot%\explorer.exe "<url>"` (o explorer entrega o link ao shell do usuário, então o
+//!   navegador abre sem elevação), sem shell intermediário e sem janela de console.
 
 use crate::caminhos::env_ou;
 use crate::comandos::Estado;
@@ -123,8 +125,13 @@ pub(crate) fn system32(nome: &str) -> PathBuf {
 
 /// Processo de System32 sem janela de console.
 fn comando_oculto(nome: &str) -> Command {
+    comando_oculto_em(system32(nome))
+}
+
+/// Processo sem janela de console a partir de um caminho absoluto.
+fn comando_oculto_em(exe: PathBuf) -> Command {
     #[allow(unused_mut)] // só o Windows usa `creation_flags`
-    let mut cmd = Command::new(system32(nome));
+    let mut cmd = Command::new(exe);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -141,11 +148,21 @@ pub fn abrir_url(url: String, estado: State<'_, Estado>) -> Result<(), String> {
     if estado.demo {
         return Ok(());
     }
-    let mut filho = comando_oculto("rundll32.exe")
-        .args(["url.dll,FileProtocolHandler", url.as_str()])
+    // `%SystemRoot%\explorer.exe`, não System32: o explorer repassa o link à instância do shell do
+    // usuário (token sem elevação); o rundll32 herdaria o token elevado do NexTune.
+    let mut cmd = comando_oculto_em(env_ou("SystemRoot", r"C:\Windows").join("explorer.exe"));
+    // Entre aspas: o explorer trata vírgula como separador de opções. `url_permitida` já barra aspas.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.raw_arg(format!("\"{url}\""));
+    }
+    #[cfg(not(windows))]
+    cmd.arg(url.as_str());
+    let mut filho = cmd
         .spawn()
         .map_err(|e| format!("não foi possível abrir o link: {e}"))?;
-    // O rundll32 sai logo depois de entregar o link; espera fora da thread do comando.
+    // O explorer sai logo depois de entregar o link; espera fora da thread do comando.
     std::thread::spawn(move || {
         let _ = filho.wait();
     });
@@ -172,6 +189,41 @@ pub fn exe_em_program_files(exe: &Path) -> bool {
     )
 }
 
+/// Escapa texto para conteúdo de elemento XML.
+fn escapar_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+/// Definição da tarefa de início com o Windows. Os padrões do `schtasks /SC ONLOGON` (só na
+/// tomada, parar ao passar para a bateria, limite de 72 h) matariam o NexTune em notebook.
+fn xml_tarefa(exe: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><MultipleInstances>IgnoreNew</MultipleInstances><StartWhenAvailable>true</StartWhenAvailable><AllowHardTerminate>false</AllowHardTerminate></Settings>
+  <Actions Context="Author"><Exec><Command>"{}"</Command><Arguments>--bandeja</Arguments></Exec></Actions>
+</Task>
+"#,
+        escapar_xml(exe)
+    )
+}
+
+/// Grava em UTF-16 LE com BOM (formato que o `schtasks /XML` sempre aceita).
+fn gravar_utf16(caminho: &Path, texto: &str) -> std::io::Result<()> {
+    if let Some(pasta) = caminho.parent() {
+        std::fs::create_dir_all(pasta)?;
+    }
+    let mut bytes = vec![0xFF, 0xFE];
+    bytes.extend(texto.encode_utf16().flat_map(u16::to_le_bytes));
+    std::fs::write(caminho, bytes)
+}
+
 fn autostart_estado_interno() -> bool {
     comando_oculto("schtasks.exe")
         .args(["/Query", "/TN", "NexTune"])
@@ -191,29 +243,22 @@ pub fn autostart(ligar: bool, estado: State<'_, Estado>) -> Result<bool, String>
     if ligar && !exe_em_program_files(&exe) {
         return Err("instalação de desenvolvimento: autostart só com o programa instalado".into());
     }
-    let tr = format!("\"{}\" --bandeja", exe.display());
+    let xml = estado.pastas.appdata.join("autostart.xml");
     let mut cmd = comando_oculto("schtasks.exe");
     if ligar {
-        cmd.args([
-            "/Create",
-            "/TN",
-            "NexTune",
-            "/SC",
-            "ONLOGON",
-            "/RL",
-            "HIGHEST",
-            "/TR",
-            tr.as_str(),
-            "/F",
-        ]);
+        gravar_utf16(&xml, &xml_tarefa(&exe.to_string_lossy()))
+            .map_err(|e| format!("não foi possível gravar a definição da tarefa: {e}"))?;
+        cmd.args(["/Create", "/TN", "NexTune", "/XML"])
+            .arg(&xml)
+            .arg("/F");
     } else {
         cmd.args(["/Delete", "/TN", "NexTune", "/F"]);
     }
-    let s = cmd
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|e| format!("falha ao rodar schtasks: {e}"))?;
+    let s = cmd.stdout(Stdio::null()).stderr(Stdio::null()).status();
+    if ligar {
+        let _ = std::fs::remove_file(&xml);
+    }
+    let s = s.map_err(|e| format!("falha ao rodar schtasks: {e}"))?;
     if !s.success() {
         return Err(format!(
             "schtasks terminou com código {}",
@@ -276,6 +321,26 @@ mod testes {
         ));
         assert!(!exe_sob(Path::new(r"D:\dev\target\release\nextune.exe"), &raizes));
         assert!(!exe_sob(Path::new(r"C:\Program Files Falso\x.exe"), &raizes));
+    }
+
+    #[test]
+    fn escapar_xml_troca_os_cinco_caracteres() {
+        assert_eq!(
+            escapar_xml(r#"C:\A&B <x> "y" 'z'"#),
+            r#"C:\A&amp;B &lt;x&gt; &quot;y&quot; &apos;z&apos;"#
+        );
+        assert_eq!(escapar_xml("sem nada"), "sem nada");
+    }
+
+    #[test]
+    fn xml_tarefa_roda_na_bateria_sem_limite_e_com_o_exe_escapado() {
+        let x = xml_tarefa(r"C:\Program Files\R&D\NexTune.exe");
+        assert!(x.contains("<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"));
+        assert!(x.contains("<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>"));
+        assert!(x.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
+        assert!(x.contains("<RunLevel>HighestAvailable</RunLevel>"));
+        assert!(x.contains(r#"<Command>"C:\Program Files\R&amp;D\NexTune.exe"</Command>"#));
+        assert!(x.contains("<Arguments>--bandeja</Arguments>"));
     }
 
     #[test]

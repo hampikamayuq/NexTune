@@ -2,8 +2,8 @@
 //!
 //! Contrato com a UI:
 //! - `atualizacao_verificar() -> {versao, notas} | null`: `null` sem atualização, no modo
-//!   demonstração ou quando a verificação falha (ainda não há `latest.json` publicado até o
-//!   Plano 6; o erro vai só para o log).
+//!   demonstração ou sem `latest.json` publicado (`Error::ReleaseNotFound`, até o Plano 6);
+//!   outro erro (rede fora do ar, JSON inválido) volta como `Err` e a UI mostra o aviso de falha.
 //! - `atualizacao_instalar()`: baixa, confere a assinatura com a chave pública de
 //!   `tauri.conf.json`, instala e reinicia o programa. Erro em português se não houver
 //!   atualização; recusa no modo demonstração.
@@ -33,10 +33,12 @@ pub async fn atualizacao_verificar(
             versao: u.version.clone(),
             notas: u.body.clone(),
         })),
-        Ok(None) => Ok(None),
+        // Sem `latest.json` publicado (404 em todos os endpoints) não é erro para o usuário; rede
+        // fora do ar e o resto vão para a UI, que mostra `opcoes.atualizacaoErro`.
+        Ok(None) | Err(tauri_plugin_updater::Error::ReleaseNotFound) => Ok(None),
         Err(e) => {
             eprintln!("atualizador: {e}");
-            Ok(None)
+            Err(e.to_string())
         }
     }
 }
