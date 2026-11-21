@@ -152,23 +152,27 @@ function cartaoPresets() {
       const id = 'mj-preset-' + p;
       return h('label', { class: 'preset', for: id },
         h('input', { type: 'radio', name: 'mj-preset', id, value: p, checked: p === atual,
-          onchange: () => { S.modoJogo.preset = p; if (S.ajustes.modoJogoAuto) gravarAjuste({ modoJogoPreset: p }); } }),
+          onchange: () => {
+            const ant = S.modoJogo.preset;
+            S.modoJogo.preset = p;
+            if (S.ajustes.modoJogoAuto) gravarAjuste({ modoJogoPreset: p }, () => { S.modoJogo.preset = ant; renderAtual(); });
+          } }),
         h('span', {}, h('strong', { text: nomePreset(p) }), h('span', { class: 'suave pequeno', text: t('modojogo.preset.' + p + '.desc') })));
     }));
 }
 
 function cartaoJogos() {
   const jogos = S.ajustes.jogos || [];
-  const entrada = h('input', { type: 'text', id: 'mj-exe', maxlength: 120, placeholder: 'eldenring.exe',
+  const entrada = h('input', { type: 'text', id: 'mj-exe', maxlength: 120, placeholder: t('modojogo.jogosExemplo'),
     onkeydown: (e) => { if (e.key === 'Enter') adicionarJogo(entrada); } });
-  const auto = h('input', { type: 'checkbox', id: 'mj-auto', class: 'acao', checked: !!S.ajustes.modoJogoAuto, onchange: (e) => mudarAuto(e.target) });
+  const auto = h('input', { type: 'checkbox', id: 'mj-auto', class: 'acao escrita', checked: !!S.ajustes.modoJogoAuto, onchange: (e) => mudarAuto(e.target) });
   return h('div', { class: 'cartao' }, h('h3', { text: t('modojogo.jogos') }),
     h('p', { class: 'suave pequeno', text: t('modojogo.jogosAjuda') }),
     h('label', { class: 'rotulo-link', for: 'mj-exe', text: t('modojogo.jogosCampo') }),
     h('div', { class: 'linha-link' }, entrada,
-      h('button', { type: 'button', class: 'btn sec acao', text: t('modojogo.adicionar'), onclick: () => adicionarJogo(entrada) })),
+      h('button', { type: 'button', class: 'btn sec acao escrita', text: t('modojogo.adicionar'), onclick: () => adicionarJogo(entrada) })),
     h('ul', { class: 'jogos-lista' }, jogos.map((j) => h('li', {}, h('span', { text: j }),
-      h('button', { type: 'button', class: 'btn sec acao', text: t('modojogo.remover'), 'aria-label': t('modojogo.remover') + ' ' + j,
+      h('button', { type: 'button', class: 'btn sec acao escrita', text: t('modojogo.remover'), 'aria-label': t('modojogo.remover') + ' ' + j,
         onclick: () => gravarJogos(jogos.filter((x) => x !== j)) })))),
     h('label', { class: 'opcao', for: 'mj-auto' }, auto, h('span', { text: t('modojogo.auto') })));
 }

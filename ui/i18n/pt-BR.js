@@ -542,6 +542,7 @@ window.I18N['pt-BR'] = {
   "modojogo.jogos": "Meus jogos (automático)",
   "modojogo.jogosAjuda": "Nome do executável do jogo, como aparece no Gerenciador de Tarefas (ex.: eldenring.exe). O NexTune liga o Modo Jogo quando ele abrir e desliga 30 s depois de fechar.",
   "modojogo.jogosCampo": "Executável do jogo",
+  "modojogo.jogosExemplo": "eldenring.exe",
   "modojogo.adicionar": "Adicionar",
   "modojogo.remover": "Remover",
   "modojogo.exeInvalido": "Digite o nome de um executável, terminando em .exe, sem barras.",

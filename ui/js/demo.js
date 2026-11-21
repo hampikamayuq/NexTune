@@ -422,7 +422,7 @@ const demo = {
       const servicosPausados = params.preset === 'suave' ? [] : (params.preset === 'a_fundo' ? ['wuauserv', 'BITS', 'WSearch', 'SysMain'] : ['wuauserv', 'BITS']);
       M.estado = { ativo: true, preset: params.preset, desde: new Date().toISOString(), automatico: false, jogo: params.jogo || null, fechados, naoFechados, servicosPausados, planoAnterior: '381b4222-f694-41f0-9685-ff5bb260df2e', notificacoesAnterior: null, windowsInstalando: false };
       M.processos = M.processos.filter((x) => !fechados.some((f) => f.exe === x.exe));
-      return { ativo: true, preset: params.preset, fechados: fechados.map((f) => f.exe), naoFechados, servicosPausados, windowsInstalando: false, avisos: [] };
+      return { ativo: true, preset: params.preset, fechados, naoFechados, servicosPausados, windowsInstalando: false, avisos: [] };
     }
     if (acao === 'desativar') {
       const r = { ativo: false, reabertos: (M.estado.fechados || []).map((f) => f.exe), religados: M.estado.servicosPausados || [], falhas: [] };

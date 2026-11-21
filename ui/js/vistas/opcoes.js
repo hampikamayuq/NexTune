@@ -17,7 +17,7 @@ async function gravarAjuste(parcial, anular) {
 // "Abrir com o Windows": estado lido do sistema ao renderizar (assíncrono) e botão Ligar/Desligar.
 function linhaAutostart() {
   const estado = h('span', { class: 'suave', text: '…' });
-  const botao = h('button', { type: 'button', class: 'btn sec acao', 'data-bloq': true, text: t('opcoes.autostartLigar') });
+  const botao = h('button', { type: 'button', class: 'btn sec acao escrita', 'data-bloq': true, text: t('opcoes.autostartLigar') });
   let atual = false;
   const mostrar = (ligado) => {
     atual = ligado;
