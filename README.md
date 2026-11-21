@@ -84,6 +84,10 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. O p
 
 `scripts/reparo.ps1` lê os produtos do Windows Installer de máquina (`HKLM\SOFTWARE\Classes\Installer\Products` e `UserData\S-1-5-18\Products`) e chama de órfão o que não tem a cópia local do `.msi` (`LocalPackage`) nem origem registrada acessível; sem isso o Windows responde 1603/1612 ao atualizar ou remover. `reparar` relê o diagnóstico na hora, exporta as cinco chaves do produto como `.reg` para a quarentena e só então as remove; nunca apaga arquivos, e `data/reparo.json` lista o que não se repara por aqui (NexTune, WebView2/Edge, componentes do Windows). `UpgradeCodes` e `Components` ficam intocados nesta versão. A lógica de detecção parte do [Unregister-MissingMSIs.ps1](https://gist.github.com/BrentHumphreys/111ac670e577a94bf1531cc4d9a9d8a0) (MIT), reescrito sem baixar módulos da internet.
 
+### Saúde do Windows
+
+`scripts/saude.ps1` (seção na tela Disco): `verificar` lê o `ImageHealthState` do `Repair-WindowsImage -Online -CheckHealth` (só leitura; o `Dism.exe /CheckHealth` sai com 0 tanto saudável quanto reparável); `reparar` roda `Dism.exe /Online /Cleanup-Image /RestoreHealth` e depois `sfc.exe /scannow`, com o progresso tirado da porcentagem da saída. O resultado vem dos códigos de saída e das linhas `[SR]` do `CBS.log` desde o início do sfc (o CBS grava em inglês em qualquer idioma), nunca do texto da tela. Cancelar mata os dois processos pelo host.
+
 ### Pendências
 
 - Verificação manual na máquina real: bandeja, autostart na bateria, Modo Jogo, Windows Update, winget, desinstalador com Modo Jogo pendente e o Reparo num PC com produtos órfãos. Tudo isso foi testado só em modo teste/demo.

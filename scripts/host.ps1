@@ -12,7 +12,7 @@ $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { $null = $_ }
 . "$PSScriptRoot\common.ps1"
 
-$Allowlist = @('diagnostico', 'limpeza', 'quarentena', 'sistema', 'programas', 'inicializacao', 'ajusteswin', 'disco', 'atualizacoes', 'modojogo', 'reparo') + @($AllowlistExtra)
+$Allowlist = @('diagnostico', 'limpeza', 'quarentena', 'sistema', 'programas', 'inicializacao', 'ajusteswin', 'disco', 'atualizacoes', 'modojogo', 'reparo', 'saude') + @($AllowlistExtra)
 $Fila = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
 $Ativos = New-Object System.Collections.ArrayList
 # Ids que ja receberam seu @@RESULT final (garante resultado unico por acao).
@@ -105,10 +105,11 @@ function Stop-AcaoAtiva {
     if ($null -eq $e) { return $false }
     # 1) reserva o resultado (se a acao ja finalizou, nao ha o que cancelar)
     if (-not (Send-ResultUnico $Alvo $null $false 'cancelado')) { return $false }
-    # 2) mata os filhos (destrava acao bloqueada esperando processo) e 3) para sem bloquear o loop
+    # 2) pede a parada sem bloquear o loop e SO DEPOIS 3) mata os filhos (destrava a acao bloqueada esperando o
+    # processo): na ordem inversa, a acao podia seguir e abrir o proximo processo (o sfc depois do DISM) antes da parada.
     $e.Cancelado = $true
-    Invoke-MatarFilho $e.Inicio
     try { $null = $e.Ps.BeginStop($null, $null) } catch { $null = $_ }
+    Invoke-MatarFilho $e.Inicio
     return $true
 }
 
@@ -212,8 +213,8 @@ try {
     }
     Write-FilaParaSaida
     foreach ($e in @($Ativos)) {
-        Invoke-MatarFilho $e.Inicio
         try { $null = $e.Ps.BeginStop($null, $null) } catch { $null = $_ }
+        Invoke-MatarFilho $e.Inicio
     }
     # Espera (no maximo $EsperaFimMs no total) os finally das acoes rodarem: e ali que a limpeza
     # religa servicos e restaura o registro. Sair antes mataria a thread no meio deles.

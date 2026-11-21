@@ -206,6 +206,7 @@ const demo = {
     if (modulo === 'atualizacoes') return this._executarAtualizacoes(acao, params || {}, onProgresso);
     if (modulo === 'modojogo') return this._executarModoJogo(acao, params || {});
     if (modulo === 'reparo') return this._executarReparo(acao, params || {});
+    if (modulo === 'saude') return this._executarSaude(acao, params || {}, onProgresso);
     if (modulo === 'quarentena') return this._executarQuarentena(acao, params, onProgresso);
     if (modulo === 'sistema') return this._executarSistema(acao, params, onProgresso);
     throw new Error('Ação não disponível na demonstração: ' + modulo + '/' + acao);
@@ -354,6 +355,28 @@ const demo = {
       return { reparados, falhas, entrada: '20261121-120000-demo' };
     }
     throw new Error('Ação não disponível na demonstração: reparo/' + acao);
+  },
+
+  // Demonstração: a imagem começa reparável e fica íntegra depois de reparar.
+  async _executarSaude(acao, params, onProgresso) {
+    if (acao === 'verificar') {
+      await this._simular(onProgresso, 'saude', ['Verificando a imagem do Windows…']);
+      return this._saudeReparada
+        ? { estado: 'ok', detalhe: 'Nenhuma corrupção registrada na imagem do Windows.' }
+        : { estado: 'reparavel', detalhe: 'A imagem do Windows tem corrupção que dá para reparar.' };
+    }
+    if (acao === 'reparar') {
+      if (params.confirmado !== true) throw new Error('É preciso confirmar.');
+      await this._simular(onProgresso, 'saude', ['Reparando a imagem do Windows…', 'Reparando arquivos do sistema…', 'Lendo o resultado…']);
+      this._saudeReparada = true;
+      return {
+        dism: { codigo: 0, estado: 'ok' },
+        sfc: { codigo: 0, estado: 'reparado' },
+        precisaReiniciar: true,
+        detalhe: 'O DISM terminou sem erro: a imagem do Windows está íntegra. O SFC reparou arquivos do sistema corrompidos. Reinicie o PC para concluir.',
+      };
+    }
+    throw new Error('Ação não disponível na demonstração: saude/' + acao);
   },
 
   async _executarDisco(acao, params, onProgresso) {

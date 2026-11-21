@@ -42,6 +42,7 @@ const MODULOS: &[&str] = &[
     "atualizacoes",
     "modojogo",
     "reparo",
+    "saude",
 ];
 
 /// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`). A UI roda
@@ -67,6 +68,7 @@ const ESCRITA: &[(&str, &str)] = &[
     ("modojogo", "ativar"),
     ("modojogo", "desativar"),
     ("reparo", "reparar"),
+    ("saude", "reparar"),
 ];
 
 /// Tipos de item que `programas/limparRestos` aceita.
@@ -812,6 +814,22 @@ pub fn validar(
             copiar_simular(&m, &mut saida, teste)?;
             Ok(Value::Object(saida))
         }
+        ("saude", "verificar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["simular"])?;
+            let mut saida = Map::new();
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("saude", "reparar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
         ("modojogo", "estado" | "processos") => {
             let m = como_objeto(params)?;
             so_chaves(&m, &["simular"])?;
@@ -1064,7 +1082,7 @@ mod testes {
 
     #[test]
     fn modulos() {
-        assert_eq!(modulos_permitidos().len(), 12);
+        assert_eq!(modulos_permitidos().len(), 13);
         for m in [
             "host",
             "diagnostico",
@@ -1078,6 +1096,7 @@ mod testes {
             "atualizacoes",
             "modojogo",
             "reparo",
+            "saude",
         ] {
             assert!(modulos_permitidos().contains(&m), "{m}");
         }
@@ -1105,6 +1124,7 @@ mod testes {
             ("atualizacoes", "atualizarProgramas"),
             ("modojogo", "ativar"),
             ("modojogo", "desativar"),
+            ("saude", "reparar"),
         ] {
             assert!(e_escrita(m, a), "{m}/{a} é escrita");
         }
@@ -1125,6 +1145,7 @@ mod testes {
             ("atualizacoes", "listar"),
             ("modojogo", "estado"),
             ("modojogo", "processos"),
+            ("saude", "verificar"),
             ("limpeza", "Limpar"),
             ("inexistente", "limpar"),
         ] {
@@ -2051,6 +2072,35 @@ mod testes {
         parametro(validar("reparo", "reparar", &json!({"ids": muitos, "confirmado": true}), false));
         assert!(matches!(
             validar("reparo", "apagar", &json!({}), false),
+            Err(ErroValidacao::NaoPermitida(_))
+        ));
+    }
+
+    #[test]
+    fn saude_verificar_so_aceita_simular_em_teste() {
+        assert!(!e_escrita("saude", "verificar"));
+        assert_eq!(validar("saude", "verificar", &json!({}), false).unwrap(), json!({}));
+        let sim = json!({"simular": {"saude": "Repairable"}});
+        assert_eq!(validar("saude", "verificar", &sim, true).unwrap(), sim);
+        parametro(validar("saude", "verificar", &sim, false));
+        parametro(validar("saude", "verificar", &json!({"x": 1}), false));
+        parametro(validar("saude", "verificar", &json!({"simular": 1}), true));
+    }
+
+    #[test]
+    fn saude_reparar_exige_confirmacao() {
+        assert!(e_escrita("saude", "reparar"));
+        let p = json!({"confirmado": true});
+        assert_eq!(validar("saude", "reparar", &p, false).unwrap(), p);
+        let sim = json!({"confirmado": true, "simular": {"dism": {"codigo": 0}}});
+        assert_eq!(validar("saude", "reparar", &sim, true).unwrap(), sim);
+        parametro(validar("saude", "reparar", &sim, false));
+        parametro(validar("saude", "reparar", &json!({}), false));
+        parametro(validar("saude", "reparar", &json!({"confirmado": false}), false));
+        parametro(validar("saude", "reparar", &json!({"confirmado": "true"}), false));
+        parametro(validar("saude", "reparar", &json!({"confirmado": true, "x": 1}), false));
+        assert!(matches!(
+            validar("saude", "apagar", &json!({}), false),
             Err(ErroValidacao::NaoPermitida(_))
         ));
     }

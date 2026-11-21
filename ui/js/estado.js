@@ -18,7 +18,8 @@ const S = {
   quarentena: { entradas: null, sel: new Set(), erro: null, carregando: false, ultimo: null },
   inicio: { itens: null, carregando: false, erro: null, filtro: 'todos', avancadoListado: null },
   ajustesWin: { lista: null, carregando: false, erro: null, avancadoListado: null },
-  disco: { estado: null, carregando: false, erro: null },
+  // saude: resultado de saude/verificar; saudeReparo: de saude/reparar (detalhe e precisaReiniciar).
+  disco: { estado: null, carregando: false, erro: null, saude: null, saudeReparo: null },
   // Reparo: produtos do Windows Installer com registro quebrado e os marcados para reparar.
   reparo: { lista: null, sel: new Set(), carregando: false, erro: null },
   // Atualizações: resultado de atualizacoes/listar e as seleções (Windows por UpdateID, programas por id do winget).

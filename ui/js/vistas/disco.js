@@ -3,7 +3,8 @@
 // Disco (módulo disco): uma unidade fixa por cartão. Verificar é só leitura (Repair-Volume -Scan);
 // Corrigir não mexe no volume agora, só agenda a correção para o próximo reinício (e a tela ensina a
 // reiniciar em vez de desligar, por causa da Inicialização Rápida); Otimizar desfragmenta HDD ou faz
-// TRIM em SSD, nunca o contrário, e só depois de uma verificação sem erros.
+// TRIM em SSD, nunca o contrário, e só depois de uma verificação sem erros. A seção Saúde do Windows (módulo
+// saude) verifica a imagem (só leitura) e repara com DISM /RestoreHealth e sfc /scannow.
 
 async function carregarDisco() {
   const D = S.disco;
@@ -107,6 +108,53 @@ async function otimizarDisco(u) {
   await carregarDisco();
 }
 
+async function verificarSaude() {
+  if (S.ocupado) return;
+  try {
+    S.disco.saude = await api.executar('saude', 'verificar', {}, null);
+  } catch (e) {
+    mostrarErro(e);
+  }
+  if (S.vista === 'disco') renderAtual();
+}
+
+// Escrita fora da pasta do app (arquivos do sistema): ponto de restauração antes.
+async function repararSaude() {
+  if (S.ocupado) return;
+  const ok = await perguntar({
+    titulo: t('saude.repararTitulo'),
+    corpo: [h('p', { text: t('saude.repararTexto') }), h('p', { class: 'aviso', text: t('saude.repararAviso') })],
+    ok: t('saude.reparar'),
+  });
+  if (!ok) return;
+  if (!(await garantirPonto())) return;
+  try {
+    const r = await api.executar('saude', 'reparar', { confirmado: true }, null);
+    S.disco.saudeReparo = r;
+    S.disco.saude = null; // a verificação anterior ficou velha
+    const limpo = r.dism.estado === 'ok' && (r.sfc.estado === 'semProblemas' || r.sfc.estado === 'reparado');
+    toast(limpo ? t('saude.repararFeito') : t('saude.repararAtencao'), limpo ? 'ok' : 'aviso');
+  } catch (e) {
+    mostrarErroEscrita(e);
+  }
+  if (S.vista === 'disco') renderAtual();
+}
+
+function cartaoSaude() {
+  const D = S.disco;
+  const textos = { ok: t('saude.estado.ok'), reparavel: t('saude.estado.reparavel'), irreparavel: t('saude.estado.irreparavel') };
+  const v = D.saude;
+  const r = D.saudeReparo;
+  return h('div', { class: 'cartao' },
+    h('h2', { text: t('saude.titulo') }),
+    h('p', { class: 'suave pequeno', text: t('saude.intro') }),
+    v ? h('p', { class: v.estado === 'ok' ? 'ultima' : 'ultima aviso-texto', text: textos[v.estado] || v.detalhe }) : null,
+    r ? h('p', { class: r.precisaReiniciar ? 'aviso pequeno' : 'suave pequeno', text: t('saude.ultimoReparo') + ': ' + r.detalhe }) : null,
+    h('div', { class: 'acoes-disco' },
+      h('button', { type: 'button', class: 'btn sec acao', text: t('saude.verificar'), onclick: () => verificarSaude() }),
+      h('button', { type: 'button', class: 'btn sec acao escrita', text: t('saude.reparar'), onclick: () => repararSaude() })));
+}
+
 function textoUltimaVerificacao(u) {
   if (!u.ultimaVerificacao) return t('disco.nunca');
   const data = fmtData(u.ultimaVerificacao);
@@ -170,6 +218,7 @@ VISTAS.disco = {
     const unidades = D.estado.unidades || [];
     if (!unidades.length) v.append(h('p', { class: 'suave', text: t('disco.vazio') }));
     unidades.forEach((u) => v.append(cartaoUnidade(u)));
+    v.append(cartaoSaude());
     aplicarOcupado();
   },
 };
