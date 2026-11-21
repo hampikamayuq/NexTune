@@ -30,7 +30,7 @@ use std::sync::{Arc, Mutex as MutexSync};
 use tauri::{Emitter, State, Window};
 use tokio::sync::Mutex;
 
-const DADOS_PERMITIDOS: &[&str] = &["perfis", "bloatware", "protegidos", "inicio", "ajustes"];
+const DADOS_PERMITIDOS: &[&str] = &["perfis", "bloatware", "protegidos", "inicio", "ajustes", "modojogo"];
 
 pub struct Estado {
     pub pastas: Pastas,
@@ -406,6 +406,48 @@ mod testes {
                 nome.to_lowercase().ends_with(".exe"),
                 "processo sem .exe: {nome}"
             );
+        }
+    }
+
+    /// `data/modojogo.json` tem plano de desempenho (GUID), protegidos com regex válida e
+    /// motivo, e as listas de serviços de cada preset (o PowerShell lê o mesmo arquivo).
+    #[test]
+    fn modojogo_ok() {
+        let data = crate::caminhos::pastas_dev().data;
+        let m = ler_dados(&data, "modojogo").unwrap();
+        let re_guid = regex::Regex::new(
+            r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        )
+        .unwrap();
+        let plano = m["planoDesempenho"]
+            .as_str()
+            .expect("planoDesempenho é texto");
+        assert!(re_guid.is_match(plano), "planoDesempenho inválido: {plano}");
+
+        let protegidos = m["protegidos"].as_array().expect("protegidos é lista");
+        assert!(!protegidos.is_empty());
+        for e in protegidos {
+            let p = e["padrao"].as_str().expect("padrao é texto");
+            regex::RegexBuilder::new(p)
+                .case_insensitive(true)
+                .build()
+                .unwrap_or_else(|err| panic!("padrão inválido {p:?}: {err}"));
+            assert!(
+                e["motivo"].as_str().is_some_and(|t| !t.trim().is_empty()),
+                "motivo ausente em {e}"
+            );
+        }
+
+        let re_servico = regex::Regex::new(r"^[A-Za-z]+$").unwrap();
+        for preset in ["equilibrado", "a_fundo"] {
+            let lista = m["servicos"][preset]
+                .as_array()
+                .unwrap_or_else(|| panic!("servicos.{preset} é lista"));
+            assert!(!lista.is_empty(), "servicos.{preset} vazia");
+            for s in lista {
+                let nome = s.as_str().expect("serviço é texto");
+                assert!(re_servico.is_match(nome), "nome de serviço inválido: {nome}");
+            }
         }
     }
 

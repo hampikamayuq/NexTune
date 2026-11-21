@@ -1,0 +1,26 @@
+{
+  "planoDesempenho": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
+  "protegidos": [
+    { "padrao": "^obs(32|64)?\\.exe$", "motivo": "Gravação/transmissão: fechar perde a live." },
+    { "padrao": "^Discord(PTB|Canary)?\\.exe$", "motivo": "Chat de voz com os amigos." },
+    { "padrao": "^steam(webhelper)?\\.exe$", "motivo": "Loja/launcher do jogo." },
+    { "padrao": "^EpicGamesLauncher\\.exe$", "motivo": "Loja/launcher do jogo." },
+    { "padrao": "^Battle\\.net\\.exe$", "motivo": "Loja/launcher do jogo." },
+    { "padrao": "^GalaxyClient\\.exe$", "motivo": "Loja/launcher do jogo." },
+    { "padrao": "^(EADesktop|Origin)\\.exe$", "motivo": "Loja/launcher do jogo." },
+    { "padrao": "^(upc|UbisoftConnect)\\.exe$", "motivo": "Loja/launcher do jogo." },
+    { "padrao": "^RiotClient", "motivo": "Loja/launcher do jogo." },
+    { "padrao": "^nv(container|display)", "motivo": "Driver de vídeo." },
+    { "padrao": "^(RadeonSoftware|AMDRSServ)", "motivo": "Driver de vídeo." },
+    { "padrao": "^(RtkAudUService64|RAVCpl64|nahimic|Dolby)", "motivo": "Controla o som do PC." },
+    { "padrao": "^(MSIAfterburner|RTSS)\\.exe$", "motivo": "Overlay/monitor de desempenho." },
+    { "padrao": "^Overwolf", "motivo": "Overlay/monitor de desempenho." },
+    { "padrao": "^(ts3client|TeamSpeak)", "motivo": "Chat de voz com os amigos." },
+    { "padrao": "^parsec", "motivo": "Jogo remoto/transmissão: fechar derruba a sessão." },
+    { "padrao": "^GameBar", "motivo": "Overlay/monitor de desempenho." }
+  ],
+  "servicos": {
+    "equilibrado": ["wuauserv", "BITS", "DoSvc"],
+    "a_fundo": ["WSearch", "SysMain"]
+  }
+}
