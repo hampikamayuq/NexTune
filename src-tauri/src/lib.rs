@@ -1,9 +1,11 @@
 pub mod acoes;
 pub mod ajustes;
+pub mod atualizador;
 pub mod bandeja;
 pub mod caminhos;
 pub mod comandos;
 pub mod host;
+pub mod lembretes;
 pub mod perfil;
 pub mod protocolo;
 pub mod vigia;
@@ -14,6 +16,8 @@ use tauri::Manager;
 pub fn run() {
     let demo = std::env::args().any(|a| a == "--demo") || !cfg!(windows);
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let pastas = caminhos::pastas(app.handle());
             let versao = app.package_info().version.to_string();
@@ -29,6 +33,7 @@ pub fn run() {
                 let _ = w.destroy();
             }
             vigia::iniciar(app.handle().clone());
+            lembretes::iniciar(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -48,6 +53,8 @@ pub fn run() {
             bandeja::abrir_url,
             bandeja::autostart,
             bandeja::autostart_estado,
+            atualizador::atualizacao_verificar,
+            atualizador::atualizacao_instalar,
         ])
         .build(tauri::generate_context!())
         .expect("erro ao construir o aplicativo Tauri");

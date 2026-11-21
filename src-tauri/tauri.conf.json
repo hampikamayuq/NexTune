@@ -22,8 +22,17 @@
       "csp": "default-src 'self'; connect-src 'none'"
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/hampikamayuq/NexTune/releases/latest/download/latest.json"
+      ],
+      "pubkey": "SUBSTITUIR_PELA_CHAVE_PUBLICA_MINISIGN"
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": false,
     "resources": {
       "../scripts/*.ps1": "scripts/",
       "../data": "data/"

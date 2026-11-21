@@ -27,7 +27,18 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 - PowerShell (Pester 5 e PSScriptAnalyzer) e o instalador: só no Windows, com `powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1` (`-SoTestes` pula o build). O GitHub Actions roda o mesmo script a cada push em `main`.
 - Interface: abrir `ui/index.html` num navegador entra no modo demonstração (nada toca o sistema); `?vista=programas`, `?vista=quarentena`, `?vista=disco` e `?vista=atualizacoes` abrem direto nessas telas.
 
+## Chave do atualizador
+
+O atualizador só instala pacotes assinados com a chave minisign do projeto. A chave ainda não foi gerada: `plugins.updater.pubkey` em `src-tauri/tauri.conf.json` está com o marcador `SUBSTITUIR_PELA_CHAVE_PUBLICA_MINISIGN`. O build não confere a chave; ela só é usada ao verificar uma atualização baixada.
+
+1. Gerar o par (fora do repositório): `npx @tauri-apps/cli signer generate -w %USERPROFILE%\.nextune\nextune.key`. Uma senha é opcional, mas recomendada.
+2. Chave pública: o conteúdo de `%USERPROFILE%\.nextune\nextune.key.pub` substitui o marcador em `plugins.updater.pubkey`.
+3. Chave privada: nunca vai para o repositório. O conteúdo de `nextune.key` vira o secret `TAURI_SIGNING_PRIVATE_KEY` do GitHub Actions e, se houver senha, ela vira o secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Guarde também uma cópia criptografada fora do GitHub: sem ela, perder a chave impede atualizar quem já instalou.
+4. `bundle.createUpdaterArtifacts` fica `false` até o Plano 6, que publica o `latest.json` e os instaladores assinados no Release. Até lá a verificação não encontra o `latest.json`, registra o erro só no log e a interface trata como "sem atualização".
+
 ## Pendências
+
+- Lembretes: clicar na notificação abre o programa (o plugin não expõe o clique no Windows); a tela certa é a do Início, que mostra os mesmos cartões.
 
 - RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB). O número é a soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; tratado no Plano 5. Para medir de novo: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1` (veja as opções no topo do script).
 - Os scripts do Plano 2 (`quarentena.ps1`, `sistema.ps1`, `programas.ps1`) foram escritos e revisados fora do Windows; a primeira rodada do Pester e do PSScriptAnalyzer acontece no Actions ou com `tools/ci-local.ps1`.
