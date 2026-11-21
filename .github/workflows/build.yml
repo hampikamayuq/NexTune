@@ -61,3 +61,4 @@ jobs:
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/nsis/SHA256.txt
+            src-tauri/Cargo.lock
