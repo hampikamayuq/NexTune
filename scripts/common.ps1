@@ -393,3 +393,23 @@ function Write-JsonAtomico {
     [IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false))
     Move-Item -LiteralPath $tmp -Destination $Caminho -Force -ErrorAction Stop
 }
+
+function Remove-PastaSegura {
+    # Apaga uma pasta recursivamente sem seguir junctions/links (so o proprio link e removido):
+    # Remove-Item -Recurse do PS 5.1 entraria no alvo da junction.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param([string]$Pasta)
+    $item = Get-Item -LiteralPath $Pasta -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer) { Remove-Item -LiteralPath $item.FullName -Force -ErrorAction Stop; return }
+    if (Test-Reparse $item) { [IO.Directory]::Delete($item.FullName); return }
+    foreach ($f in @(Get-ChildItem -LiteralPath $Pasta -Force -ErrorAction Stop)) {
+        if ($f.PSIsContainer) {
+            if (Test-Reparse $f) { [IO.Directory]::Delete($f.FullName) }
+            else { Remove-PastaSegura $f.FullName }
+        } else {
+            Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop
+        }
+    }
+    Remove-Item -LiteralPath $Pasta -Force -ErrorAction Stop
+}
