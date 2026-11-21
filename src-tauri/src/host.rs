@@ -50,8 +50,20 @@ pub(crate) fn pasta_system32() -> PathBuf {
 /// Pastas do sistema vindas da API, não do ambiente herdado (que um processo sem elevação altera):
 /// os scripts seguem lendo `$env:windir`, `$env:ProgramData` etc., mas com valores confiáveis.
 fn ambiente_host(cmd: &mut Command) {
-    for (k, v) in crate::caminhos::sistema().variaveis() {
+    let s = crate::caminhos::sistema();
+    for (k, v) in s.variaveis() {
         cmd.env(k, v);
+    }
+    // Só pastas do sistema: nada do usuário entra na busca de comandos nem no autoload de módulos.
+    let sys32 = s.windir.join("System32");
+    let ps = sys32.join("WindowsPowerShell").join("v1.0");
+    let path = std::env::join_paths([&sys32, &s.windir, &sys32.join("Wbem"), &ps]);
+    let modulos = std::env::join_paths([
+        ps.join("Modules"),
+        s.program_files.join("WindowsPowerShell").join("Modules"),
+    ]);
+    if let (Ok(path), Ok(modulos)) = (path, modulos) {
+        cmd.env("PATH", path).env("PSModulePath", modulos);
     }
 }
 
@@ -581,8 +593,11 @@ mod testes {
             .map(|(k, _)| k.to_os_string())
             .collect();
         let esperadas = crate::caminhos::sistema().variaveis();
-        assert_eq!(chaves.len(), esperadas.len());
+        assert_eq!(chaves.len(), esperadas.len() + 2);
         for (k, _) in esperadas {
+            assert!(chaves.iter().any(|c| c == k), "{k}");
+        }
+        for k in ["PATH", "PSModulePath"] {
             assert!(chaves.iter().any(|c| c == k), "{k}");
         }
     }

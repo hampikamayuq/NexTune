@@ -1,11 +1,12 @@
 # Compila o NexTune para Windows nos servidores do GitHub.
-# - A cada push em main ou manualmente: roda a mesma verificação do PC (tools/ci-local.ps1: BOM,
+# - job build (token só de leitura): a mesma verificação do PC (tools/ci-local.ps1: BOM,
 #   PSScriptAnalyzer, Pester, checagens da interface, clippy, cargo test, build e limite de tamanho
-#   do instalador), guarda o instalador + SHA256.txt como artefato na aba "Actions" e, se o build
-#   regenerou o Cargo.lock (não há Rust na máquina de desenvolvimento), commita ele em main.
-# - Em tag v*: o mesmo, com os artefatos assinados do atualizador (secret TAURI_SIGNING_PRIVATE_KEY),
-#   e cria a Release como RASCUNHO com instalador, .sig, latest.json e SHA256.txt. Publicar é manual,
-#   depois do checklist da spec (seção 13).
+#   do instalador) e guarda instalador + SHA256.txt (+ .sig em tag) e o Cargo.lock como artefatos.
+#   O secret de assinatura só entra em tag v*.
+# - job publicar (token com escrita, roda só código do próprio workflow): em main, commita o
+#   Cargo.lock que o build regenerou (não há Rust na máquina de desenvolvimento); em tag v*, cria a
+#   Release como RASCUNHO com instalador, .sig, latest.json e SHA256.txt. Publicar é manual, depois
+#   do checklist da spec (seção 13).
 
 name: Compilar NexTune
 
@@ -16,13 +17,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -56,7 +59,7 @@ jobs:
       - name: Verificar e compilar (lint, testes, build e tamanho)
         shell: pwsh
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.ref_type == 'tag' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
         run: |
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
             powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1 -Release
@@ -65,19 +68,12 @@ jobs:
           }
           exit $LASTEXITCODE
 
-      - name: Commitar Cargo.lock regenerado
-        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
-        shell: pwsh
-        run: |
-          if (git status --porcelain src-tauri/Cargo.lock) {
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add src-tauri/Cargo.lock
-            git commit -m 'chore: Cargo.lock regenerado pelo build do Actions'
-            git push
-          } else {
-            Write-Host 'Cargo.lock já está atualizado'
-          }
+      - name: Guardar o Cargo.lock regenerado
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-lock
+          path: src-tauri/Cargo.lock
 
       - name: Calcular SHA-256 do instalador
         shell: pwsh
@@ -96,14 +92,47 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.sig
             src-tauri/target/release/bundle/nsis/SHA256.txt
 
+  publicar:
+    needs: build
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: cargo-lock
+          path: lock
+
+      - name: Commitar Cargo.lock regenerado
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cp lock/Cargo.lock src-tauri/Cargo.lock
+          if git diff --quiet -- src-tauri/Cargo.lock; then
+            echo 'Cargo.lock já está atualizado'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add src-tauri/Cargo.lock
+            git commit -m 'chore: Cargo.lock regenerado pelo build do Actions'
+            git push
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: github.ref_type == 'tag' && needs.build.result == 'success'
+        with:
+          name: NexTune-windows
+          path: dist
+
       - name: Criar a Release (rascunho) com latest.json
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && needs.build.result == 'success'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $dir = 'src-tauri/target/release/bundle/nsis'
-          $exe = Get-ChildItem $dir -Filter *-setup.exe | Select-Object -First 1
+          $exe = Get-ChildItem dist -Filter *-setup.exe | Select-Object -First 1
           $sig = (Get-Content -Raw "$($exe.FullName).sig").Trim()
           $tag = $env:GITHUB_REF_NAME
           $manifesto = [ordered]@{
@@ -112,6 +141,6 @@ jobs:
             pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
             platforms = @{ 'windows-x86_64' = @{ signature = $sig; url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$($exe.Name)" } }
           }
-          $manifesto | ConvertTo-Json -Depth 4 | Set-Content "$dir/latest.json" -Encoding utf8
-          Get-Content "$dir/latest.json"
-          gh release create $tag --draft --generate-notes --title "NexTune $tag" "$($exe.FullName)" "$($exe.FullName).sig" "$dir/latest.json" "$dir/SHA256.txt"
+          $manifesto | ConvertTo-Json -Depth 4 | Set-Content dist/latest.json -Encoding utf8
+          Get-Content dist/latest.json
+          gh release create $tag --draft --generate-notes --title "NexTune $tag" "$($exe.FullName)" "$($exe.FullName).sig" dist/latest.json dist/SHA256.txt

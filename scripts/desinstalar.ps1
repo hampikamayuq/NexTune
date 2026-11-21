@@ -5,6 +5,22 @@
 # -Teste usa as pastas de teste (%TEMP%\NexTuneTeste) e grava marcadores em vez de chamar schtasks.
 param([switch]$ApagarDados, [switch]$Teste)
 $ErrorActionPreference = 'Continue'
+
+# Este processo roda elevado e herda o ambiente do usuario, que um processo sem elevacao altera em
+# HKCU\Environment. Antes de carregar qualquer modulo: pastas pela API (SHGetFolderPath) e PSModulePath
+# so com pastas do sistema, como faz o host.ps1. TEMP fica como esta (em -Teste e a base dos testes).
+$pastaWin = [Environment]::GetFolderPath('Windows')
+$env:windir = $pastaWin
+$env:SystemRoot = $pastaWin
+$env:SystemDrive = $pastaWin.Substring(0, 2)
+$env:ProgramFiles = [Environment]::GetFolderPath('ProgramFiles')
+${env:ProgramFiles(x86)} = [Environment]::GetFolderPath('ProgramFilesX86')
+$env:ProgramData = [Environment]::GetFolderPath('CommonApplicationData')
+$env:APPDATA = [Environment]::GetFolderPath('ApplicationData')
+$env:LOCALAPPDATA = [Environment]::GetFolderPath('LocalApplicationData')
+$env:USERPROFILE = [Environment]::GetFolderPath('UserProfile')
+$env:PSModulePath = "$PSHOME\Modules;$env:ProgramFiles\WindowsPowerShell\Modules"
+
 . "$PSScriptRoot\common.ps1"
 . "$PSScriptRoot\modojogo.ps1"
 
@@ -16,11 +32,7 @@ if ($lido.existe -and -not $lido.ilegivel) {
 }
 
 if ($Teste) { Write-MarcadorJogo 'schtasks-delete.txt' 'schtasks /Delete /TN NexTune /F' }
-else {
-    # Pasta do Windows pela API (nao por $env:windir): o desinstalador roda elevado.
-    $schtasks = Join-Path ([Environment]::GetFolderPath('Windows')) 'System32\schtasks.exe'
-    & $schtasks /Delete /TN NexTune /F 2>$null | Out-Null
-}
+else { & "$pastaWin\System32\schtasks.exe" /Delete /TN NexTune /F 2>$null | Out-Null }
 
 if ($ApagarDados) {
     $base = (Get-AppPastas $Teste).Base

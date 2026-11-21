@@ -7,6 +7,8 @@
     $Script:Marcadores = Join-Path $Script:Base 'modojogo'
     $Script:Fora = Join-Path $env:TEMP 'NexTuneForaTeste'
     $Script:Guid = '381b4222-f694-41f0-9685-ff5bb260df2e'
+    # O script sobrescreve PSModulePath no processo (roda aqui mesmo, nao em processo filho).
+    $Script:ModulePathAntes = $env:PSModulePath
     function Write-EstadoFalso {
         $e = [ordered]@{ ativo = $true; preset = 'suave'; desde = '2026-11-21T10:00:00'; fechados = @(); naoFechados = @(); servicosPausados = @(); planoAplicado = $true; planoAnterior = $Script:Guid; notificacoesAplicadas = $false }
         Write-JsonAtomico (Join-Path (Get-AppPastas $true).Estado 'modojogo.json') $e
@@ -14,6 +16,7 @@
 }
 
 AfterAll {
+    $env:PSModulePath = $Script:ModulePathAntes
     foreach ($p in @((Join-Path $env:TEMP 'NexTuneTeste'), $Script:Fora)) {
         if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }
     }
