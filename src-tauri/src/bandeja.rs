@@ -112,14 +112,19 @@ fn re_url() -> &'static Regex {
 /// Links que a interface pode abrir (RF6): https com host, ou página de produto da Microsoft Store.
 pub fn url_permitida(url: &str) -> bool {
     url.len() <= MAX_URL
-        && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"')
         && re_url().is_match(url)
 }
 
-/// Processo sem janela de console.
-fn comando_oculto(programa: &str) -> Command {
+/// `<System32>\<nome>`: binários do sistema por caminho absoluto (política do `host.rs`).
+pub(crate) fn system32(nome: &str) -> PathBuf {
+    crate::host::pasta_system32().join(nome)
+}
+
+/// Processo de System32 sem janela de console.
+fn comando_oculto(nome: &str) -> Command {
     #[allow(unused_mut)] // só o Windows usa `creation_flags`
-    let mut cmd = Command::new(programa);
+    let mut cmd = Command::new(system32(nome));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -130,11 +135,11 @@ fn comando_oculto(programa: &str) -> Command {
 
 #[tauri::command]
 pub fn abrir_url(url: String, estado: State<'_, Estado>) -> Result<(), String> {
-    if estado.demo {
-        return Ok(());
-    }
     if !url_permitida(&url) {
         return Err("url não permitida".into());
+    }
+    if estado.demo {
+        return Ok(());
     }
     let mut filho = comando_oculto("rundll32.exe")
         .args(["url.dll,FileProtocolHandler", url.as_str()])
@@ -168,7 +173,7 @@ pub fn exe_em_program_files(exe: &Path) -> bool {
 }
 
 fn autostart_estado_interno() -> bool {
-    comando_oculto("schtasks")
+    comando_oculto("schtasks.exe")
         .args(["/Query", "/TN", "NexTune"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -187,7 +192,7 @@ pub fn autostart(ligar: bool, estado: State<'_, Estado>) -> Result<bool, String>
         return Err("instalação de desenvolvimento: autostart só com o programa instalado".into());
     }
     let tr = format!("\"{}\" --bandeja", exe.display());
-    let mut cmd = comando_oculto("schtasks");
+    let mut cmd = comando_oculto("schtasks.exe");
     if ligar {
         cmd.args([
             "/Create",
@@ -246,6 +251,7 @@ mod testes {
             "file:///C:/x",
             "https://a.com/x y",
             "https://a.com/\n",
+            "https://a.com/x\"y",
             "ms-windows-store://pdp/?ProductId=abc",
         ] {
             assert!(!url_permitida(ruim), "{ruim:?}");
@@ -270,5 +276,14 @@ mod testes {
         ));
         assert!(!exe_sob(Path::new(r"D:\dev\target\release\nextune.exe"), &raizes));
         assert!(!exe_sob(Path::new(r"C:\Program Files Falso\x.exe"), &raizes));
+    }
+
+    #[test]
+    fn system32_e_caminho_absoluto_no_windows() {
+        let p = system32("schtasks.exe");
+        assert!(p.ends_with("schtasks.exe"));
+        if cfg!(windows) {
+            assert!(p.is_absolute(), "{p:?}");
+        }
     }
 }

@@ -56,7 +56,7 @@ pub fn decidir(
 }
 
 async fn processos() -> Result<HashSet<String>, String> {
-    let mut cmd = tokio::process::Command::new("tasklist");
+    let mut cmd = tokio::process::Command::new(crate::bandeja::system32("tasklist.exe"));
     cmd.args(["/FO", "CSV", "/NH"]);
     #[cfg(windows)]
     cmd.creation_flags(crate::host::CREATE_NO_WINDOW);
@@ -128,14 +128,14 @@ pub fn iniciar(app: AppHandle) {
                     }
                 }
                 Decisao::Desativar => {
+                    // Mesmo se falhar, para de vigiar este jogo: o erro sai uma vez só (sem repetir a
+                    // cada ciclo) e `desativar` é idempotente, a UI pode repetir.
+                    ativo_por_vigia = None;
+                    ausente_desde = None;
                     let p = json!({"confirmado": true});
                     comandos::executar_interno(&estado, "modojogo", "desativar", p)
                         .await
-                        .map(|_| {
-                            ativo_por_vigia = None;
-                            ausente_desde = None;
-                            json!({"ativo": false, "jogo": null})
-                        })
+                        .map(|_| json!({"ativo": false, "jogo": null}))
                 }
             };
             let evento = r.unwrap_or_else(|e| {
