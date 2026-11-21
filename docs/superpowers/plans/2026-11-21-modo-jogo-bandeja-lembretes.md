@@ -217,3 +217,11 @@ README.md                     "O que já existe", pendências (RAM medida só ap
 - A reabertura dos programas fechados é feita via `explorer.exe` (token do usuário, sem elevação).
 - O `jogo` nunca é fechado.
 - Colisão global `linhaPrograma` corrigida (bug do Plano 4).
+- **Revisão final:**
+  1. Vigia lê `modojogo/estado` a cada ciclo e após erro em `ativar`: adota Modo Jogo ativo com `automatico:true` (`adotar_estado`), não mexe no ligado à mão (sem toast) e desativa uma vez quando o automático é desligado com o Modo Jogo ligado por ele.
+  2. `abrir_url` abre por `%SystemRoot%\explorer.exe "<url>"` em vez de `rundll32` (o navegador sai sem elevação); substitui o texto de §6.2 e do contrato de `bandeja.rs`.
+  3. A tarefa ONLOGON é criada por XML (`schtasks /Create /XML`, UTF-16 em `%APPDATA%\NexTune\autostart.xml`, apagado depois): roda na bateria, não para ao passar para a bateria, sem limite de tempo, `HighestAvailable`.
+  4. Instância única (`tauri-plugin-single-instance`, primeiro plugin): abrir de novo mostra a janela da instância existente (exceto com `--bandeja`).
+  5. Desligar o automático na tela do Modo Jogo desliga também o início com o Windows, a menos que lembretes ou bandeja estejam ligados; texto do modal atualizado.
+  6. `Test-NomeExe` (PowerShell) usa a mesma regra do `re_exe` do Rust e do `RE_EXE` da UI.
+  7. Atualizador: só `Error::ReleaseNotFound` (sem `latest.json`) vira "sem atualização"; rede fora do ar e outros erros chegam à UI (`opcoes.atualizacaoErro`).

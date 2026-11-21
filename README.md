@@ -21,9 +21,9 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 - Disco: estado das unidades fixas, verificação online só de leitura, correção agendada para o próximo reinício (com a orientação "Reiniciar, não Desligar" quando a Inicialização Rápida está ligada) e otimizar que desfragmenta HDD ou faz TRIM em SSD, nunca o contrário e só depois de uma verificação sem erros.
 - Atualizações: Windows Update (sem atualizações de versão; prévias só no modo avançado) e programas pelo `winget`, com parser independente de idioma; instala ou atualiza só o que o usuário marcou.
 - Modo Jogo: três presets (`suave`, `equilibrado`, `a_fundo`) que pedem para fechar programas, pausam serviços e trocam o plano de energia; o estado é salvo antes de qualquer mudança e `desativar` desfaz tudo. Nunca fecha processos protegidos nem o próprio jogo; programas que não fecham em 10 s ficam abertos. Há lista "meus jogos" com ativação automática.
-- Bandeja, lembretes e autostart: ícone na bandeja (Abrir/Sair), que destrói a janela ao fechar para poupar memória; início com o Windows (só quando instalado em Program Files); lembrete a cada N dias com uma única notificação quando há o que ver.
+- Bandeja, lembretes e autostart: ícone na bandeja (Abrir/Sair), que destrói a janela ao fechar para poupar memória; início com o Windows (só quando instalado em Program Files; tarefa que roda também na bateria e sem limite de tempo); uma instância só (abrir de novo mostra a janela da que está na bandeja); lembrete a cada N dias com uma única notificação quando há o que ver.
 - Atualizador do NexTune: verificar e instalar pelo GitHub Releases, com assinatura minisign. O código está pronto; os artefatos assinados entram no Plano 6.
-- Abrir links (loja, site do fabricante) a partir de Programas, só `https://` e `ms-windows-store://`.
+- Abrir links (loja, site do fabricante) a partir de Programas, só `https://` e `ms-windows-store://`, pelo `explorer.exe` (o navegador abre sem elevação).
 
 ## Verificação
 
@@ -39,7 +39,7 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. A c
 1. Gerar o par (fora do repositório): `npx @tauri-apps/cli signer generate -w %USERPROFILE%\.nextune\nextune.key`. Uma senha é opcional, mas recomendada.
 2. Chave pública: o conteúdo de `%USERPROFILE%\.nextune\nextune.key.pub` substitui o marcador em `plugins.updater.pubkey`.
 3. Chave privada: nunca vai para o repositório. O conteúdo de `nextune.key` vira o secret `TAURI_SIGNING_PRIVATE_KEY` do GitHub Actions e, se houver senha, ela vira o secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Guarde também uma cópia criptografada fora do GitHub: sem ela, perder a chave impede atualizar quem já instalou.
-4. `bundle.createUpdaterArtifacts` fica `false` até o Plano 6, que publica o `latest.json` e os instaladores assinados no Release. Até lá a verificação não encontra o `latest.json`, registra o erro só no log e a interface trata como "sem atualização".
+4. `bundle.createUpdaterArtifacts` fica `false` até o Plano 6, que publica o `latest.json` e os instaladores assinados no Release. Até lá a verificação não encontra o `latest.json` e a interface trata como "sem atualização"; sem rede, mostra o erro.
 
 ## Pendências
 
@@ -55,6 +55,7 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. A c
 - `createUpdaterArtifacts` e o secret `TAURI_SIGNING_PRIVATE_KEY` entram no Plano 6, depois que o usuário gerar a chave (ver "Chave do atualizador").
 - `Cargo.lock` não foi atualizado localmente (não há Rust instalado aqui): o primeiro build do Actions o regenera e ele deve ser commitado.
 - Modo Jogo, bandeja, autostart, lembretes e atualizador foram verificados só em modo teste/demo; a primeira rodada real é manual depois do build do Actions.
+- Hooks NSIS do desinstalador (restaurar Modo Jogo pendente, remover a tarefa ONLOGON) ficam para o Plano 6.
 
 ## Créditos
 
