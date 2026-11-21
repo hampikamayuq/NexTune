@@ -205,7 +205,7 @@ README.md                     "O que já existe", pendências (RAM medida só ap
 
 ## Correções e decisões durante a execução (2026-11-21)
 
-- A chave minisign NÃO foi gerada: `pubkey` fica com o marcador `SUBSTITUIR_PELA_CHAVE_PUBLICA_MINISIGN` (decisão de segurança do usuário, que gera o par; ver "Chave do atualizador" no README).
+- A chave minisign NÃO foi gerada durante a execução: `pubkey` ficou com o marcador `SUBSTITUIR_PELA_CHAVE_PUBLICA_MINISIGN` (decisão de segurança do usuário). Em 2026-11-21, a pedido do usuário, o par foi gerado com `tauri signer generate --ci` em `%USERPROFILE%\.nextune\` e a pública entrou em `tauri.conf.json` (ver "Chave do atualizador" no README).
 - `ExitRequested` olha a existência do ícone da bandeja em vez de `bandeja_ativa()`, por causa do argumento `--bandeja`.
 - `abrir_janela` cria a janela numa tarefa assíncrona.
 - `abrir_url` espera o `rundll32` numa thread.

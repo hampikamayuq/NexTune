@@ -27,7 +27,7 @@
       "endpoints": [
         "https://github.com/hampikamayuq/NexTune/releases/latest/download/latest.json"
       ],
-      "pubkey": "SUBSTITUIR_PELA_CHAVE_PUBLICA_MINISIGN"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQjk3NjQ5NDdEM0U2QzgKUldUSTV0TkhTWGE1RXNOamxJQmZMY29vVlRrMUFZcG5kNzlYU3hFNlMwOEM5Tk1pbkxOOXgwK0wK"
     }
   },
   "bundle": {

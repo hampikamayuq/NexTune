@@ -34,11 +34,11 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 
 ## Chave do atualizador
 
-O atualizador só instala pacotes assinados com a chave minisign do projeto. A chave ainda não foi gerada: `plugins.updater.pubkey` em `src-tauri/tauri.conf.json` está com o marcador `SUBSTITUIR_PELA_CHAVE_PUBLICA_MINISIGN`. O build não confere a chave; ela só é usada ao verificar uma atualização baixada.
+O atualizador só instala pacotes assinados com a chave minisign do projeto. O par foi gerado em 2026-11-21 na máquina de desenvolvimento, com `npx tauri signer generate -w %USERPROFILE%\.nextune\nextune.key --ci` (sem senha): a chave pública está em `plugins.updater.pubkey` de `src-tauri/tauri.conf.json`; a privada ficou em `%USERPROFILE%\.nextune\nextune.key`, fora do repositório. O build não confere a chave; ela só é usada ao verificar uma atualização baixada.
 
-1. Gerar o par (fora do repositório): `npx @tauri-apps/cli signer generate -w %USERPROFILE%\.nextune\nextune.key`. Uma senha é opcional, mas recomendada.
-2. Chave pública: o conteúdo de `%USERPROFILE%\.nextune\nextune.key.pub` substitui o marcador em `plugins.updater.pubkey`.
-3. Chave privada: nunca vai para o repositório. O conteúdo de `nextune.key` vira o secret `TAURI_SIGNING_PRIVATE_KEY` do GitHub Actions e, se houver senha, ela vira o secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Guarde também uma cópia criptografada fora do GitHub: sem ela, perder a chave impede atualizar quem já instalou.
+1. Chave privada: nunca vai para o repositório. O conteúdo de `nextune.key` vira o secret `TAURI_SIGNING_PRIVATE_KEY` do GitHub Actions (sem senha, não precisa de `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Guarde também uma cópia criptografada fora do GitHub (gerenciador de senhas, pendrive ou arquivo cifrado): sem ela, perder a chave impede atualizar quem já instalou.
+2. Só depois do secret existir, `bundle.createUpdaterArtifacts` pode virar `true` (Plano 6); antes disso o build do Actions falharia por falta da chave.
+3. Para trocar a chave antes da primeira release, rode o comando de novo com `-f` e substitua a pública.
 4. `bundle.createUpdaterArtifacts` fica `false` até o Plano 6, que publica o `latest.json` e os instaladores assinados no Release. Até lá a verificação não encontra o `latest.json` e a interface trata como "sem atualização"; sem rede, mostra o erro.
 
 ## Pendências
