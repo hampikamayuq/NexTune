@@ -188,6 +188,7 @@ const demo = {
     if (modulo === 'disco') return this._executarDisco(acao, params || {}, onProgresso);
     if (modulo === 'atualizacoes') return this._executarAtualizacoes(acao, params || {}, onProgresso);
     if (modulo === 'modojogo') return this._executarModoJogo(acao, params || {});
+    if (modulo === 'reparo') return this._executarReparo(acao, params || {});
     if (modulo === 'quarentena') return this._executarQuarentena(acao, params, onProgresso);
     if (modulo === 'sistema') return this._executarSistema(acao, params, onProgresso);
     throw new Error('Ação não disponível na demonstração: ' + modulo + '/' + acao);
@@ -303,6 +304,32 @@ const demo = {
       ],
       inicioRapido: true,
     };
+  },
+
+  async _executarReparo(acao, params) {
+    if (!this._reparo) {
+      this._reparo = [
+        { codigo: '{37B34C3A-D825-40AF-BB33-A4DA7A6E4782}', nome: 'Microsoft Visual C++ 2019 X64 Minimum Runtime', versao: '14.28.29213', editor: 'Microsoft Corporation', localPackage: 'C:\\Windows\\Installer\\1d34c.msi', origens: ['W:\\Data\\Programs\\Win7\\Redist\\VCpp\\AIO\\2019\\x64\\'], reparavel: true, motivo: null },
+        { codigo: '{E5281CF4-57AC-41C9-8034-00F8428B8951}', nome: 'Microsoft Visual C++ 2019 X64 Additional Runtime', versao: '14.28.29213', editor: 'Microsoft Corporation', localPackage: 'C:\\Windows\\Installer\\1d359.msi', origens: ['W:\\Data\\Programs\\Win7\\Redist\\VCpp\\AIO\\2019\\x64\\'], reparavel: true, motivo: null },
+        { codigo: '{5C7E2016-38FD-4855-A27C-3FDE9207319A}', nome: 'LibreOffice 26.8.0.3', versao: '26.8.0.3', editor: 'The Document Foundation', localPackage: '', origens: [], reparavel: true, motivo: null },
+        { codigo: '{BB052C53-34CB-42DE-AF41-66FDFCEEC868}', nome: 'Microsoft Update Health Tools', versao: '5.72.0.0', editor: 'Microsoft Corporation', localPackage: '', origens: ['C:\\Windows\\TEMP\\F8807161\\'], reparavel: false, motivo: 'Componente do Windows Update: o Windows o reinstala sozinho.' },
+      ];
+    }
+    if (acao === 'diagnosticar') { await this._dormir(300); return { produtos: this._reparo.map((p) => Object.assign({}, p)) }; }
+    if (acao === 'reparar') {
+      if (params.confirmado !== true) throw new Error('É preciso confirmar.');
+      await this._dormir(400);
+      const reparados = [];
+      const falhas = [];
+      (params.ids || []).forEach((id) => {
+        const i = this._reparo.findIndex((p) => p.codigo === id);
+        if (i < 0) falhas.push({ id, erro: 'já não está quebrado (ou não existe): nada a fazer' });
+        else if (!this._reparo[i].reparavel) falhas.push({ id, erro: this._reparo[i].motivo });
+        else { this._reparo.splice(i, 1); reparados.push(id); }
+      });
+      return { reparados, falhas, entrada: '20261121-120000-demo' };
+    }
+    throw new Error('Ação não disponível na demonstração: reparo/' + acao);
   },
 
   async _executarDisco(acao, params, onProgresso) {

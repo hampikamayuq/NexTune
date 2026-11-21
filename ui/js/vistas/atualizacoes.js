@@ -40,6 +40,7 @@ async function executarAtualizacoes(acao, ids, nomes) {
     if (feitos.length) toast(feitos.length === 1 ? t('atualizacoes.' + acao + 'FeitoUm') : t('atualizacoes.' + acao + 'Feitos', { n: feitos.length }), 'ok');
     else if (!falhas.length) toast(t('atualizacoes.nadaFeito'), 'aviso');
     falhas.forEach((f) => toast(t('atualizacoes.falha', { nome: f.id, erro: f.erro }), 'erro'));
+    if (falhas.some((f) => f.codigo === '0x8A150110')) toast(t('atualizacoes.dicaReparo'), 'aviso');
     if (r.precisaReiniciar) toast(t('atualizacoes.reiniciar'), 'aviso');
   } catch (e) {
     mostrarErroEscrita(e);

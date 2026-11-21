@@ -437,3 +437,29 @@ function Remove-PastaSegura {
     }
     Remove-Item -LiteralPath $Pasta -Force -ErrorAction Stop
 }
+
+# Frases em portugues para os codigos de saida do winget (usadas por Atualizacoes e Reparo).
+$Script:MensagensWinget = @{
+    0x8A150101L = 'O programa está aberto. Feche-o e tente de novo.'
+    0x8A150102L = 'Outra instalação já está em andamento. Espere terminar e tente de novo.'
+    0x8A150103L = 'Há arquivos do programa em uso. Feche o programa (e, se houver, o serviço dele) e tente de novo.'
+    0x8A150105L = 'Não há espaço livre suficiente no disco. Libere espaço e tente de novo.'
+    0x8A150107L = 'O instalador precisa de internet. Conecte-se e tente de novo.'
+    0x8A150108L = 'O instalador do programa deu erro. Tente de novo ou procure o suporte do fabricante.'
+    0x8A150109L = 'Reinicie o PC para terminar a instalação.'
+    0x8A15010AL = 'A instalação falhou e pede reinício. Reinicie o PC e tente de novo.'
+    0x8A15010CL = 'A instalação foi cancelada, em geral porque o programa está aberto e o instalador não conseguiu fechá-lo. Feche o programa (e o serviço dele, se houver) e tente de novo.'
+    0x8A15010DL = 'Já existe outra versão deste programa instalada.'
+    0x8A15010EL = 'Já existe uma versão mais nova instalada.'
+    0x8A15010FL = 'Uma política da organização impede esta instalação.'
+    0x8A150110L = 'Falhou a instalação de uma dependência do programa (por exemplo, o Visual C++). Veja a tela Reparo: pode haver um registro do instalador quebrado.'
+}
+
+function Get-MensagemWinget {
+    # Frase em portugues para um codigo de saida do winget (aceita int32 negativo ou int64). Desconhecido: generica com o codigo.
+    param([int64]$Codigo)
+    if ($Codigo -lt 0) { $Codigo += 4294967296 }
+    $hex = '0x{0:X8}' -f $Codigo
+    if (-not $Script:MensagensWinget.ContainsKey([int64]$Codigo)) { return "winget terminou com código $hex" }
+    return ($Script:MensagensWinget[[int64]$Codigo] + " ($hex)")
+}

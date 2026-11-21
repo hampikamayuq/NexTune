@@ -19,6 +19,8 @@ const S = {
   inicio: { itens: null, carregando: false, erro: null, filtro: 'todos', avancadoListado: null },
   ajustesWin: { lista: null, carregando: false, erro: null, avancadoListado: null },
   disco: { estado: null, carregando: false, erro: null },
+  // Reparo: produtos do Windows Installer com registro quebrado e os marcados para reparar.
+  reparo: { lista: null, sel: new Set(), carregando: false, erro: null },
   // Atualizações: resultado de atualizacoes/listar e as seleções (Windows por UpdateID, programas por id do winget).
   atualiz: { lista: null, carregando: false, erro: null, selWin: new Set(), selProg: new Set(), avancadoListado: null },
   // Modo Jogo: estado/processos do módulo, marcados para fechar e preset escolhido (null = o dos ajustes).

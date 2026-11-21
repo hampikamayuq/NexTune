@@ -1,62 +1,100 @@
 # NexTune
 
-Aplicativo de desktop para Windows que diagnostica o computador e faz limpeza e otimização com segurança.
+Diagnóstico, limpeza e otimização do Windows com segurança. Gratuito, em português e de código aberto (MIT).
 
-Especificação: [docs/superpowers/specs/2026-11-20-otimizador-design.md](docs/superpowers/specs/2026-11-20-otimizador-design.md)
+Site: [hampikamayuq.github.io/NexTune](https://hampikamayuq.github.io/NexTune/) · Download: [última versão](https://github.com/hampikamayuq/NexTune/releases/latest)
 
-Planos de implementação: [Plano 1 (fundação, diagnóstico, limpeza)](docs/superpowers/plans/2026-11-20-fundacao-diagnostico-limpeza.md) · [Plano 2 (programas, quarentena, ponto de restauração)](docs/superpowers/plans/2026-11-20-programas-quarentena.md) · [Plano 3 (inicialização, ajustes do Windows)](docs/superpowers/plans/2026-11-20-inicializacao-ajustes-windows.md) · [Plano 4 (disco, atualizações)](docs/superpowers/plans/2026-11-20-disco-atualizacoes.md) · [Plano 5 (modo jogo, bandeja, lembretes, atualizador)](docs/superpowers/plans/2026-11-21-modo-jogo-bandeja-lembretes.md)
+Status: em desenvolvimento; a primeira versão (0.1.0) está em teste.
 
-Status: em desenvolvimento. Ainda não há versão utilizável.
+## O que ele faz
 
-## O que já existe
+O NexTune olha o seu PC primeiro (processador, memória, tipo de disco) e só então sugere o que vale a pena. Nada é feito sem você clicar, e tudo que ele muda pode ser desfeito.
 
-- Diagnóstico com perfil em duas dimensões (classe da máquina + tipo de disco).
-- Limpeza por categorias, ciente do perfil, com confirmação dupla para o que não se recria.
-- Programas: lista programas clássicos e apps da Store, classifica por listas de dados (`data/bloatware.json`, `data/protegidos.json`), desinstala em silêncio quando o instalador permite e leva os restos para a quarentena.
-- Quarentena: tudo que o programa remove de você fica em `%ProgramData%\NexTune\Quarentena` por N dias (padrão 7), com restauração atômica por entrada e chaves de registro exportadas em `.reg`.
-- Ponto de restauração antes da primeira ação de escrita da sessão; Proteção do Sistema desligada é tratada com uma pergunta, nunca com recusa.
-- Bloqueio das ações de escrita quando o usuário elevado não é o usuário da sessão.
-- Inicialização: lista o que abre com o Windows (chaves Run, pasta Inicializar e tarefas agendadas), com impacto medido em RAM e tamanho do executável, e liga ou desliga cada item de forma reversível; tarefas de fabricante só no modo avançado.
-- Ajustes do Windows: cinco grupos de ajustes com backup antes da escrita e restauração exata do valor anterior; os recomendados para perfil fraco vêm marcados, e os de Política levam selo de aviso.
-- Disco: estado das unidades fixas, verificação online só de leitura, correção agendada para o próximo reinício (com a orientação "Reiniciar, não Desligar" quando a Inicialização Rápida está ligada) e otimizar que desfragmenta HDD ou faz TRIM em SSD, nunca o contrário e só depois de uma verificação sem erros.
-- Atualizações: Windows Update (sem atualizações de versão; prévias só no modo avançado) e programas pelo `winget`, com parser independente de idioma; instala ou atualiza só o que o usuário marcou.
-- Modo Jogo: três presets (`suave`, `equilibrado`, `a_fundo`) que pedem para fechar programas, pausam serviços e trocam o plano de energia; o estado é salvo antes de qualquer mudança e `desativar` desfaz tudo. Nunca fecha processos protegidos nem o próprio jogo; programas que não fecham em 10 s ficam abertos. Há lista "meus jogos" com ativação automática.
-- Bandeja, lembretes e autostart: ícone na bandeja (Abrir/Sair), que destrói a janela ao fechar para poupar memória; início com o Windows (só quando instalado em Program Files; tarefa que roda também na bateria e sem limite de tempo); uma instância só (abrir de novo mostra a janela da que está na bandeja); lembrete a cada N dias com uma única notificação quando há o que ver.
-- Atualizador do NexTune: verificar e instalar pelo GitHub Releases, com assinatura minisign. O código está pronto; os artefatos assinados entram no Plano 6.
-- Abrir links (loja, site do fabricante) a partir de Programas, só `https://` e `ms-windows-store://`, pelo `explorer.exe` (o navegador abre sem elevação).
+- **Limpeza** por categorias, ciente do perfil da máquina; o que não se recria pede confirmação dupla.
+- **Programas**: lista pré-instalados de fábrica e apps da Store, desinstala em silêncio quando dá, leva os restos para a quarentena.
+- **Inicialização**: o que abre com o Windows, com impacto medido, e liga/desliga reversível.
+- **Ajustes do Windows** com backup antes da escrita e restauração exata do valor anterior.
+- **Disco**: verificação só de leitura, correção agendada para o próximo reinício, desfragmentar HDD ou TRIM em SSD, nunca o contrário.
+- **Atualizações** do Windows e dos programas (winget), só o que você marcar. Quando uma falha, o NexTune explica o motivo em português em vez de mostrar só o código.
+- **Reparo do instalador**: acha programas cujo arquivo de instalação sumiu do Windows (erros 1603 e 1612 ao atualizar ou desinstalar) e, se você marcar, remove só o registro quebrado, com backup na quarentena.
+- **Modo Jogo**: pede para fechar programas, pausa serviços, troca o plano de energia e desfaz tudo ao sair.
+- **Bandeja, lembretes e atualizador** próprio (assinatura minisign, GitHub Releases).
 
-## Verificação
+## O que ele nunca faz
 
-- Rust: `cargo test --manifest-path src-tauri/Cargo.toml` e `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings`.
-- PowerShell (Pester ≥ 5.5 e PSScriptAnalyzer) e o instalador: só no Windows, com `powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1` (`-SoTestes` pula o build). O GitHub Actions roda o mesmo script a cada push em `main`.
-- Localmente o Pester 6 atende o mínimo e roda direto: `Invoke-Pester -Path scripts/tests` (sem `-CI`); o PSScriptAnalyzer também: `Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error`.
-- Interface: abrir `ui/index.html` num navegador entra no modo demonstração (nada toca o sistema); `?vista=programas`, `?vista=quarentena`, `?vista=disco`, `?vista=atualizacoes` e `?vista=modojogo` abrem direto nessas telas.
+- Não apaga nada seu sem quarentena (7 dias para restaurar), backup e ponto de restauração.
+- Não mata programas: pede para fechar e respeita o "salvar alterações?". Nunca fecha o Windows, drivers, áudio ou o seu jogo.
+- Não usa a rede a partir da interface; a única conexão é HTTPS com o GitHub para verificar atualizações do próprio NexTune.
+- Não envia dados, não tem telemetria, não mostra anúncios.
+- Não mexe em permissões (ACLs) de pastas do Windows, nem no instalador nem no desinstalador.
 
-## Chave do atualizador
+## Conferir o arquivo baixado
 
-O atualizador só instala pacotes assinados com a chave minisign do projeto. O par foi gerado em 2026-11-21 na máquina de desenvolvimento, com `npx tauri signer generate -w %USERPROFILE%\.nextune\nextune.key --ci` (sem senha): a chave pública está em `plugins.updater.pubkey` de `src-tauri/tauri.conf.json`; a privada ficou em `%USERPROFILE%\.nextune\nextune.key`, fora do repositório. O build não confere a chave; ela só é usada ao verificar uma atualização baixada.
+Cada versão traz um `SHA256.txt`. Na pasta de Downloads:
 
-1. Chave privada: nunca vai para o repositório. O conteúdo de `nextune.key` vira o secret `TAURI_SIGNING_PRIVATE_KEY` do GitHub Actions (sem senha, não precisa de `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Guarde também uma cópia criptografada fora do GitHub (gerenciador de senhas, pendrive ou arquivo cifrado): sem ela, perder a chave impede atualizar quem já instalou.
-2. Só depois do secret existir, `bundle.createUpdaterArtifacts` pode virar `true` (Plano 6); antes disso o build do Actions falharia por falta da chave.
-3. Para trocar a chave antes da primeira release, rode o comando de novo com `-f` e substitua a pública.
-4. `bundle.createUpdaterArtifacts` fica `false` até o Plano 6, que publica o `latest.json` e os instaladores assinados no Release. Até lá a verificação não encontra o `latest.json` e a interface trata como "sem atualização"; sem rede, mostra o erro.
+```
+certutil -hashfile NexTune_0.1.0_x64-setup.exe SHA256
+```
 
-## Pendências
+O hash tem que ser igual ao do `SHA256.txt` da mesma versão.
 
-- Lembretes: o plugin não expõe o clique na notificação no Windows e clicar nela não foi verificado; não leva à tela específica (o Início mostra os mesmos cartões).
+## Por que o Windows avisa
 
-- RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB). O número é a soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada. O Plano 5 destrói a janela quando o app fica na bandeja (meta ≤ 30 MB); os dois números precisam ser medidos de novo depois do build do Actions. Para medir de novo: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1` (veja as opções no topo do script).
-- Os scripts do Plano 2 (`quarentena.ps1`, `sistema.ps1`, `programas.ps1`) foram escritos e revisados fora do Windows; a primeira rodada do Pester e do PSScriptAnalyzer acontece no Actions ou com `tools/ci-local.ps1`.
-- `protegidos.json` cobre drivers NVIDIA, AMD, Intel e Realtek; Synaptics, ELAN, Qualcomm, Conexant e MediaTek ainda aparecem "sem classificação".
-- A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário não estava aqui e entra depois.
-- Atualizações: drivers via Windows Update ficam fora (critério `Type='Software'`). O COM do Windows Update e o `winget` não rodam nos testes (só o parser e a forma da saída): a primeira rodada real é manual, depois do build do Actions.
-- Disco: os textos por resultado seguem o enum `RepairStatus` do `Repair-Volume` lido localmente (`ScanNoErrorsFound`, `ScanErrorsFoundNeedSpotFix`, `NeedOfflineScanAndFix`…), mas qual valor o `-Scan` devolve na prática ainda não foi conferido elevado; um valor fora da lista cai no texto genérico e conta como "com erros". Unidade cujo tipo (HDD/SSD) não dá para ler fica com Otimizar travado.
-- Disco: a última verificação vem do registro do NexTune (`Estado\disco.json`) e dos eventos Wininit 1001 / Chkdsk 26226; verificações feitas por outros caminhos podem não aparecer. `corrigir` marca o bit sujo do volume (`fsutil dirty set`, o mesmo efeito de `chkdsk /f` agendado) em vez de `Repair-Volume -OfflineScanAndFix`, para nunca desmontar uma unidade de dados em uso.
-- `createUpdaterArtifacts` e o secret `TAURI_SIGNING_PRIVATE_KEY` entram no Plano 6, depois que o usuário gerar a chave (ver "Chave do atualizador").
-- `Cargo.lock` não foi atualizado localmente (não há Rust instalado aqui): o primeiro build do Actions o regenera e ele deve ser commitado.
-- Modo Jogo, bandeja, autostart, lembretes e atualizador foram verificados só em modo teste/demo; a primeira rodada real é manual depois do build do Actions.
-- Hooks NSIS do desinstalador (restaurar Modo Jogo pendente, remover a tarefa ONLOGON) ficam para o Plano 6.
+O NexTune ainda não tem assinatura digital paga, então o SmartScreen mostra "O Windows protegeu o computador": clique em **Mais informações** e **Executar assim mesmo**. Antivírus às vezes marcam ferramentas de limpeza por engano; o código está aberto para conferência.
+
+**Smart App Control** (Windows 11 novo de fábrica) bloqueia programas sem assinatura e não oferece "executar assim mesmo". Desligá-lo é decisão do usuário e é irreversível (só volta reinstalando o Windows). A versão assinada é prioridade da série 1.x; o pedido à SignPath Foundation entra logo após a primeira release pública.
+
+## Como auditar
+
+- As ações que tocam o sistema são scripts PowerShell legíveis em `scripts/`; o Rust em `src-tauri/` só valida parâmetros, roteia e fala com o PowerShell.
+- O instalador é compilado em público pelo GitHub Actions (`.github/workflows/build.yml`), que publica o hash de cada versão.
+- Especificação completa: [docs/superpowers/specs/2026-11-20-otimizador-design.md](docs/superpowers/specs/2026-11-20-otimizador-design.md).
+
+---
+
+## Para desenvolvedores
+
+Planos de implementação: [1 fundação, diagnóstico, limpeza](docs/superpowers/plans/2026-11-20-fundacao-diagnostico-limpeza.md) · [2 programas, quarentena](docs/superpowers/plans/2026-11-20-programas-quarentena.md) · [3 inicialização, ajustes](docs/superpowers/plans/2026-11-20-inicializacao-ajustes-windows.md) · [4 disco, atualizações](docs/superpowers/plans/2026-11-20-disco-atualizacoes.md) · [5 modo jogo, bandeja, lembretes, atualizador](docs/superpowers/plans/2026-11-21-modo-jogo-bandeja-lembretes.md) · [6 release, site, desinstalador](docs/superpowers/plans/2026-11-21-release-site-desinstalador.md) · [7 reparo do instalador](docs/superpowers/plans/2026-11-21-reparo-instalador.md)
+
+### Verificação
+
+- Tudo de uma vez (Windows): `powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1` (`-SoTestes` pula o build; `-SoBuild` faz só o build; `-Release` gera os artefatos assinados do atualizador e exige `TAURI_SIGNING_PRIVATE_KEY`). O GitHub Actions roda o mesmo script a cada push em `main` e em tags `v*`.
+- PowerShell: `Invoke-Pester -Path scripts/tests` (Pester ≥ 5.5, sem `-CI`) e `Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error`. Arquivos `.ps1` em UTF-8 com BOM e CRLF.
+- Rust: `cargo test --manifest-path src-tauri/Cargo.toml` e `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings`. Sem Rust na máquina de desenvolvimento, o Actions compila e commita o `Cargo.lock` regenerado em `main`.
+- Interface: `ui/index.html` num navegador entra no modo demonstração (nada toca o sistema); `?vista=programas`, `?vista=disco`, `?vista=reparo`, `?vista=modojogo` etc. abrem direto nas telas.
+- Site: `docs/index.html` (GitHub Pages servindo a pasta `docs/` de `main`; `.nojekyll` evita o processamento Jekyll dos planos).
+
+### Publicar uma versão
+
+1. Uma vez: criar o secret `TAURI_SIGNING_PRIVATE_KEY` no repositório (Settings → Secrets and variables → Actions) com o conteúdo de `%USERPROFILE%\.nextune\nextune.key`; guardar uma cópia criptografada da chave fora do GitHub (sem ela, perder o secret deixa todas as instalações sem atualização). Ativar o GitHub Pages em Settings → Pages → `main` / `docs`.
+2. Subir `version` em `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` e `package.json` (os três iguais) e commitar em `main`.
+3. `git tag vX.Y.Z && git push origin vX.Y.Z`. O Actions confere que a tag bate com a versão, compila com `-Release`, e cria a **Release em rascunho** com `NexTune_X.Y.Z_x64-setup.exe`, `.sig`, `latest.json` e `SHA256.txt`.
+4. Checklist manual da spec (seção 13): instalar por cima da versão anterior numa VM Windows 11 e numa Windows 10; rodar cada módulo; testar restaurar quarentena e ajustes; medir RAM com `tools/medir.ps1`.
+5. Publicar o rascunho. Só então `releases/latest/download/latest.json` passa a existir e o atualizador das instalações anteriores encontra a versão.
+
+### Chave do atualizador
+
+O atualizador só instala pacotes assinados com a chave minisign do projeto. O par foi gerado em 2026-11-21 com `npx tauri signer generate -w %USERPROFILE%\.nextune\nextune.key --ci` (sem senha): a chave pública está em `plugins.updater.pubkey` de `src-tauri/tauri.conf.json`; a privada ficou fora do repositório e vira o secret `TAURI_SIGNING_PRIVATE_KEY` (sem `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). Para trocar a chave antes da primeira release, rode o comando de novo com `-f` e substitua a pública. `createUpdaterArtifacts` fica `false` no build normal e é ligado só no build de tag por `src-tauri/tauri.release.conf.json`.
+
+### Desinstalador
+
+`src-tauri/windows/hooks.nsh` (hook `PREUNINSTALL` do NSIS) chama `scripts/desinstalar.ps1` fora de atualizações: desfaz um Modo Jogo pendente, remove a tarefa de início `NexTune` e, se o usuário aceitar (padrão sim; também em `/S`), apaga `%ProgramData%\NexTune` sem seguir junctions. `%APPDATA%\NexTune` (ajustes e data do último lembrete) fica.
+
+### Reparo do instalador
+
+`scripts/reparo.ps1` lê os produtos do Windows Installer de máquina (`HKLM\SOFTWARE\Classes\Installer\Products` e `UserData\S-1-5-18\Products`) e chama de órfão o que não tem a cópia local do `.msi` (`LocalPackage`) nem origem registrada acessível; sem isso o Windows responde 1603/1612 ao atualizar ou remover. `reparar` relê o diagnóstico na hora, exporta as cinco chaves do produto como `.reg` para a quarentena e só então as remove; nunca apaga arquivos, e `data/reparo.json` lista o que não se repara por aqui (NexTune, WebView2/Edge, componentes do Windows). `UpgradeCodes` e `Components` ficam intocados nesta versão. A lógica de detecção parte do [Unregister-MissingMSIs.ps1](https://gist.github.com/BrentHumphreys/111ac670e577a94bf1531cc4d9a9d8a0) (MIT), reescrito sem baixar módulos da internet.
+
+### Pendências
+
+- Verificação manual na máquina real: bandeja, autostart na bateria, Modo Jogo, Windows Update, winget, desinstalador com Modo Jogo pendente e o Reparo num PC com produtos órfãos. Tudo isso foi testado só em modo teste/demo.
+- Lembretes: o plugin não expõe o clique na notificação no Windows; clicar nela não leva à tela específica (o Início mostra os mesmos cartões).
+- RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB), soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; na bandeja a janela é destruída (meta ≤ 30 MB). Medir de novo com `tools/medir.ps1` depois do instalador.
+- `protegidos.json` cobre NVIDIA, AMD, Intel e Realtek; Synaptics, ELAN, Qualcomm, Conexant e MediaTek ainda aparecem "sem classificação".
+- A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário entra depois.
+- Atualizações: drivers via Windows Update ficam fora (`Type='Software'`); o COM do Windows Update e o `winget` não rodam nos testes.
+- Disco: os textos por resultado seguem o enum `RepairStatus` lido localmente; qual valor o `-Scan` devolve na prática ainda não foi conferido elevado. `corrigir` marca o bit sujo (`fsutil dirty set`) em vez de `Repair-Volume -OfflineScanAndFix`, para nunca desmontar uma unidade em uso.
+- Botão "Reportar problema" (endpoint anônimo) adiado; Smart App Control sem assinatura na v1 (ver acima).
 
 ## Créditos
 
-As listas iniciais de bloatware e de programas protegidos e a lógica de detecção do tipo de desinstalador partiram do [RetroLimpia](https://github.com/Retropunk94/RetroLimpia) (Retropunk94, licença MIT), reescritas em português com fabricantes brasileiros e com testes próprios.
+As listas iniciais de bloatware e de programas protegidos e a lógica de detecção do tipo de desinstalador partiram do [RetroLimpia](https://github.com/Retropunk94/RetroLimpia) (Retropunk94, licença MIT), reescritas em português com fabricantes brasileiros e com testes próprios. A detecção de produtos órfãos do Windows Installer parte do Unregister-MissingMSIs.ps1 (MIT, heaths e BrentHumphreys).

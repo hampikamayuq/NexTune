@@ -36,11 +36,11 @@
 - `ConvertTo-GuidCompactado([string]$Guid) -> string`: forma do Windows Installer (primeiros 3 grupos invertidos, resto com nibbles trocados); recusa o que não for `{8-4-4-4-12}` hexadecimal.
 - `Test-ProdutoOrfao($Produto) -> bool`: `$Produto = @{ localPackage; packageName; origens = @() }`; verdadeiro só se `localPackage` não existe e nenhuma `origem\packageName` existe.
 
-- [ ] **Passo 1:** testes `Get-MensagemWinget` (código conhecido, desconhecido, negativo como int32), `ConvertTo-GuidCompactado` (`{E5281CF4-57AC-41C9-8034-00F8428B8951}` -> `4CFC1E5E...` calculado à mão no teste; `'nao-guid'` lança), `Test-ProdutoOrfao` (4 casos: existe, ausente+origem acessível, ausente+sem origem, `localPackage` vazio).
-- [ ] **Passo 2:** rodar e ver falhar.
-- [ ] **Passo 3:** implementar as três funções (tabela em `$Script:MensagensWinget`).
-- [ ] **Passo 4:** rodar e ver passar; PSSA 0.
-- [ ] **Passo 5:** commit `feat(reparo): funções puras (mensagens do winget, GUID compactado, produto órfão)`.
+- [x] **Passo 1:** testes `Get-MensagemWinget` (código conhecido, desconhecido, negativo como int32), `ConvertTo-GuidCompactado` (`{E5281CF4-57AC-41C9-8034-00F8428B8951}` -> `4CFC1E5E...` calculado à mão no teste; `'nao-guid'` lança), `Test-ProdutoOrfao` (4 casos: existe, ausente+origem acessível, ausente+sem origem, `localPackage` vazio).
+- [x] **Passo 2:** rodar e ver falhar.
+- [x] **Passo 3:** implementar as três funções (tabela em `$Script:MensagensWinget`).
+- [x] **Passo 4:** rodar e ver passar; PSSA 0.
+- [x] **Passo 5:** commit `feat(reparo): funções puras (mensagens do winget, GUID compactado, produto órfão)`.
 
 ### Tarefa 2: `diagnosticar` (só leitura) + validação Rust
 
@@ -48,9 +48,9 @@
 
 **Interfaces — Produces:** `reparo/diagnosticar -> { produtos: [{ codigo, nome, versao, editor, localPackage, origens: [], orfao: bool, reparavel: bool, motivo }] }`, só os órfãos mais, no máximo, 200; leitura de `HKLM:\SOFTWARE\Classes\Installer\Products` (nome em `ProductName`, `PackageName` em `SourceList`, origens em `SourceList\Net`) e `...\UserData\S-1-5-18\Products\<P>\InstallProperties` (`LocalPackage`, `DisplayVersion`, `Publisher`). Em `-Teste`, `simular.produtos` substitui a leitura.
 
-- [ ] **Passo 1:** testes: lista simulada com 1 órfão reparável, 1 órfão não reparável (WebView2), 1 saudável -> só os 2 órfãos voltam, com `reparavel` certo; `acoes.rs`: `reparo/diagnosticar` aceita `{}` e `{simular}`, recusa chave estranha.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar leitura real + simulada + `Invoke-Acao`; registrar `reparo` em `MODULOS` e na allowlist do `host.ps1`.
-- [ ] **Passo 4:** ver passar (Pester local; Rust no Actions). **Passo 5:** commit.
+- [x] **Passo 1:** testes: lista simulada com 1 órfão reparável, 1 órfão não reparável (WebView2), 1 saudável -> só os 2 órfãos voltam, com `reparavel` certo; `acoes.rs`: `reparo/diagnosticar` aceita `{}` e `{simular}`, recusa chave estranha.
+- [x] **Passo 2:** ver falhar; **Passo 3:** implementar leitura real + simulada + `Invoke-Acao`; registrar `reparo` em `MODULOS` e na allowlist do `host.ps1`.
+- [x] **Passo 4:** ver passar (Pester local; Rust no Actions). **Passo 5:** commit.
 
 ### Tarefa 3: `reparar` (escrita com backup)
 
@@ -60,27 +60,36 @@
 
 Chaves de cada produto (`<P>` compactado, `<G>` com chaves): `HKLM\SOFTWARE\Classes\Installer\Products\<P>`, `...\Features\<P>`, `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products\<P>`, `...\Uninstall\<G>` e a do `WOW6432Node`. Cada uma é exportada para `.reg` pela quarentena e só então removida. **Ruling:** `UpgradeCodes` e `Components` não são tocados nesta versão (exigiriam backup de valores que a quarentena não restaura); se o teste real mostrar que falta, vira tarefa nova.
 
-- [ ] **Passo 1:** testes em modo teste (chaves sob `HKCU:\Software\NexTuneTeste\Reparo\...`): reparar remove as chaves e deixa o backup restaurável por `quarentena/restaurar`; `guid invalido e recusado`; `falha no backup nao remove`; sem `confirmado` recusa; produto que passou a não ser órfão entre listar e reparar é recusado ("já não está quebrado").
-- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar (relê o diagnóstico na hora, não confia na UI); **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes em modo teste (chaves sob `HKCU:\Software\NexTuneTeste\Reparo\...`): reparar remove as chaves e deixa o backup restaurável por `quarentena/restaurar`; `guid invalido e recusado`; `falha no backup nao remove`; sem `confirmado` recusa; produto que passou a não ser órfão entre listar e reparar é recusado ("já não está quebrado").
+- [x] **Passo 2:** ver falhar; **Passo 3:** implementar (relê o diagnóstico na hora, não confia na UI); **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 4: atualizações explicam o erro
 
 **Files:** Modify `scripts/atualizacoes.ps1` (usa `Get-MensagemWinget`), `scripts/tests/atualizacoes.Tests.ps1`, `ui/i18n/pt-BR.js`, `ui/js/vistas/atualizacoes.js`.
 
-- [ ] **Passo 1:** teste: `atualizarProgramas` com `simular` de código `0x8A150110` devolve `falhas[0].erro` com a frase de dependência e `falhas[0].codigo = '0x8A150110'`; código `0x8A15010C` sugere fechar o programa; resto genérico.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** trocar o `throw` por mensagem traduzida + campo `codigo`; a UI mostra um botão "Ver reparo" quando o código é `0x8A150110`.
-- [ ] **Passo 4:** passar; **Passo 5:** commit.
+- [x] **Passo 1:** teste: `atualizarProgramas` com `simular` de código `0x8A150110` devolve `falhas[0].erro` com a frase de dependência e `falhas[0].codigo = '0x8A150110'`; código `0x8A15010C` sugere fechar o programa; resto genérico.
+- [x] **Passo 2:** ver falhar; **Passo 3:** trocar o `throw` por mensagem traduzida + campo `codigo`; a UI mostra um botão "Ver reparo" quando o código é `0x8A150110`.
+- [x] **Passo 4:** passar; **Passo 5:** commit.
 
 ### Tarefa 5: tela Reparo, demo, README
 
 **Files:** Create `ui/js/vistas/reparo.js`; Modify `ui/index.html`, `ui/js/*` (menu, demo, api), `ui/i18n/pt-BR.js`, `README.md`.
 
-- [ ] **Passo 1:** tela com "Procurar problemas" (diagnosticar), lista com nome/versão/motivo, caixa por item, botão "Reparar selecionados" com texto: o que será removido (só o registro), que o programa em si não é apagado, e que dá para desfazer em Quarentena; usa `garantirPonto()` e `mostrarErroEscrita`.
-- [ ] **Passo 2:** modo demo com dois produtos; verificar no navegador (Playwright) a tela e o erro de i18n com `check-ui.js`.
-- [ ] **Passo 3:** README ("Reparo do instalador") e commit.
+- [x] **Passo 1:** tela com "Procurar problemas" (diagnosticar), lista com nome/versão/motivo, caixa por item, botão "Reparar selecionados" com texto: o que será removido (só o registro), que o programa em si não é apagado, e que dá para desfazer em Quarentena; usa `garantirPonto()` e `mostrarErroEscrita`.
+- [x] **Passo 2:** modo demo com dois produtos; verificar no navegador (Playwright) a tela e o erro de i18n com `check-ui.js`.
+- [x] **Passo 3:** README ("Reparo do instalador") e commit.
 
 ### Fechamento e aceitação
 
 - [ ] `tools/ci-local.ps1 -SoTestes` local; push; run verde no Actions (Rust).
 - [ ] Revisão independente (segurança do registro).
 - [ ] **Aceitação no PC do usuário:** instalar a versão nova, Reparo lista as duas peças do Visual C++ 2019 x64 (14.28.29213) sem a cópia local, reparar, depois `winget install Microsoft.VCRedist.2015+.x64` e `winget upgrade TheDocumentFoundation.LibreOffice` funcionam; restaurar pela quarentena devolve as chaves.
+
+## Decisões durante a execução (2026-11-21)
+
+- Tarefas 2 e 3 foram feitas juntas (um só ciclo do Actions para o Rust). `Get-MensagemWinget` foi para `common.ps1`, porque `atualizacoes.ps1` também a usa.
+- Diagnóstico real no PC do usuário (somente leitura) achou 26 produtos sem cópia local nem origem: as peças do Visual C++ 2005 a 2019, o LibreOffice 26.8.0.3, drivers da HP e da Intel e dois componentes do Windows Update. Por isso nada vem marcado na tela e `data/reparo.json` tem os componentes do Windows em `naoReparar`.
+- `reparar` exporta todas as chaves do produto antes de remover qualquer uma (duas fases); a falha de backup não remove nada daquele produto.
+- Lição: um `carregarQuarentena()` sem `await` deixava a interface ocupada e o recarregamento da lista de Reparo era ignorado; a ordem agora é lista primeiro, quarentena depois.
+- O README novo do Plano 6 nunca tinha sido gravado (a escrita falhou por falta de leitura prévia e o commit seguiu só com o site e a licença). Foi regravado junto com este plano.
+

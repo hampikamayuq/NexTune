@@ -335,16 +335,21 @@ function Invoke-AtualizarProgramas {
         Send-Progress $Id ([int](100 * $i / $ids.Count)) "Atualizando $idProg"
         $i++
         try {
-            if ($Teste) { Write-Marcador ('winget-' + $idProg + '.txt') 'upgrade' }
-            else {
+            $codigo = 0
+            if ($Teste) {
+                Write-Marcador ('winget-' + $idProg + '.txt') 'upgrade'
+                # simular.wingetCodigos: @{ '<id>' = <codigo de saida> } faz aquele pacote falhar com esse codigo.
+                if ($null -ne $sim -and $null -ne $sim.wingetCodigos -and $null -ne $sim.wingetCodigos.$idProg) { $codigo = [int64]$sim.wingetCodigos.$idProg }
+            } else {
                 # --include-unknown: listar tambem usou; sem ele, pacote com versao "Desconhecida" e recusado.
                 & $cmd upgrade --id $idProg --exact --silent --include-unknown --accept-package-agreements @($Script:ArgsWinget) | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw ('winget terminou com código 0x{0:X8}' -f [int]$LASTEXITCODE) }
+                $codigo = [int64]$LASTEXITCODE
             }
+            if ($codigo -ne 0) { $e = New-Object System.Exception (Get-MensagemWinget $codigo); $e.Data['codigo'] = '0x{0:X8}' -f ([int64]$codigo -band 0xFFFFFFFFL); throw $e }
             $atualizados.Add($idProg)
             Write-AppLog ("atualizacoes: winget upgrade {0} ok" -f $idProg) $Teste
         } catch {
-            $falhas.Add([ordered]@{ id = $idProg; erro = $_.Exception.Message })
+            $falhas.Add([ordered]@{ id = $idProg; erro = $_.Exception.Message; codigo = $_.Exception.Data['codigo'] })
             Send-Log $Id 'aviso' ("Falha em ${idProg}: " + $_.Exception.Message)
             Write-AppLog ("atualizacoes: winget upgrade {0} falhou: {1}" -f $idProg, $_.Exception.Message) $Teste
         }

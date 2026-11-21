@@ -219,6 +219,19 @@ Describe 'atualizacoes.ps1' {
             @($r.dados.falhas).Count | Should -Be 0
             Test-Marcador 'winget-Google.Chrome.txt' | Should -BeTrue
         }
+        It 'codigo de saida do winget vira frase em portugues e campo codigo; os outros seguem' {
+            $sim = Get-SimPadrao
+            $sim.wingetCodigos = @{ 'TheDocumentFoundation.LibreOffice' = [int]-1978334960; 'UltraVNC.UltraVNC' = [int64]0x8A15010C }
+            $r = Invoke-Atu 'atualizarProgramas' @{ ids = @('TheDocumentFoundation.LibreOffice', 'UltraVNC.UltraVNC', 'VideoLAN.VLC'); confirmado = $true; simular = $sim }
+            $r.ok | Should -BeTrue
+            @($r.dados.atualizados) | Should -Be @('VideoLAN.VLC')
+            $lo = @($r.dados.falhas | Where-Object { $_.id -like '*LibreOffice' })[0]
+            $lo.codigo | Should -Be '0x8A150110'
+            $lo.erro | Should -Match 'dependência'
+            $vnc = @($r.dados.falhas | Where-Object { $_.id -like '*VNC' })[0]
+            $vnc.codigo | Should -Be '0x8A15010C'
+            $vnc.erro | Should -Match 'fech'
+        }
         It 'Review Focus 6: winget ausente recusa a chamada inteira' {
             $sim = Get-SimPadrao
             $sim.wingetAusente = $true
