@@ -682,8 +682,38 @@ mod testes {
                     "falta {chave} em pt-BR.js"
                 );
             }
-            let chaves = e["chaves"].as_array().expect("chaves é lista");
-            assert!(!chaves.is_empty(), "{id} sem chaves");
+            // chaves, servicos e tarefas são opcionais, mas todo ajuste precisa de pelo menos uma.
+            fn lista<'a>(e: &'a Value, campo: &str) -> &'a [Value] {
+                assert!(e[campo].is_null() || e[campo].is_array(), "{campo} não é lista em {e}");
+                e[campo].as_array().map_or(&[][..], Vec::as_slice)
+            }
+            let chaves = lista(e, "chaves");
+            let servicos = lista(e, "servicos");
+            let tarefas = lista(e, "tarefas");
+            assert!(
+                !(chaves.is_empty() && servicos.is_empty() && tarefas.is_empty()),
+                "{id} sem chaves, serviços nem tarefas"
+            );
+            for s in servicos {
+                assert!(
+                    s["nome"].as_str().is_some_and(|n| !n.is_empty()),
+                    "{id}: serviço sem nome"
+                );
+                assert!(
+                    matches!(s["inicio"].as_str(), Some("Automatic" | "Manual" | "Disabled")),
+                    "{id}: início de serviço inválido"
+                );
+            }
+            for k in tarefas {
+                assert!(
+                    k["nome"].as_str().is_some_and(|n| !n.is_empty()),
+                    "{id}: tarefa sem nome"
+                );
+                assert!(
+                    k["caminho"].as_str().is_some_and(|c| c.starts_with(r"\Microsoft\Windows\")),
+                    "{id}: caminho de tarefa fora de \\Microsoft\\Windows\\"
+                );
+            }
             for c in chaves {
                 let chave = c["chave"].as_str().expect("chave é texto");
                 let baixa = chave.to_lowercase();
