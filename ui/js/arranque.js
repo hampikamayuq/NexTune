@@ -16,6 +16,8 @@ async function carregarBase() {
   }
   S.base = 'pronto';
   try { await analisarLimpeza(); } catch (e) { mostrarErro(e); }
+  try { await carregarInicializacao(); } catch (e) { mostrarErro(e); }
+  try { await carregarDisco(); } catch (e) { mostrarErro(e); }
   renderAtual();
   await carregarSessaoEQuarentena();
   // A vista aberta durante o arranque pode ter pulado a carga automática (S.ocupado): re-renderiza.
@@ -84,6 +86,15 @@ async function arranque() {
   document.getElementById('btn-cancelar').addEventListener('click', () => api.cancelar().catch(mostrarErro));
 
   await api.iniciar();
+  // Vigia do Modo Jogo automático: atualiza a vista e avisa o que aconteceu.
+  if (TAURI) {
+    await TAURI.event.listen('modojogo', (e) => {
+      const p = e.payload || {};
+      if (VISTAS.modojogo) carregarModoJogo();
+      if (p.erro) toast(t('modojogo.eventoErro', { erro: p.erro }), 'erro');
+      else toast(p.ativo ? t('modojogo.eventoLigado', { jogo: p.jogo || '' }) : t('modojogo.eventoDesligado'), 'ok');
+    });
+  }
   S.info = await api.info();
   S.ajustes = await api.ajustes.ler();
   S.perfis = await api.dados('perfis');

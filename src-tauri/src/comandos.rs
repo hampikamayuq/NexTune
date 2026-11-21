@@ -4,7 +4,8 @@
 //! (`versao, demo, esAdmin, perfil, modoLeve, equipo, sessaoOk`). O progresso chega no evento
 //! `progresso` com `{id, modulo, tipo:"progresso"|"log", ...}`.
 //!
-//! Comandos: `executar(modulo, acao, params)`, `cancelar()`, `ajustes_ler()`, `ajustes_gravar(a)`,
+//! Comandos: `executar(modulo, acao, params)`, `cancelar()`, `ajustes_ler()`, `ajustes_gravar(a)`
+//! (cria/remove a bandeja quando `bandeja_ativa` muda),
 //! `dados(nome)`, `info()` e `ponto_sessao() -> bool` (se `sistema/criarPonto` já devolveu
 //! `criado:true` neste processo).
 //!
@@ -18,6 +19,7 @@
 
 use crate::acoes;
 use crate::ajustes::{self, Ajustes};
+use crate::bandeja;
 use crate::caminhos::Pastas;
 use crate::host::{Evento, HostPowerShell};
 use crate::perfil::{self, Perfil};
@@ -27,10 +29,17 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as MutexSync};
-use tauri::{Emitter, State, Window};
+use tauri::{AppHandle, Emitter, State, Window};
 use tokio::sync::Mutex;
 
-const DADOS_PERMITIDOS: &[&str] = &["perfis", "bloatware", "protegidos"];
+const DADOS_PERMITIDOS: &[&str] = &[
+    "perfis",
+    "bloatware",
+    "protegidos",
+    "inicio",
+    "ajustes",
+    "modojogo",
+];
 
 pub struct Estado {
     pub pastas: Pastas,
@@ -223,6 +232,23 @@ pub async fn executar(
     r
 }
 
+/// Executa uma ação sem janela (vigia do Modo Jogo): mesma validação e mesmo bloqueio por sessão
+/// de `executar`, sem eventos de progresso.
+pub(crate) async fn executar_interno(
+    estado: &Estado,
+    modulo: &str,
+    acao: &str,
+    params: Value,
+) -> Result<Value, String> {
+    let host = estado.host.lock().await.clone();
+    if acoes::e_escrita(modulo, acao) {
+        verificar_sessao(estado, &host).await?;
+    }
+    host.executar(modulo, acao, params, false, |_| {})
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// `true` se um ponto de restauração já foi criado neste processo (`sistema/criarPonto` com
 /// `criado:true`); a UI usa para não criar outro antes de cada ação de escrita.
 #[tauri::command]
@@ -244,11 +270,25 @@ pub fn ajustes_ler(estado: State<'_, Estado>) -> Ajustes {
 }
 
 #[tauri::command]
-pub async fn ajustes_gravar(a: Ajustes, estado: State<'_, Estado>) -> Result<Ajustes, String> {
+pub async fn ajustes_gravar(
+    a: Ajustes,
+    app: AppHandle,
+    estado: State<'_, Estado>,
+) -> Result<Ajustes, String> {
     a.validar()?;
     let perfil = perfil::ler(&estado.pastas);
-    let antes = perfil::modo_leve(&perfil, &ajustes::ler(&estado.pastas));
+    let anteriores = ajustes::ler(&estado.pastas);
+    let antes = perfil::modo_leve(&perfil, &anteriores);
     ajustes::gravar(&estado.pastas, &a).map_err(|e| format!("não foi possível gravar: {e}"))?;
+    match (anteriores.bandeja_ativa(), a.bandeja_ativa()) {
+        (false, true) => {
+            if let Err(e) = bandeja::criar_bandeja(&app) {
+                eprintln!("bandeja: não foi possível criar: {e}");
+            }
+        }
+        (true, false) => bandeja::remover_bandeja(&app),
+        _ => {}
+    }
     let depois = perfil::modo_leve(&perfil, &a);
     if antes != depois {
         let novo = Arc::new(criar_host(&estado.pastas, depois));
@@ -409,6 +449,48 @@ mod testes {
         }
     }
 
+    /// `data/modojogo.json` tem plano de desempenho (GUID), protegidos com regex válida e
+    /// motivo, e as listas de serviços de cada preset (o PowerShell lê o mesmo arquivo).
+    #[test]
+    fn modojogo_ok() {
+        let data = crate::caminhos::pastas_dev().data;
+        let m = ler_dados(&data, "modojogo").unwrap();
+        let re_guid = regex::Regex::new(
+            r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        )
+        .unwrap();
+        let plano = m["planoDesempenho"]
+            .as_str()
+            .expect("planoDesempenho é texto");
+        assert!(re_guid.is_match(plano), "planoDesempenho inválido: {plano}");
+
+        let protegidos = m["protegidos"].as_array().expect("protegidos é lista");
+        assert!(!protegidos.is_empty());
+        for e in protegidos {
+            let p = e["padrao"].as_str().expect("padrao é texto");
+            regex::RegexBuilder::new(p)
+                .case_insensitive(true)
+                .build()
+                .unwrap_or_else(|err| panic!("padrão inválido {p:?}: {err}"));
+            assert!(
+                e["motivo"].as_str().is_some_and(|t| !t.trim().is_empty()),
+                "motivo ausente em {e}"
+            );
+        }
+
+        let re_servico = regex::Regex::new(r"^[A-Za-z]+$").unwrap();
+        for preset in ["equilibrado", "a_fundo"] {
+            let lista = m["servicos"][preset]
+                .as_array()
+                .unwrap_or_else(|| panic!("servicos.{preset} é lista"));
+            assert!(!lista.is_empty(), "servicos.{preset} vazia");
+            for s in lista {
+                let nome = s.as_str().expect("serviço é texto");
+                assert!(re_servico.is_match(nome), "nome de serviço inválido: {nome}");
+            }
+        }
+    }
+
     #[test]
     fn decidir_sessao_bloqueia_so_quando_diferente() {
         assert_eq!(decidir_sessao(Some(false)), Err("sessao_diferente".to_string()));
@@ -521,5 +603,112 @@ mod testes {
             },
         };
         assert_eq!(evento_json("limpeza", l).unwrap()["tipoLog"], "ok");
+    }
+
+    /// Textos da interface (`ui/i18n/pt-BR.js`): o corpo entre o primeiro `{` e o último `}` é JSON.
+    fn textos_pt_br() -> serde_json::Map<String, Value> {
+        let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        let js = std::fs::read_to_string(raiz.join("ui/i18n/pt-BR.js")).expect("pt-BR.js");
+        // A primeira linha é `window.I18N = window.I18N || {};`: o dicionário vem depois do marcador.
+        let marcador = "['pt-BR'] = ";
+        let ini = js.find(marcador).expect("marcador do dicionário") + marcador.len();
+        let fim = js.rfind('}').expect("fecha }");
+        serde_json::from_str::<Value>(&js[ini..=fim])
+            .expect("corpo de pt-BR.js é JSON")
+            .as_object()
+            .expect("objeto")
+            .clone()
+    }
+
+    /// Lê `data/inicio.json` e `data/ajustes.json` reais e confere a forma dos dois (Plano 3, Task 1),
+    /// incluindo Review Focus 5: chave de Política ⇔ `politica:true`, e `politica` ⇒ `avancado`.
+    #[test]
+    fn inicio_e_ajustes_ok() {
+        let data = crate::caminhos::pastas_dev().data;
+        let compila = |p: &Value| {
+            let p = p.as_str().expect("padrao é texto");
+            regex::RegexBuilder::new(p)
+                .case_insensitive(true)
+                .build()
+                .unwrap_or_else(|e| panic!("padrão inválido {p:?}: {e}"));
+        };
+        let regra_ok = |e: &Value| {
+            compila(&e["padrao"]);
+            assert!(
+                matches!(e["cor"].as_str(), Some("verde" | "amarelo" | "vermelho")),
+                "cor inválida: {e}"
+            );
+            assert!(
+                e["motivo"].as_str().is_some_and(|m| !m.trim().is_empty()),
+                "motivo ausente em {e}"
+            );
+        };
+
+        let i = ler_dados(&data, "inicio").unwrap();
+        let itens = i["itens"].as_array().expect("inicio.itens é lista");
+        let tarefas = i["tarefas"].as_array().expect("inicio.tarefas é lista");
+        assert!(!itens.is_empty());
+        itens.iter().chain(tarefas.iter()).for_each(regra_ok);
+
+        let a = ler_dados(&data, "ajustes").unwrap();
+        let ajustes = a["ajustes"].as_array().expect("ajustes é lista");
+        assert!(!ajustes.is_empty());
+        let re_id = regex::Regex::new(r"^[a-z0-9_]{1,40}$").unwrap();
+        let textos = textos_pt_br();
+        let mut ids = std::collections::HashSet::new();
+        for e in ajustes {
+            let id = e["id"].as_str().expect("id é texto");
+            assert!(re_id.is_match(id), "id inválido: {id}");
+            assert!(ids.insert(id.to_string()), "id repetido: {id}");
+            assert!(
+                matches!(
+                    e["grupo"].as_str(),
+                    Some("anuncios" | "privacidade" | "copilot" | "explorador" | "desempenho")
+                ),
+                "grupo inválido em {id}"
+            );
+            assert!(
+                matches!(e["recomendadoPara"].as_str(), Some("todos" | "fraco" | "nenhum")),
+                "recomendadoPara inválido em {id}"
+            );
+            let politica = e["politica"].as_bool().expect("politica é booleano");
+            let avancado = e["avancado"].as_bool().expect("avancado é booleano");
+            assert!(e["soWin11"].is_boolean() && e["reiniciarExplorer"].is_boolean(), "{id}");
+            assert!(!politica || avancado, "{id}: politica exige avancado");
+            for k in ["nome", "desc"] {
+                let chave = format!("ajuste.{id}.{k}");
+                assert!(
+                    textos.get(&chave).and_then(Value::as_str).is_some_and(|t| !t.is_empty()),
+                    "falta {chave} em pt-BR.js"
+                );
+            }
+            let chaves = e["chaves"].as_array().expect("chaves é lista");
+            assert!(!chaves.is_empty(), "{id} sem chaves");
+            for c in chaves {
+                let chave = c["chave"].as_str().expect("chave é texto");
+                let baixa = chave.to_lowercase();
+                assert!(
+                    baixa.starts_with(r"hkcu\") || baixa.starts_with(r"hklm\"),
+                    "{id}: chave fora de HKCU/HKLM: {chave}"
+                );
+                // A tela de Configurações grava AllowTelemetry em CurrentVersion\Policies\DataCollection:
+                // não é chave de Política de Grupo.
+                let de_politica = baixa.contains(r"\policies\")
+                    && !baixa.contains(r"currentversion\policies\datacollection");
+                assert_eq!(de_politica, politica, "{id}: politica não bate com a chave {chave}");
+                for proibido in ["windows defender", "windowsupdate", "edge"] {
+                    assert!(!baixa.contains(proibido), "{id}: anti-objetivo em {chave}");
+                }
+                assert!(
+                    c["nome"].as_str().is_some_and(|n| !n.is_empty()),
+                    "{id}: nome vazio"
+                );
+                match c["tipo"].as_str() {
+                    Some("DWord") => assert!(c["aplicar"].is_i64(), "{id}: DWord pede inteiro"),
+                    Some("String") => assert!(c["aplicar"].is_string(), "{id}: String pede texto"),
+                    outro => panic!("{id}: tipo inválido {outro:?}"),
+                }
+            }
+        }
     }
 }

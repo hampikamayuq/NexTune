@@ -12,7 +12,7 @@ $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { $null = $_ }
 . "$PSScriptRoot\common.ps1"
 
-$Allowlist = @('diagnostico', 'limpeza', 'quarentena', 'sistema', 'programas') + @($AllowlistExtra)
+$Allowlist = @('diagnostico', 'limpeza', 'quarentena', 'sistema', 'programas', 'inicializacao', 'ajusteswin', 'disco', 'atualizacoes', 'modojogo') + @($AllowlistExtra)
 $Fila = New-Object 'System.Collections.Concurrent.ConcurrentQueue[string]'
 $Ativos = New-Object System.Collections.ArrayList
 # Ids que ja receberam seu @@RESULT final (garante resultado unico por acao).

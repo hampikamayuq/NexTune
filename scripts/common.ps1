@@ -161,6 +161,13 @@ function Get-Simulacao {
     return $Params.simular
 }
 
+function Get-IdsParam {
+    # 'ids' dos params como lista de textos nao vazios (vazia se ausente).
+    param($Params)
+    if ($null -eq $Params -or $null -eq $Params.ids) { return @() }
+    return @(@($Params.ids) | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
 function Test-Reparse {
     param($Item)
     return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
@@ -287,4 +294,102 @@ function Set-Perfil {
     $o = [ordered]@{ classe = $Perfil.classe; disco = $Perfil.disco; manual = $Perfil.manual }
     $json = $o | ConvertTo-Json -Compress
     [IO.File]::WriteAllText($arq, $json, (New-Object System.Text.UTF8Encoding $false))
+}
+
+# ---------- dados, atalhos e registro (compartilhados por programas, inicializacao e ajusteswin) ----------
+
+function Get-PastaDeDados {
+    # Pasta 'data' ao lado de 'scripts' (repositorio e bundle).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
+    param()
+    return (Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($PSScriptRoot))) 'data')
+}
+
+function Read-ArquivoJson {
+    # Le um JSON em UTF-8 (com ou sem BOM). Lanca se o arquivo nao existir ou nao for JSON.
+    param([string]$Caminho)
+    if (-not (Test-Path -LiteralPath $Caminho -PathType Leaf)) { throw "arquivo de dados não encontrado: $Caminho" }
+    $texto = [IO.File]::ReadAllText($Caminho, [Text.Encoding]::UTF8)
+    return ($texto.TrimStart([char]0xFEFF) | ConvertFrom-Json -ErrorAction Stop)
+}
+
+function New-RegexLista {
+    # Regex sem diferenciar caixa; $null se o padrao nao compilar (a entrada e ignorada).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param($Padrao)
+    if ([string]::IsNullOrWhiteSpace([string]$Padrao)) { return $null }
+    try { return (New-Object System.Text.RegularExpressions.Regex -ArgumentList ([string]$Padrao), ([Text.RegularExpressions.RegexOptions]::IgnoreCase)) }
+    catch { return $null }
+}
+
+$Script:WsShell = $null
+function Get-AlvoAtalho {
+    # TargetPath de um .lnk via WScript.Shell; $null se nao der para ler.
+    param([string]$Caminho)
+    try {
+        if ($null -eq $Script:WsShell) { $Script:WsShell = New-Object -ComObject WScript.Shell }
+        return [string]$Script:WsShell.CreateShortcut($Caminho).TargetPath
+    } catch { return $null }
+}
+
+$Script:RaizRegistro = @{
+    HKCU                = 'HKEY_CURRENT_USER'
+    HKEY_CURRENT_USER   = 'HKEY_CURRENT_USER'
+    HKLM                = 'HKEY_LOCAL_MACHINE'
+    HKEY_LOCAL_MACHINE  = 'HKEY_LOCAL_MACHINE'
+    HKU                 = 'HKEY_USERS'
+    HKEY_USERS          = 'HKEY_USERS'
+    HKCR                = 'HKEY_CLASSES_ROOT'
+    HKEY_CLASSES_ROOT   = 'HKEY_CLASSES_ROOT'
+    HKCC                = 'HKEY_CURRENT_CONFIG'
+    HKEY_CURRENT_CONFIG = 'HKEY_CURRENT_CONFIG'
+}
+
+function Test-ChaveRegistro {
+    # Puro: o texto tem a forma de chave aceita pelo reg.exe (HKCU\..., HKEY_LOCAL_MACHINE\...)?
+    param([string]$Chave)
+    if ([string]::IsNullOrWhiteSpace($Chave)) { return $false }
+    if ($Chave -match '[\r\n"]') { return $false }
+    if ($Chave -notmatch '^[A-Za-z_]+\\[^\\]') { return $false }
+    $raiz = @($Chave -split '\\', 2)[0]
+    return $Script:RaizRegistro.ContainsKey($raiz)
+}
+
+function ConvertTo-CaminhoRegistro {
+    # 'HKCU\Software\X' (forma do reg.exe) -> 'Registry::HKEY_CURRENT_USER\Software\X' (forma do provedor).
+    param([string]$Chave)
+    if (-not (Test-ChaveRegistro $Chave)) { throw "chave de registro inválida: $Chave" }
+    $partes = @($Chave.TrimEnd('\') -split '\\', 2)
+    return ('Registry::' + $Script:RaizRegistro[$partes[0]] + '\' + $partes[1])
+}
+
+# ---------- disco e arquivos JSON (compartilhados por diagnostico, disco e ajusteswin) ----------
+
+function Get-TipoDisco {
+    # Puro: MediaType/BusType do disco fisico -> 'HDD' | 'SSD' | 'NVMe'. Ilegivel conta como HDD.
+    param([string]$Media, [string]$Bus)
+    if ($Bus -eq 'NVMe') { return 'NVMe' }
+    if ($Media -eq 'SSD' -or $Media -eq 'SCM') { return 'SSD' }
+    return 'HDD'
+}
+
+function Get-InicioRapido {
+    # Inicializacao Rapida (HiberbootEnabled = 1); erro de leitura conta como desligada.
+    try {
+        $hb = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -ErrorAction Stop).HiberbootEnabled
+        return ($hb -eq 1)
+    } catch { return $false }
+}
+
+function Write-JsonAtomico {
+    # Grava JSON em UTF-8 sem BOM via .tmp + Move-Item -Force (quem le nunca ve arquivo pela metade).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param([string]$Caminho, $Objeto, [int]$Profundidade = 6)
+    $json = $Objeto | ConvertTo-Json -Depth $Profundidade
+    $tmp = $Caminho + '.tmp'
+    [IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding $false))
+    Move-Item -LiteralPath $tmp -Destination $Caminho -Force -ErrorAction Stop
 }

@@ -96,7 +96,7 @@ fn resolver(p: &str) -> String {
     partes.join("\\")
 }
 
-fn env_ou(nome: &str, padrao: &str) -> PathBuf {
+pub(crate) fn env_ou(nome: &str, padrao: &str) -> PathBuf {
     match std::env::var_os(nome) {
         Some(v) if !v.is_empty() => PathBuf::from(v),
         _ => PathBuf::from(padrao),

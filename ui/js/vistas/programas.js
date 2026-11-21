@@ -74,6 +74,15 @@ function programasDesfazer(p) {
   return t('programas.desfazerGenerico');
 }
 
+async function abrirLinkStore(url) {
+  try {
+    await api.abrirUrl(url);
+    if (S.info.demo) toast(t('programas.linkDemo'), 'aviso');
+  } catch (e) {
+    mostrarErro(e);
+  }
+}
+
 async function desinstalarPrograma(p) {
   if (S.ocupado || p.protegido) return;
 
@@ -81,7 +90,9 @@ async function desinstalarPrograma(p) {
   const corpo = [h('p', { text: t('programas.confirmarTexto', { nome: p.nome, editor, tamanho: fmtBytes(p.tamanhoBytes), z: programasDesfazer(p) }) })];
   if (p.tipo === 'store' && p.productId) {
     corpo.push(h('label', { class: 'rotulo-link', for: 'pr-link', text: t('programas.linkStore') }),
-      h('input', { type: 'text', id: 'pr-link', class: 'link-store', readonly: true, value: linkStore(p), onfocus: (e) => e.target.select() }));
+      h('div', { class: 'linha-link' },
+        h('input', { type: 'text', id: 'pr-link', class: 'link-store', readonly: true, value: linkStore(p), onfocus: (e) => e.target.select() }),
+        h('button', { type: 'button', class: 'btn sec acao', text: t('programas.abrirLink'), onclick: () => abrirLinkStore(linkStore(p)) })));
   }
   let chkDesprov = null;
   if (p.tipo === 'store' && S.ajustes.modoAvancado) {

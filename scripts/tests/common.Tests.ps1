@@ -209,3 +209,41 @@ Context 'Seguranca da pasta de dados' {
     }
 }
 }
+
+Describe 'helpers compartilhados (dados, atalho, registro)' {
+    BeforeAll {
+        . "$PSScriptRoot\..\common.ps1"
+        . "$PSScriptRoot\_helpers.ps1"
+    }
+    It 'Get-PastaDeDados aponta para a pasta data ao lado de scripts' {
+        $d = Get-PastaDeDados
+        $d | Should -Be ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\data')).TrimEnd('\'))
+        Test-Path -LiteralPath (Join-Path $d 'perfis.json') | Should -BeTrue
+    }
+    It 'Read-ArquivoJson le JSON com BOM e lanca se o arquivo faltar' {
+        $p = Join-Path (New-PastaTeste 'json') 'a.json'
+        [IO.File]::WriteAllText($p, '{"x":1}', (New-Object System.Text.UTF8Encoding $true))
+        (Read-ArquivoJson $p).x | Should -Be 1
+        { Read-ArquivoJson (Join-Path $env:TEMP 'NexTuneTeste\nao-existe.json') } | Should -Throw
+    }
+    It 'New-RegexLista ignora caixa e devolve null para padrao vazio ou invalido' {
+        (New-RegexLista 'spot').IsMatch('SPOTIFY') | Should -BeTrue
+        New-RegexLista '(' | Should -BeNullOrEmpty
+        New-RegexLista '' | Should -BeNullOrEmpty
+    }
+    It 'Get-AlvoAtalho le o destino de um .lnk' {
+        $pasta = New-PastaTeste 'lnk'
+        $lnk = Join-Path $pasta 'Bloco.lnk'
+        $sh = New-Object -ComObject WScript.Shell
+        $s = $sh.CreateShortcut($lnk)
+        $s.TargetPath = "$env:windir\System32\notepad.exe"
+        $s.Save()
+        Get-AlvoAtalho $lnk | Should -Be "$env:windir\System32\notepad.exe"
+        Get-AlvoAtalho (Join-Path $pasta 'nao-existe.lnk') | Should -BeNullOrEmpty
+    }
+    It 'ConvertTo-CaminhoRegistro e Test-ChaveRegistro vem de common.ps1' {
+        ConvertTo-CaminhoRegistro 'HKCU\Software\X' | Should -Be 'Registry::HKEY_CURRENT_USER\Software\X'
+        Test-ChaveRegistro 'C:\x' | Should -BeFalse
+        Test-ChaveRegistro 'HKLM\SOFTWARE\Y' | Should -BeTrue
+    }
+}

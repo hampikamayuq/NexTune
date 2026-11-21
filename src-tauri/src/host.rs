@@ -18,7 +18,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{Mutex, oneshot};
 
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const ESPERA_CANCELAR: Duration = Duration::from_secs(5);
 /// Depois de um cancelamento confirmado, quanto esperar o host ficar ocioso (os `finally` das
 /// ações religam serviços e restauram o registro) antes de matar o processo.
@@ -26,20 +26,31 @@ const ESPERA_OCIOSO: Duration = Duration::from_secs(10);
 /// O host espera até 10 s pelos `finally` antes de sair; damos uma folga antes de matar.
 const ESPERA_SAIR: Duration = Duration::from_secs(12);
 
-/// `powershell.exe` por caminho absoluto em System32 (nunca pela busca do PATH).
+/// Pasta System32 (`GetSystemDirectoryW`; `%SystemRoot%\System32` se falhar). Binários do sistema
+/// vão sempre por caminho absoluto, nunca pela busca do PATH (o app roda elevado).
 #[cfg(windows)]
-fn caminho_powershell() -> PathBuf {
+pub(crate) fn pasta_system32() -> PathBuf {
     use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
     let mut buf = [0u16; 260];
     // SAFETY: `buf` é válido e o tamanho passado é o do buffer.
     let n = unsafe { GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
-    let sistema = if n > 0 && n < buf.len() {
+    if n > 0 && n < buf.len() {
         PathBuf::from(String::from_utf16_lossy(&buf[..n]))
     } else {
-        let raiz = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-        PathBuf::from(raiz).join("System32")
-    };
-    sistema
+        crate::caminhos::env_ou("SystemRoot", r"C:\Windows").join("System32")
+    }
+}
+
+/// Fora do Windows (só testes/compilação): nome puro.
+#[cfg(not(windows))]
+pub(crate) fn pasta_system32() -> PathBuf {
+    PathBuf::new()
+}
+
+/// `powershell.exe` por caminho absoluto em System32 (nunca pela busca do PATH).
+#[cfg(windows)]
+fn caminho_powershell() -> PathBuf {
+    pasta_system32()
         .join("WindowsPowerShell")
         .join("v1.0")
         .join("powershell.exe")
