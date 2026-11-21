@@ -16,6 +16,7 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore: ['docs/**', '*.md', 'LICENSE']
   workflow_dispatch:
 
 permissions:
@@ -124,8 +125,11 @@ jobs:
             echo '::error::Cargo.lock com fonte fora do crates.io'; exit 1
           fi
           cp lock/Cargo.lock src-tauri/Cargo.lock
+          git fetch -q origin main
           if git diff --quiet -- src-tauri/Cargo.lock; then
             echo 'Cargo.lock já está atualizado'
+          elif [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main avançou desde $GITHUB_SHA; o run do commit novo commita o Cargo.lock"
           else
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
