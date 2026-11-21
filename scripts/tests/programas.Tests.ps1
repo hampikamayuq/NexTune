@@ -452,7 +452,7 @@ Describe 'programas.ps1' {
             $restos = @($r.dados.restos)
             $restos.Count | Should -Be 1
             $restos[0].tipo | Should -Be 'pasta'
-            $restos[0].caminho | Should -Be (Join-Path $Script:Apps 'ProgTeste')
+            Get-CaminhoLongo $restos[0].caminho | Should -Be (Get-CaminhoLongo (Join-Path $Script:Apps 'ProgTeste'))
             $restos[0].tamanhoBytes | Should -Be 40
             $restos[0].confianca | Should -Be 'media'
             $restos[0].motivo | Should -Not -BeNullOrEmpty
@@ -534,7 +534,7 @@ Describe 'programas.ps1' {
             $c = @($r.dados.candidatos)
             $c.Count | Should -Be 1
             $c[0].tipo | Should -Be 'pasta'
-            $c[0].caminho | Should -Be $local
+            Get-CaminhoLongo $c[0].caminho | Should -Be (Get-CaminhoLongo $local)
             $c[0].tamanhoBytes | Should -Be 300
             $c[0].confianca | Should -Be 'media'
             New-ArquivoTeste (Join-Path $local 'sub\x.dll') 5
@@ -576,7 +576,7 @@ Describe 'programas.ps1' {
             $c = @($r.dados.candidatos)
             $c.Count | Should -Be 1
             $c[0].tipo | Should -Be 'pasta'
-            $c[0].caminho | Should -Be (Join-Path $Script:Restos 'LocalAppData\Editor Teste\Programa Qualquer')
+            Get-CaminhoLongo $c[0].caminho | Should -Be (Get-CaminhoLongo (Join-Path $Script:Restos 'LocalAppData\Editor Teste\Programa Qualquer'))
             $c[0].tamanhoBytes | Should -Be 70
             # a pasta recente passa a valer quando envelhece
             $rec = Join-Path $Script:Restos 'AppData\Programa Qualquer'
@@ -584,7 +584,7 @@ Describe 'programas.ps1' {
             (Get-Item -LiteralPath (Join-Path $rec 'recente.txt')).LastWriteTime = $data
             (Get-Item -LiteralPath $rec).LastWriteTime = $data
             $c = @((Invoke-P 'restos' @{ id = 'cl:hkcu:Qualquer'; nome = 'Programa Qualquer'; editor = 'Editor Teste' }).dados.candidatos)
-            @($c | ForEach-Object { $_.caminho }) | Should -Contain $rec
+            @($c | ForEach-Object { Get-CaminhoLongo $_.caminho }) | Should -Contain (Get-CaminhoLongo $rec)
             $c.Count | Should -Be 2
         }
         It 'atalho quebrado com o nome do programa e candidato; alheio ou inteiro nao' {
@@ -597,7 +597,7 @@ Describe 'programas.ps1' {
             $c = @($r.dados.candidatos)
             $c.Count | Should -Be 2
             foreach ($x in $c) { $x.tipo | Should -Be 'atalho' }
-            @($c | ForEach-Object { $_.caminho } | Sort-Object) | Should -Be @((Join-Path $Script:Restos 'Desktop\Atalho qualquer.lnk'), (Join-Path $Script:Restos 'Menu\Programa Qualquer\Programa Qualquer.lnk'))
+            @($c | ForEach-Object { Get-CaminhoLongo $_.caminho } | Sort-Object) | Should -Be @((Get-CaminhoLongo (Join-Path $Script:Restos 'Desktop\Atalho qualquer.lnk')), (Get-CaminhoLongo (Join-Path $Script:Restos 'Menu\Programa Qualquer\Programa Qualquer.lnk')))
             $c[0].tamanhoBytes | Should -BeGreaterThan 0
             # nome com menos de 3 caracteres casaria com qualquer atalho: nenhum e oferecido
             New-AtalhoTeste (Join-Path $Script:Restos 'Menu\Xyz.lnk') 'C:\nao-existe-nextune\q.exe'

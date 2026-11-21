@@ -44,7 +44,14 @@ if ($testes.Count -eq 0) {
 } else {
     Import-Module Pester -MinimumVersion 5.5
     $resultado = Invoke-Pester -Path scripts/tests -CI -PassThru
-    if ($resultado.FailedCount -gt 0) { Stop-ComFalha 'Pester com testes falhando' }
+    if ($resultado.FailedCount -gt 0) {
+        # Anotações do GitHub Actions com a mensagem de cada falha (o log completo exige login; as anotações não).
+        foreach ($t in @($resultado.Failed)) {
+            $msg = (@($t.ErrorRecord | ForEach-Object { [string]$_.Exception.Message }) -join ' | ') -replace "`r?`n", '%0A'
+            Write-Host ("::error title=Pester::{0}%0A{1}" -f $t.ExpandedPath, $msg)
+        }
+        Stop-ComFalha 'Pester com testes falhando'
+    }
 }
 
 # 2b. Interface: sem interpolação em innerHTML sem esc(), e sem texto visível fora do i18n

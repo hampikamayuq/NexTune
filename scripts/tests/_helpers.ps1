@@ -9,6 +9,18 @@ function New-PastaTeste {
     return $p
 }
 
+# Forma longa de um caminho existente (expande nomes curtos 8.3, como RUNNER~1 no %TEMP% do GitHub Actions),
+# para comparar caminhos sem depender da forma em que o sistema os devolve. Inexistente volta como veio.
+function Get-CaminhoLongo {
+    param([string]$Caminho)
+    try {
+        $fso = New-Object -ComObject Scripting.FileSystemObject
+        if (Test-Path -LiteralPath $Caminho -PathType Container) { return [string]$fso.GetFolder($Caminho).Path }
+        if (Test-Path -LiteralPath $Caminho -PathType Leaf) { return [string]$fso.GetFile($Caminho).Path }
+    } catch { $null = $_ }
+    return $Caminho
+}
+
 # Junction criada/removida pelo cmd: Remove-Item -Recurse do PS 5.1 entraria no alvo.
 function New-Juncao {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
