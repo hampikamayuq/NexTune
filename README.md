@@ -4,7 +4,7 @@ Aplicativo de desktop para Windows que diagnostica o computador e faz limpeza e 
 
 Especificação: [docs/superpowers/specs/2026-11-20-otimizador-design.md](docs/superpowers/specs/2026-11-20-otimizador-design.md)
 
-Planos de implementação: [Plano 1 (fundação, diagnóstico, limpeza)](docs/superpowers/plans/2026-11-20-fundacao-diagnostico-limpeza.md) · [Plano 2 (programas, quarentena, ponto de restauração)](docs/superpowers/plans/2026-11-20-programas-quarentena.md) · [Plano 3 (inicialização, ajustes do Windows)](docs/superpowers/plans/2026-11-20-inicializacao-ajustes-windows.md) · [Plano 4 (disco, atualizações)](docs/superpowers/plans/2026-11-20-disco-atualizacoes.md)
+Planos de implementação: [Plano 1 (fundação, diagnóstico, limpeza)](docs/superpowers/plans/2026-11-20-fundacao-diagnostico-limpeza.md) · [Plano 2 (programas, quarentena, ponto de restauração)](docs/superpowers/plans/2026-11-20-programas-quarentena.md) · [Plano 3 (inicialização, ajustes do Windows)](docs/superpowers/plans/2026-11-20-inicializacao-ajustes-windows.md) · [Plano 4 (disco, atualizações)](docs/superpowers/plans/2026-11-20-disco-atualizacoes.md) · [Plano 5 (modo jogo, bandeja, lembretes, atualizador)](docs/superpowers/plans/2026-11-21-modo-jogo-bandeja-lembretes.md)
 
 Status: em desenvolvimento. Ainda não há versão utilizável.
 
@@ -20,12 +20,17 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 - Ajustes do Windows: cinco grupos de ajustes com backup antes da escrita e restauração exata do valor anterior; os recomendados para perfil fraco vêm marcados, e os de Política levam selo de aviso.
 - Disco: estado das unidades fixas, verificação online só de leitura, correção agendada para o próximo reinício (com a orientação "Reiniciar, não Desligar" quando a Inicialização Rápida está ligada) e otimizar que desfragmenta HDD ou faz TRIM em SSD, nunca o contrário e só depois de uma verificação sem erros.
 - Atualizações: Windows Update (sem atualizações de versão; prévias só no modo avançado) e programas pelo `winget`, com parser independente de idioma; instala ou atualiza só o que o usuário marcou.
+- Modo Jogo: três presets (`suave`, `equilibrado`, `a_fundo`) que pedem para fechar programas, pausam serviços e trocam o plano de energia; o estado é salvo antes de qualquer mudança e `desativar` desfaz tudo. Nunca fecha processos protegidos nem o próprio jogo; programas que não fecham em 10 s ficam abertos. Há lista "meus jogos" com ativação automática.
+- Bandeja, lembretes e autostart: ícone na bandeja (Abrir/Sair), que destrói a janela ao fechar para poupar memória; início com o Windows (só quando instalado em Program Files); lembrete a cada N dias com uma única notificação quando há o que ver.
+- Atualizador do NexTune: verificar e instalar pelo GitHub Releases, com assinatura minisign. O código está pronto; os artefatos assinados entram no Plano 6.
+- Abrir links (loja, site do fabricante) a partir de Programas, só `https://` e `ms-windows-store://`.
 
 ## Verificação
 
 - Rust: `cargo test --manifest-path src-tauri/Cargo.toml` e `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings`.
 - PowerShell (Pester 5 e PSScriptAnalyzer) e o instalador: só no Windows, com `powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1` (`-SoTestes` pula o build). O GitHub Actions roda o mesmo script a cada push em `main`.
-- Interface: abrir `ui/index.html` num navegador entra no modo demonstração (nada toca o sistema); `?vista=programas`, `?vista=quarentena`, `?vista=disco` e `?vista=atualizacoes` abrem direto nessas telas.
+- Pester 6 e PSScriptAnalyzer também rodam direto nesta máquina: `Invoke-Pester -Path scripts/tests` (sem `-CI`) e `Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error`.
+- Interface: abrir `ui/index.html` num navegador entra no modo demonstração (nada toca o sistema); `?vista=programas`, `?vista=quarentena`, `?vista=disco`, `?vista=atualizacoes` e `?vista=modojogo` abrem direto nessas telas.
 
 ## Chave do atualizador
 
@@ -38,16 +43,19 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. A c
 
 ## Pendências
 
-- Lembretes: clicar na notificação abre o programa (o plugin não expõe o clique no Windows); a tela certa é a do Início, que mostra os mesmos cartões.
+- Lembretes: o plugin não expõe o clique na notificação no Windows e clicar nela não foi verificado; não leva à tela específica (o Início mostra os mesmos cartões).
 
-- RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB). O número é a soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; tratado no Plano 5. Para medir de novo: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1` (veja as opções no topo do script).
+- RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB). O número é a soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; tratado no Plano 5 (janela destruída na bandeja). Para medir de novo: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1` (veja as opções no topo do script).
 - Os scripts do Plano 2 (`quarentena.ps1`, `sistema.ps1`, `programas.ps1`) foram escritos e revisados fora do Windows; a primeira rodada do Pester e do PSScriptAnalyzer acontece no Actions ou com `tools/ci-local.ps1`.
 - `protegidos.json` cobre drivers NVIDIA, AMD, Intel e Realtek; Synaptics, ELAN, Qualcomm, Conexant e MediaTek ainda aparecem "sem classificação".
 - A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário não estava nesta máquina e entra depois.
-- Abrir links (loja, site do fabricante) a partir da interface depende de um comando Rust `abrir_url` (só HTTPS e `ms-windows-store:`), previsto para o Plano 5; hoje a tela mostra o endereço para copiar.
-- Atualizações: drivers via Windows Update ficam fora (critério `Type='Software'`); o atualizador do próprio NexTune é do Plano 5. O COM do Windows Update e o `winget` não rodam nos testes (só o parser e a forma da saída): a primeira rodada real é manual, depois do build do Actions.
+- Atualizações: drivers via Windows Update ficam fora (critério `Type='Software'`). O COM do Windows Update e o `winget` não rodam nos testes (só o parser e a forma da saída): a primeira rodada real é manual, depois do build do Actions.
 - Disco: os textos por resultado seguem o enum `RepairStatus` do `Repair-Volume` lido nesta máquina (`ScanNoErrorsFound`, `ScanErrorsFoundNeedSpotFix`, `NeedOfflineScanAndFix`…), mas qual valor o `-Scan` devolve na prática ainda não foi conferido elevado; um valor fora da lista cai no texto genérico e conta como "com erros". Unidade cujo tipo (HDD/SSD) não dá para ler fica com Otimizar travado.
 - Disco: a última verificação vem do registro do NexTune (`Estado\disco.json`) e dos eventos Wininit 1001 / Chkdsk 26226; verificações feitas por outros caminhos podem não aparecer. `corrigir` marca o bit sujo do volume (`fsutil dirty set`, o mesmo efeito de `chkdsk /f` agendado) em vez de `Repair-Volume -OfflineScanAndFix`, para nunca desmontar uma unidade de dados em uso.
+- RAM na bandeja (meta ≤ 30 MB com a janela destruída) só pode ser medida depois do build do Actions com `tools/medir.ps1`.
+- `createUpdaterArtifacts` e o secret `TAURI_SIGNING_PRIVATE_KEY` entram no Plano 6, depois que o usuário gerar a chave (ver "Chave do atualizador").
+- `Cargo.lock` não foi atualizado localmente (sem Rust nesta máquina): o primeiro build do Actions o regenera e ele deve ser commitado.
+- Modo Jogo, bandeja, autostart, lembretes e atualizador foram verificados só em modo teste/demo; a primeira rodada real é manual depois do build.
 
 ## Créditos
 
