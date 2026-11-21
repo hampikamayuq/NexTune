@@ -1,10 +1,17 @@
-﻿param([switch]$SoTestes)
+﻿param([switch]$SoTestes, [switch]$Release)
 
 # Verificação local equivalente ao CI. Sai com código 1 na primeira falha.
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
 $LimiteInstaladorMB = 16.5   # 15 MB de meta + 1,5 MB de tolerância
+
+# -Release (build de tag): gera também os artefatos assinados do atualizador (.sig), o que exige a chave
+# privada no ambiente. Falha aqui, antes dos 10 minutos de build, se o secret não estiver configurado.
+if ($Release -and [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+    Write-Host 'FALHA: TAURI_SIGNING_PRIVATE_KEY ausente: configure o secret antes de criar a tag' -ForegroundColor Red
+    exit 1
+}
 
 function Stop-ComFalha([string]$Mensagem) {
     Write-Host "FALHA: $Mensagem" -ForegroundColor Red
@@ -121,13 +128,15 @@ Invoke-Passo 'cargo test'   { cargo test --manifest-path src-tauri/Cargo.toml }
 
 # 4. Build e tamanho do instalador (somente sem -SoTestes)
 if (-not $SoTestes) {
-    Invoke-Passo 'npm run build' { npm run build }
+    if ($Release) { Invoke-Passo 'npm run build (release)' { npm run build -- --config src-tauri/tauri.release.conf.json } }
+    else { Invoke-Passo 'npm run build' { npm run build } }
     $instaladores = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis' -Filter '*.exe' -ErrorAction SilentlyContinue)
     if ($instaladores.Count -eq 0) { Stop-ComFalha 'instalador NSIS não encontrado' }
     foreach ($exe in $instaladores) {
         $mb = [math]::Round($exe.Length / 1MB, 2)
         Write-Host "$($exe.Name): $mb MB (limite $LimiteInstaladorMB MB)"
         if ($exe.Length -gt $LimiteInstaladorMB * 1MB) { Stop-ComFalha "instalador acima de $LimiteInstaladorMB MB" }
+        if ($Release -and -not (Test-Path -LiteralPath ($exe.FullName + '.sig'))) { Stop-ComFalha "assinatura $($exe.Name).sig não gerada" }
     }
 }
 

@@ -1,10 +1,11 @@
 # Compila o NexTune para Windows nos servidores do GitHub.
-# - A cada push em main, em tags de versão (v*) ou manualmente: roda a mesma
-#   verificação do PC (tools/ci-local.ps1: BOM, PSScriptAnalyzer, Pester,
-#   checagens da interface, clippy, cargo test, build e limite de tamanho do
-#   instalador) e guarda o instalador + SHA256.txt como artefato na aba "Actions".
-# - Não publica Release: isso fica para o Plano 6 (depende da conta GitHub e da
-#   chave do atualizador).
+# - A cada push em main ou manualmente: roda a mesma verificação do PC (tools/ci-local.ps1: BOM,
+#   PSScriptAnalyzer, Pester, checagens da interface, clippy, cargo test, build e limite de tamanho
+#   do instalador), guarda o instalador + SHA256.txt como artefato na aba "Actions" e, se o build
+#   regenerou o Cargo.lock (não há Rust na máquina de desenvolvimento), commita ele em main.
+# - Em tag v*: o mesmo, com os artefatos assinados do atualizador (secret TAURI_SIGNING_PRIVATE_KEY),
+#   e cria a Release como RASCUNHO com instalador, .sig, latest.json e SHA256.txt. Publicar é manual,
+#   depois do checklist da spec (seção 13).
 
 name: Compilar NexTune
 
@@ -15,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -42,9 +43,41 @@ jobs:
       - name: Instalar dependências do Node
         run: npm ci
 
+      - name: Conferir que a tag bate com a versão do tauri.conf.json
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $versao = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ("v$versao" -ne $env:GITHUB_REF_NAME) {
+            Write-Host "::error::tag $env:GITHUB_REF_NAME, mas tauri.conf.json diz $versao"
+            exit 1
+          }
+
       - name: Verificar e compilar (lint, testes, build e tamanho)
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1 -Release
+          } else {
+            powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1
+          }
+          exit $LASTEXITCODE
+
+      - name: Commitar Cargo.lock regenerado
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        shell: pwsh
+        run: |
+          if (git status --porcelain src-tauri/Cargo.lock) {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add src-tauri/Cargo.lock
+            git commit -m 'chore: Cargo.lock regenerado pelo build do Actions'
+            git push
+          } else {
+            Write-Host 'Cargo.lock já está atualizado'
+          }
 
       - name: Calcular SHA-256 do instalador
         shell: pwsh
@@ -60,5 +93,25 @@ jobs:
           name: NexTune-windows
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
             src-tauri/target/release/bundle/nsis/SHA256.txt
-            src-tauri/Cargo.lock
+
+      - name: Criar a Release (rascunho) com latest.json
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = 'src-tauri/target/release/bundle/nsis'
+          $exe = Get-ChildItem $dir -Filter *-setup.exe | Select-Object -First 1
+          $sig = (Get-Content -Raw "$($exe.FullName).sig").Trim()
+          $tag = $env:GITHUB_REF_NAME
+          $manifesto = [ordered]@{
+            version   = $tag.TrimStart('v')
+            notes     = "NexTune $tag"
+            pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            platforms = @{ 'windows-x86_64' = @{ signature = $sig; url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$($exe.Name)" } }
+          }
+          $manifesto | ConvertTo-Json -Depth 4 | Set-Content "$dir/latest.json" -Encoding utf8
+          Get-Content "$dir/latest.json"
+          gh release create $tag --draft --generate-notes --title "NexTune $tag" "$($exe.FullName)" "$($exe.FullName).sig" "$dir/latest.json" "$dir/SHA256.txt"
