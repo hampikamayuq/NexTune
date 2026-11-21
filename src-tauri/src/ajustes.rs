@@ -1,8 +1,10 @@
 //! Ajustes do usuário em `<appdata>/ajustes.json`.
 //!
 //! Contrato com a UI (JS): os campos viajam em camelCase —
-//! `idioma, modoAvancado, pontoRestauracao, diasQuarentena, modoLeve, tourVisto, ultimaVersao`.
+//! `idioma, modoAvancado, pontoRestauracao, diasQuarentena, modoLeve, tourVisto, ultimaVersao,
+//! jogos, modoJogoAuto, modoJogoPreset, lembretes, lembretesDias, bandeja`.
 
+use crate::acoes::re_exe;
 use crate::caminhos::Pastas;
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +20,15 @@ pub struct Ajustes {
     pub modo_leve: String,
     pub tour_visto: bool,
     pub ultima_versao: String,
+    /// Executáveis (`Jogo.exe`) que ativam o Modo Jogo automático; até 50.
+    pub jogos: Vec<String>,
+    pub modo_jogo_auto: bool,
+    /// "suave" | "equilibrado" | "a_fundo"
+    pub modo_jogo_preset: String,
+    pub lembretes: bool,
+    /// Intervalo entre lembretes, em dias (1..=30).
+    pub lembretes_dias: u32,
+    pub bandeja: bool,
 }
 
 impl Default for Ajustes {
@@ -30,6 +41,12 @@ impl Default for Ajustes {
             modo_leve: "auto".into(),
             tour_visto: false,
             ultima_versao: String::new(),
+            jogos: Vec::new(),
+            modo_jogo_auto: false,
+            modo_jogo_preset: "suave".into(),
+            lembretes: false,
+            lembretes_dias: 3,
+            bandeja: false,
         }
     }
 }
@@ -49,7 +66,21 @@ impl Ajustes {
         if self.idioma != "pt-BR" {
             return Err("idioma não suportado".into());
         }
+        if !["suave", "equilibrado", "a_fundo"].contains(&self.modo_jogo_preset.as_str()) {
+            return Err("modoJogoPreset inválido".into());
+        }
+        if !(1..=30).contains(&self.lembretes_dias) {
+            return Err("lembretesDias deve estar entre 1 e 30".into());
+        }
+        if self.jogos.len() > 50 || !self.jogos.iter().all(|j| re_exe().is_match(j)) {
+            return Err("jogos inválido: até 50 nomes de executável (.exe)".into());
+        }
         Ok(())
+    }
+
+    /// A bandeja precisa existir se ela mesma, os lembretes ou o Modo Jogo automático estiverem ligados.
+    pub fn bandeja_ativa(&self) -> bool {
+        self.bandeja || self.lembretes || self.modo_jogo_auto
     }
 }
 
@@ -161,5 +192,34 @@ mod testes {
         assert!(ruim(|a| a.dias_quarentena = 0));
         assert!(ruim(|a| a.dias_quarentena = 91));
         assert!(ruim(|a| a.idioma = "en".into()));
+        assert!(ruim(|a| a.modo_jogo_preset = "turbo".into()));
+        assert!(ruim(|a| a.lembretes_dias = 0));
+        assert!(ruim(|a| a.lembretes_dias = 31));
+        assert!(!ruim(|a| a.jogos = vec!["a b.exe".into()]));
+        assert!(ruim(|a| a.jogos = vec!["jogo".into()]));
+        assert!(ruim(|a| a.jogos = vec!["a\\b.exe".into()]));
+        assert!(ruim(|a| a.jogos = vec!["x.exe".to_string(); 51]));
+    }
+
+    #[test]
+    fn padrao_tem_modo_jogo() {
+        let a = Ajustes::default();
+        assert!(a.jogos.is_empty());
+        assert_eq!(a.modo_jogo_preset, "suave");
+        assert_eq!(a.lembretes_dias, 3);
+        assert!(!a.bandeja_ativa());
+    }
+
+    #[test]
+    fn bandeja_ativa_por_qualquer_um() {
+        let base = Ajustes::default();
+        let so = |f: fn(&mut Ajustes)| {
+            let mut a = base.clone();
+            f(&mut a);
+            a.bandeja_ativa()
+        };
+        assert!(so(|a| a.bandeja = true));
+        assert!(so(|a| a.lembretes = true));
+        assert!(so(|a| a.modo_jogo_auto = true));
     }
 }

@@ -40,6 +40,7 @@ const MODULOS: &[&str] = &[
     "ajusteswin",
     "disco",
     "atualizacoes",
+    "modojogo",
 ];
 
 /// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`). A UI roda
@@ -62,6 +63,8 @@ const ESCRITA: &[(&str, &str)] = &[
     ("disco", "otimizar"),
     ("atualizacoes", "instalar"),
     ("atualizacoes", "atualizarProgramas"),
+    ("modojogo", "ativar"),
+    ("modojogo", "desativar"),
 ];
 
 /// Tipos de item que `programas/limparRestos` aceita.
@@ -78,6 +81,8 @@ const MAX_CAMINHO: usize = 1024;
 const MAX_IDS_AJUSTES: usize = 50;
 /// Máximo de ids por chamada de `atualizacoes/instalar|atualizarProgramas`.
 const MAX_IDS_ATUALIZACOES: usize = 50;
+/// Máximo de executáveis em `modojogo/ativar` (`fechar`).
+const MAX_FECHAR: usize = 50;
 
 pub fn modulos_permitidos() -> &'static [&'static str] {
     MODULOS
@@ -134,6 +139,14 @@ fn re_id_wu() -> &'static Regex {
 fn re_id_winget() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$").expect("regex válida"))
+}
+
+/// Nome de executável (`Jogo.exe`): só o nome, sem pasta nem caracteres proibidos no Windows.
+pub(crate) fn re_exe() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)^[^\\/:*?"<>|\x00-\x1f]{1,120}\.exe$"#).expect("regex válida")
+    })
 }
 
 fn erro(msg: impl Into<String>) -> ErroValidacao {
@@ -282,6 +295,35 @@ fn lista_de_ids(
         vistos.push(id);
     }
     Ok(Value::Array(ids.clone()))
+}
+
+/// `chave`: lista obrigatória, possivelmente vazia, de até `max` nomes `.exe` sem repetição.
+fn lista_de_exes(
+    m: &Map<String, Value>,
+    chave: &str,
+    max: usize,
+) -> Result<Value, ErroValidacao> {
+    let itens = m
+        .get(chave)
+        .and_then(Value::as_array)
+        .ok_or_else(|| erro(format!("{chave} é obrigatório (lista)")))?;
+    if itens.len() > max {
+        return Err(erro(format!("{chave}: no máximo {max} por vez")));
+    }
+    let mut vistos: Vec<&str> = Vec::with_capacity(itens.len());
+    for v in itens {
+        let nome = v
+            .as_str()
+            .ok_or_else(|| erro(format!("{chave} deve conter textos")))?;
+        if tem_controle(nome) || !re_exe().is_match(nome) {
+            return Err(erro(format!("executável inválido em {chave}: {nome}")));
+        }
+        if vistos.contains(&nome) {
+            return Err(erro(format!("executável repetido: {nome}")));
+        }
+        vistos.push(nome);
+    }
+    Ok(Value::Array(itens.clone()))
 }
 
 /// `ids`: lista não vazia (até `MAX_IDS`) de ids de quarentena `yyyyMMdd-HHmmss-xxxx`, sem repetição.
@@ -729,6 +771,52 @@ pub fn validar(
             copiar_simular(&m, &mut saida, teste)?;
             Ok(Value::Object(saida))
         }
+        ("modojogo", "estado" | "processos") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["simular"])?;
+            let mut saida = Map::new();
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("modojogo", "ativar") => {
+            let m = como_objeto(params)?;
+            so_chaves(
+                &m,
+                &["preset", "fechar", "jogo", "automatico", "confirmado", "avancado", "simular"],
+            )?;
+            exigir_confirmado(&m)?;
+            let preset = m
+                .get("preset")
+                .and_then(Value::as_str)
+                .ok_or_else(|| erro("preset é obrigatório (texto)"))?;
+            if !["suave", "equilibrado", "a_fundo"].contains(&preset) {
+                return Err(erro("preset inválido (suave, equilibrado ou a_fundo)"));
+            }
+            let mut saida = Map::new();
+            saida.insert("preset".into(), Value::String(preset.to_string()));
+            saida.insert("fechar".into(), lista_de_exes(&m, "fechar", MAX_FECHAR)?);
+            if let Some(jogo) = m.get("jogo") {
+                let nome = jogo
+                    .as_str()
+                    .filter(|n| !tem_controle(n) && re_exe().is_match(n))
+                    .ok_or_else(|| erro("jogo deve ser um nome de executável (.exe)"))?;
+                saida.insert("jogo".into(), Value::String(nome.to_string()));
+            }
+            copiar_bool(&m, &mut saida, "automatico")?;
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_bool(&m, &mut saida, "avancado")?;
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("modojogo", "desativar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
         _ => Err(ErroValidacao::NaoPermitida(format!("{modulo}/{acao}"))),
     }
 }
@@ -935,7 +1023,7 @@ mod testes {
 
     #[test]
     fn modulos() {
-        assert_eq!(modulos_permitidos().len(), 10);
+        assert_eq!(modulos_permitidos().len(), 11);
         for m in [
             "host",
             "diagnostico",
@@ -947,6 +1035,7 @@ mod testes {
             "ajusteswin",
             "disco",
             "atualizacoes",
+            "modojogo",
         ] {
             assert!(modulos_permitidos().contains(&m), "{m}");
         }
@@ -972,6 +1061,8 @@ mod testes {
             ("disco", "otimizar"),
             ("atualizacoes", "instalar"),
             ("atualizacoes", "atualizarProgramas"),
+            ("modojogo", "ativar"),
+            ("modojogo", "desativar"),
         ] {
             assert!(e_escrita(m, a), "{m}/{a} é escrita");
         }
@@ -989,6 +1080,8 @@ mod testes {
             ("disco", "estado"),
             ("disco", "verificar"),
             ("atualizacoes", "listar"),
+            ("modojogo", "estado"),
+            ("modojogo", "processos"),
             ("limpeza", "Limpar"),
             ("inexistente", "limpar"),
         ] {
@@ -1906,5 +1999,82 @@ mod testes {
         assert!(inst(json!({"ids": muitos, "confirmado": true})).is_ok());
         let demais: Vec<String> = (0..=MAX_IDS_ATUALIZACOES).map(|i| format!("7A3F1B2C-0000-4000-8000-{i:012}")).collect();
         parametro(inst(json!({"ids": demais, "confirmado": true})));
+    }
+
+    // ---- modojogo ----
+
+    #[test]
+    fn modojogo_estado_e_processos() {
+        for a in ["estado", "processos"] {
+            assert_eq!(validar("modojogo", a, &json!(null), false).unwrap(), json!({}));
+            assert_eq!(validar("modojogo", a, &json!({}), false).unwrap(), json!({}));
+            let sim = json!({"simular": {"processos": []}});
+            assert_eq!(validar("modojogo", a, &sim, true).unwrap(), sim);
+            parametro(validar("modojogo", a, &sim, false));
+            parametro(validar("modojogo", a, &json!({"x": 1}), false));
+        }
+    }
+
+    #[test]
+    fn modojogo_ativar_valido() {
+        let ativar = |p: &Value| validar("modojogo", "ativar", p, false);
+        let basico = json!({"preset": "suave", "fechar": [], "confirmado": true});
+        assert_eq!(ativar(&basico).unwrap(), basico);
+        for preset in ["suave", "equilibrado", "a_fundo"] {
+            let p = json!({"preset": preset, "fechar": [], "confirmado": true});
+            assert_eq!(ativar(&p).unwrap(), p);
+        }
+        let lista = json!({"preset": "suave", "fechar": ["Chrome.exe", "Spotify.exe"], "confirmado": true});
+        assert_eq!(ativar(&lista).unwrap(), lista);
+        let completo = json!({
+            "preset": "equilibrado", "fechar": [], "jogo": "Jogo Legal.exe",
+            "automatico": true, "avancado": true, "confirmado": true
+        });
+        assert_eq!(ativar(&completo).unwrap(), completo);
+        let sim = json!({"preset": "suave", "fechar": [], "confirmado": true, "simular": {"x": 1}});
+        assert_eq!(validar("modojogo", "ativar", &sim, true).unwrap(), sim);
+        parametro(ativar(&sim));
+    }
+
+    #[test]
+    fn modojogo_ativar_recusa() {
+        let ativar = |p: Value| validar("modojogo", "ativar", &p, false);
+        parametro(ativar(json!({"fechar": [], "confirmado": true})));
+        parametro(ativar(json!({"preset": "turbo", "fechar": [], "confirmado": true})));
+        parametro(ativar(json!({"preset": 1, "fechar": [], "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "fechar": "x", "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "fechar": [1], "confirmado": true})));
+        for ruim in ["x", "a/b.exe", "a\\b.exe", "a\nb.exe", ".exe", "a.exe.txt", "a?.exe"] {
+            parametro(ativar(json!({"preset": "suave", "fechar": [ruim], "confirmado": true})));
+        }
+        let longo = format!("{}.exe", "a".repeat(121));
+        parametro(ativar(json!({"preset": "suave", "fechar": [longo], "confirmado": true})));
+        let limite = format!("{}.exe", "a".repeat(120));
+        assert!(ativar(json!({"preset": "suave", "fechar": [limite], "confirmado": true})).is_ok());
+        parametro(ativar(json!({"preset": "suave", "fechar": ["a.exe", "a.exe"], "confirmado": true})));
+        let muitos: Vec<String> = (0..MAX_FECHAR).map(|i| format!("p{i}.exe")).collect();
+        assert!(ativar(json!({"preset": "suave", "fechar": muitos, "confirmado": true})).is_ok());
+        let demais: Vec<String> = (0..=MAX_FECHAR).map(|i| format!("p{i}.exe")).collect();
+        parametro(ativar(json!({"preset": "suave", "fechar": demais, "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "fechar": [], "jogo": "x", "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "fechar": [], "jogo": 1, "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "fechar": [], "automatico": "sim", "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "fechar": [], "avancado": 1, "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "fechar": [], "x": 1, "confirmado": true})));
+        parametro(ativar(json!({"preset": "suave", "fechar": []})));
+        parametro(ativar(json!({"preset": "suave", "fechar": [], "confirmado": "true"})));
+    }
+
+    #[test]
+    fn modojogo_desativar() {
+        let p = json!({"confirmado": true});
+        assert_eq!(validar("modojogo", "desativar", &p, false).unwrap(), p);
+        let sim = json!({"confirmado": true, "simular": {"x": 1}});
+        assert_eq!(validar("modojogo", "desativar", &sim, true).unwrap(), sim);
+        parametro(validar("modojogo", "desativar", &sim, false));
+        parametro(validar("modojogo", "desativar", &json!({}), false));
+        parametro(validar("modojogo", "desativar", &json!({"confirmado": false}), false));
+        parametro(validar("modojogo", "desativar", &json!({"confirmado": true, "x": 1}), false));
     }
 }
