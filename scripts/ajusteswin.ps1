@@ -325,7 +325,14 @@ function Restore-ServicoDoBackup {
     if ($noCatalogo.Count -eq 0 -or $Script:InicioValido -notcontains [string]$Entrada.inicio) { return }
     if ($null -eq (Get-EstadoServico $nome $Teste $Sim) -and -not $Teste) { return }
     Set-InicioServico $nome ([string]$Entrada.inicio) ($Entrada.atrasado -eq $true) $Teste
-    if ($Entrada.rodando -eq $true -and [string]$Entrada.inicio -ne 'Disabled') { Set-ExecucaoServico $nome $true $Teste }
+    if ($Entrada.rodando -eq $true -and [string]$Entrada.inicio -ne 'Disabled') {
+        # O tipo de inicio (o que persiste) ja voltou; religar pode falhar por motivo passageiro e nao
+        # pode impedir o resto da restauracao: devolve um aviso em vez de lancar.
+        try {
+            if ($Teste -and $Sim.servicos.$nome.falhaAoIniciar -eq $true) { throw 'início simulado falhou' }
+            Set-ExecucaoServico $nome $true $Teste
+        } catch { return ("Serviço ${nome}: o início voltou ao que era, mas ele não pôde ser religado agora (" + $_.Exception.Message + ').') }
+    }
 }
 
 function Restore-TarefaDoBackup {
@@ -420,10 +427,14 @@ function Invoke-RestaurarAjuste {
         if ($v.existia -eq $true) { Set-ValorRegistro ([string]$v.chave) ([string]$v.nome) (ConvertFrom-ValorBackup $v) ([string]$v.tipo) $Teste }
         else { Remove-ValorRegistro ([string]$v.chave) ([string]$v.nome) ([bool]$v.chaveExistia) $Teste }
     }
-    foreach ($sv in @($backups[$id].servicos | Where-Object { $null -ne $_ })) { Restore-ServicoDoBackup $Ajuste $sv $Teste $Sim }
+    $avisos = New-Object System.Collections.Generic.List[string]
+    foreach ($sv in @($backups[$id].servicos | Where-Object { $null -ne $_ })) {
+        foreach ($w in @(Restore-ServicoDoBackup $Ajuste $sv $Teste $Sim)) { $avisos.Add([string]$w) }
+    }
     foreach ($tk in @($backups[$id].tarefas | Where-Object { $null -ne $_ })) { Restore-TarefaDoBackup $Ajuste $tk $Teste }
     $backups.Remove($id)
     Write-Backups $backups $Teste
+    return $avisos.ToArray()
 }
 
 # ---------- acoes ----------
@@ -477,6 +488,7 @@ function Invoke-EmLote {
     $feitos = New-Object System.Collections.Generic.List[string]
     $falhas = New-Object System.Collections.Generic.List[object]
     $naoAplica = New-Object System.Collections.Generic.List[object]
+    $avisos = New-Object System.Collections.Generic.List[object]
     $reiniciar = $false
     $i = 0
     foreach ($idAj in $ids) {
@@ -491,7 +503,10 @@ function Invoke-EmLote {
                 if (-not $disp.disponivel) { throw [string]$disp.motivo }
                 foreach ($n in @(Invoke-AplicarAjuste $a $Teste $sim)) { $naoAplica.Add($n) }
             } else {
-                Invoke-RestaurarAjuste $a $Teste $sim
+                foreach ($w in @(Invoke-RestaurarAjuste $a $Teste $sim)) {
+                    $avisos.Add([ordered]@{ id = $idAj; aviso = [string]$w })
+                    Send-Log $Id 'aviso' ([string]$w)
+                }
             }
             $feitos.Add($idAj)
             if ($a.reiniciarExplorer -eq $true) { $reiniciar = $true }
@@ -503,7 +518,7 @@ function Invoke-EmLote {
     }
     Send-Progress $Id 100 'Concluído'
     $chave = if ($Acao -eq 'aplicar') { 'aplicados' } else { 'restaurados' }
-    Send-Result $Id ([ordered]@{ $chave = $feitos.ToArray(); falhas = $falhas.ToArray(); naoAplica = $naoAplica.ToArray(); precisaReiniciar = $reiniciar })
+    Send-Result $Id ([ordered]@{ $chave = $feitos.ToArray(); falhas = $falhas.ToArray(); naoAplica = $naoAplica.ToArray(); avisos = $avisos.ToArray(); precisaReiniciar = $reiniciar })
 }
 
 function Invoke-Acao {

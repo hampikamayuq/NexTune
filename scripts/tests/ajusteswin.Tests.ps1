@@ -311,6 +311,24 @@ Describe 'ajusteswin.ps1' {
             Get-MarcT 'tarefa-MapsToastTask-disable.txt' | Should -Not -BeNullOrEmpty
             (Get-Aj (Invoke-Aj 'listar') 'tarefas_telemetria').temBackup | Should -BeFalse
         }
+        It 'restaurar segue com as tarefas quando o servico nao volta a rodar (aviso, backup removido)' {
+            $sim = @{ servicos = @{ WerSvc = @{ inicio = 'Automatic'; rodando = $true } }
+                tarefas = @(@{ caminho = '\Microsoft\Windows\Windows Error Reporting\'; nome = 'QueueReporting'; ativa = $true }) }
+            Invoke-Aj 'aplicar' @{ ids = @('relatorio_erros'); confirmado = $true; simular = $sim } | Out-Null
+            $simFalha = @{ servicos = @{ WerSvc = @{ falhaAoIniciar = $true } } }
+            $r = Invoke-Aj 'restaurar' @{ ids = @('relatorio_erros'); confirmado = $true; simular = $simFalha }
+            $r.ok | Should -BeTrue
+            @($r.dados.restaurados) | Should -Be @('relatorio_erros')
+            @($r.dados.falhas).Count | Should -Be 0
+            @($r.dados.avisos).Count | Should -Be 1
+            $r.dados.avisos[0].id | Should -Be 'relatorio_erros'
+            $r.dados.avisos[0].aviso | Should -Match 'WerSvc'
+            Get-MarcT 'servico-WerSvc-inicio.txt' | Should -Be 'Automatic'
+            Get-MarcT 'servico-WerSvc-start.txt' | Should -BeNullOrEmpty
+            Get-MarcT 'tarefa-QueueReporting-enable.txt' | Should -Not -BeNullOrEmpty
+            (Get-Aj (Invoke-Aj 'listar') 'relatorio_erros').temBackup | Should -BeFalse
+            $Script:UltimaSaida | Should -Not -Match 'Falha em'
+        }
         It 'restaurar ignora servico e tarefa do backup que o catalogo nao lista' {
             Invoke-Aj 'aplicar' @{ ids = @('servico_telemetria'); confirmado = $true; simular = (Get-SimSvcT 'DiagTrack' 'Manual' $false) } | Out-Null
             $b = Get-Content -LiteralPath $Script:Backup -Raw -Encoding UTF8 | ConvertFrom-Json
