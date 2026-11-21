@@ -53,7 +53,7 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. A c
 - Disco: os textos por resultado seguem o enum `RepairStatus` do `Repair-Volume` lido localmente (`ScanNoErrorsFound`, `ScanErrorsFoundNeedSpotFix`, `NeedOfflineScanAndFix`…), mas qual valor o `-Scan` devolve na prática ainda não foi conferido elevado; um valor fora da lista cai no texto genérico e conta como "com erros". Unidade cujo tipo (HDD/SSD) não dá para ler fica com Otimizar travado.
 - Disco: a última verificação vem do registro do NexTune (`Estado\disco.json`) e dos eventos Wininit 1001 / Chkdsk 26226; verificações feitas por outros caminhos podem não aparecer. `corrigir` marca o bit sujo do volume (`fsutil dirty set`, o mesmo efeito de `chkdsk /f` agendado) em vez de `Repair-Volume -OfflineScanAndFix`, para nunca desmontar uma unidade de dados em uso.
 - `createUpdaterArtifacts` e o secret `TAURI_SIGNING_PRIVATE_KEY` entram no Plano 6, depois que o usuário gerar a chave (ver "Chave do atualizador").
-- `Cargo.lock` não foi atualizado localmente (sem Rust localmente): o primeiro build do Actions o regenera e ele deve ser commitado.
+- `Cargo.lock` não foi atualizado localmente (não há Rust instalado aqui): o primeiro build do Actions o regenera e ele deve ser commitado.
 - Modo Jogo, bandeja, autostart, lembretes e atualizador foram verificados só em modo teste/demo; a primeira rodada real é manual depois do build do Actions.
 
 ## Créditos
