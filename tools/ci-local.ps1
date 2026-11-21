@@ -43,7 +43,14 @@ if ($testes.Count -eq 0) {
     Write-Host 'Nenhum teste Pester encontrado; ignorando.'
 } else {
     Import-Module Pester -MinimumVersion 5.5
-    $resultado = Invoke-Pester -Path scripts/tests -CI -PassThru
+    # Sem -CI: ele chama exit antes de devolver o resultado, e as anotações abaixo nunca sairiam.
+    $cfg = New-PesterConfiguration
+    $cfg.Run.Path = 'scripts/tests'
+    $cfg.Run.PassThru = $true
+    $cfg.TestResult.Enabled = $true
+    $cfg.Output.CIFormat = 'GithubActions'
+    $cfg.Output.Verbosity = 'Detailed'
+    $resultado = Invoke-Pester -Configuration $cfg
     if ($resultado.FailedCount -gt 0) {
         # Anotações do GitHub Actions com a mensagem de cada falha (o log completo exige login; as anotações não).
         foreach ($t in @($resultado.Failed)) {
