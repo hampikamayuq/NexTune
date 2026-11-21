@@ -209,7 +209,7 @@ README.md                     "O que já existe", pendências (RAM medida só ap
 - `ExitRequested` olha a existência do ícone da bandeja em vez de `bandeja_ativa()`, por causa do argumento `--bandeja`.
 - `abrir_janela` cria a janela numa tarefa assíncrona.
 - `abrir_url` espera o `rundll32` numa thread.
-- Executáveis do sistema (`tasklist`, `schtasks`, `rundll32`, `explorer`) são chamados por caminho absoluto de System32.
+- Executáveis do sistema são chamados por caminho absoluto vindo de `GetSystemDirectoryW`: `tasklist` e `schtasks` em System32; `explorer` em `<Windows>\explorer.exe` (`pasta_system32().parent()`). O `rundll32` saiu (ver Revisão final, item 2).
 - O vigia não repete uma ativação ou desativação que falhou.
 - `ativar` devolve também `avisos` e segue mesmo com falha de plano de energia, notificações ou prioridade.
 - `planoAnterior` ausente no estado: o plano de energia atual é mantido na restauração.
@@ -218,7 +218,7 @@ README.md                     "O que já existe", pendências (RAM medida só ap
 - O `jogo` nunca é fechado.
 - Colisão global `linhaPrograma` corrigida (bug do Plano 4).
 - **Revisão final:**
-  1. Vigia lê `modojogo/estado` a cada ciclo e após erro em `ativar`: adota Modo Jogo ativo com `automatico:true` (`adotar_estado`), não mexe no ligado à mão (sem toast) e desativa uma vez quando o automático é desligado com o Modo Jogo ligado por ele.
+  1. Vigia lê o estado a cada ciclo direto do disco (`Estado\modojogo.json`, para o host PowerShell poder dormir com o app na bandeja) e pelo host só após erro em `ativar`: adota Modo Jogo ativo com `automatico:true` (`adotar_estado`), não mexe no ligado à mão (sem toast) e desativa uma vez quando o automático é desligado com o Modo Jogo ligado por ele.
   2. `abrir_url` abre por `<Windows>\explorer.exe "<url>"` em vez de `rundll32` (o navegador sai sem elevação; a pasta do Windows vem de `GetSystemDirectoryW`, nunca de `%SystemRoot%`); substitui o texto de §6.2 e do contrato de `bandeja.rs`.
   3. A tarefa ONLOGON é criada por XML (`schtasks /Create /XML`, UTF-16 em `<Windows>\Temp\autostart-<pid>-<nanos>.xml`, pasta via `GetSystemDirectoryW` e exigida absoluta, criado com `create_new`, recusado se a pasta for link, apagado depois; `%APPDATA%` e `%ProgramData%` vêm do ambiente do usuário e permitiriam trocar o arquivo antes do schtasks elevado ler): roda na bateria, não para ao passar para a bateria, sem limite de tempo, `HighestAvailable`.
   4. Instância única (`tauri-plugin-single-instance`, primeiro plugin): abrir de novo mostra a janela da instância existente (exceto com `--bandeja`).

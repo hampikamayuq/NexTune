@@ -6,12 +6,14 @@
 //! desativa o que o próprio vigia ativou. Nunca executa outra ação. Cada mudança emite o evento
 //! `modojogo` com `{ativo, jogo}`; falha emite `{erro}`.
 //!
-//! O que "o vigia ativou" vem de `modojogo/estado` a cada ciclo (`adotar_estado`): um Modo Jogo
+//! O que "o vigia ativou" vem de `Estado\modojogo.json`, lido do disco a cada ciclo para não acordar
+//! o host (`ler_estado_disco` + `adotar_estado`): um Modo Jogo
 //! ativo com `automatico:true` que sobrou de outra sessão é adotado e desativado quando o jogo
 //! fecha; ligado à mão, o vigia não mexe. Desligar o automático com o Modo Jogo ligado por ele
 //! restaura uma vez.
 
 use crate::ajustes;
+use crate::caminhos::Pastas;
 use crate::comandos::{self, Estado};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -85,7 +87,17 @@ pub fn adotar_estado(estado: &Value) -> Option<String> {
         .map(String::from)
 }
 
-/// `modojogo/estado`; erro vai para o log e vira `None` (o vigia segue com o que tem na memória).
+/// `<programdata>\Estado\modojogo.json` lido direto (UTF-8, com ou sem BOM); ausente ou ilegível →
+/// `{"ativo": false}`.
+pub fn ler_estado_disco(pastas: &Pastas) -> Value {
+    std::fs::read(pastas.programdata.join("Estado").join("modojogo.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(b.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&b)).ok())
+        .unwrap_or_else(|| json!({"ativo": false}))
+}
+
+/// `modojogo/estado` pelo host (só depois de um erro em `ativar`, com o host já acordado); erro vai
+/// para o log e vira `None`.
 async fn ler_estado(estado: &Estado) -> Option<Value> {
     comandos::executar_interno(estado, "modojogo", "estado", json!({}))
         .await
@@ -131,14 +143,14 @@ pub fn iniciar(app: AppHandle) {
                 ausente_desde = None;
                 continue;
             }
-            // O arquivo de estado é a verdade (sobrevive a reinício); a memória só vale se a leitura falhar.
-            if let Some(v) = ler_estado(&estado).await {
-                ativo_por_vigia = adotar_estado(&v);
-                if v["ativo"] == true && ativo_por_vigia.is_none() {
-                    // Ligado à mão: o vigia não mexe (nem ativa, nem mostra erro).
-                    ausente_desde = None;
-                    continue;
-                }
+            // O arquivo de estado é a verdade (sobrevive a reinício). Lido do disco, não pelo host:
+            // uma chamada a cada 15 s nunca deixaria o PowerShell dormir com o app na bandeja.
+            let v = ler_estado_disco(&estado.pastas);
+            ativo_por_vigia = adotar_estado(&v);
+            if v["ativo"] == true && ativo_por_vigia.is_none() {
+                // Ligado à mão: o vigia não mexe (nem ativa, nem mostra erro).
+                ausente_desde = None;
+                continue;
             }
             let rodando = match processos().await {
                 Ok(r) => r,
@@ -226,6 +238,32 @@ mod testes {
             conjunto(&["nextune.exe", "jogo legal.exe", "obs64.exe"])
         );
         assert!(exes_de_tasklist("").is_empty());
+    }
+
+    #[test]
+    fn ler_estado_disco_ausente_ilegivel_e_com_bom() {
+        let dir = std::env::temp_dir().join(format!("otim-vigia-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pastas = Pastas {
+            programdata: dir.clone(),
+            ..crate::caminhos::pastas_dev()
+        };
+        assert_eq!(ler_estado_disco(&pastas), json!({"ativo": false}));
+        let pasta = dir.join("Estado");
+        std::fs::create_dir_all(&pasta).unwrap();
+        let arq = pasta.join("modojogo.json");
+        std::fs::write(&arq, "não é json").unwrap();
+        assert_eq!(ler_estado_disco(&pastas), json!({"ativo": false}));
+        let mut com_bom = b"\xEF\xBB\xBF".to_vec();
+        com_bom.extend_from_slice(
+            br#"{"ativo": true, "preset": "suave", "automatico": true, "jogo": "Jogo.exe"}"#,
+        );
+        std::fs::write(&arq, com_bom).unwrap();
+        assert_eq!(
+            adotar_estado(&ler_estado_disco(&pastas)),
+            Some("Jogo.exe".to_string())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
