@@ -241,12 +241,6 @@ function Invoke-ListarAjuste {
     Send-Result $Id ([ordered]@{ ajustes = $lista.ToArray() })
 }
 
-function Get-IdsParam {
-    param($Params)
-    if ($null -eq $Params -or $null -eq $Params.ids) { return @() }
-    return @(@($Params.ids) | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-}
-
 function Invoke-EmLote {
     # Roda $Acao (aplicar|restaurar) por id, acumulando sucessos e falhas; nunca interrompe os demais.
     param([string]$Id, $Params, [bool]$Teste, [string]$Acao)

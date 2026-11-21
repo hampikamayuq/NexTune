@@ -161,6 +161,13 @@ function Get-Simulacao {
     return $Params.simular
 }
 
+function Get-IdsParam {
+    # 'ids' dos params como lista de textos nao vazios (vazia se ausente).
+    param($Params)
+    if ($null -eq $Params -or $null -eq $Params.ids) { return @() }
+    return @(@($Params.ids) | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
 function Test-Reparse {
     param($Item)
     return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
