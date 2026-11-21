@@ -23,6 +23,7 @@ pub struct Sistema {
     pub appdata: PathBuf,
     pub local_appdata: PathBuf,
     pub perfil: PathBuf,
+    pub publico: PathBuf,
 }
 
 impl Sistema {
@@ -45,6 +46,7 @@ impl Sistema {
             ("APPDATA", self.appdata.clone()),
             ("LOCALAPPDATA", self.local_appdata.clone()),
             ("USERPROFILE", self.perfil.clone()),
+            ("PUBLIC", self.publico.clone()),
             ("TEMP", temp.clone()),
             ("TMP", temp),
         ]
@@ -68,7 +70,7 @@ fn env_ou(nome: &str, padrao: &str) -> PathBuf {
 fn ler_sistema() -> Sistema {
     use windows_sys::Win32::UI::Shell::{
         FOLDERID_LocalAppData, FOLDERID_Profile, FOLDERID_ProgramData, FOLDERID_ProgramFiles,
-        FOLDERID_ProgramFilesX86, FOLDERID_RoamingAppData,
+        FOLDERID_ProgramFilesX86, FOLDERID_Public, FOLDERID_RoamingAppData,
     };
     let ou_env =
         |id, nome: &str, padrao: &str| pasta_conhecida(id).unwrap_or_else(|| env_ou(nome, padrao));
@@ -84,6 +86,7 @@ fn ler_sistema() -> Sistema {
         appdata: ou_env(&FOLDERID_RoamingAppData, "APPDATA", ""),
         local_appdata: ou_env(&FOLDERID_LocalAppData, "LOCALAPPDATA", ""),
         perfil: ou_env(&FOLDERID_Profile, "USERPROFILE", ""),
+        publico: ou_env(&FOLDERID_Public, "PUBLIC", r"C:\Users\Public"),
     }
 }
 
@@ -97,6 +100,7 @@ fn ler_sistema() -> Sistema {
         appdata: env_ou("APPDATA", ""),
         local_appdata: env_ou("LOCALAPPDATA", ""),
         perfil: env_ou("USERPROFILE", ""),
+        publico: env_ou("PUBLIC", r"C:\Users\Public"),
     }
 }
 
@@ -336,7 +340,7 @@ mod testes {
     fn sistema_devolve_caminhos_absolutos() {
         let s = sistema();
         let v = s.variaveis();
-        assert_eq!(v.len(), 11);
+        assert_eq!(v.len(), 12);
         for (k, p) in &v {
             assert!(p.is_absolute(), "{k}: {}", p.display());
         }

@@ -47,14 +47,25 @@ pub(crate) fn pasta_system32() -> PathBuf {
     PathBuf::new()
 }
 
-/// Pastas do sistema vindas da API, não do ambiente herdado (que um processo sem elevação altera):
-/// os scripts seguem lendo `$env:windir`, `$env:ProgramData` etc., mas com valores confiáveis.
+/// Variáveis herdadas que passam ao host como estão: só informativas, nenhuma é caminho.
+const AMBIENTE_HERDADO: [&str; 6] = [
+    "COMPUTERNAME",
+    "USERNAME",
+    "USERDOMAIN",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "OS",
+];
+
+/// Ambiente do host montado do zero: pastas pela API, `PATH`/`PSModulePath` só do sistema e nada
+/// mais do ambiente herdado (um processo sem elevação altera `HKCU\Environment`, e variáveis como
+/// `COR_PROFILER` ou `PSModulePath` fariam o PowerShell elevado carregar código do usuário).
 fn ambiente_host(cmd: &mut Command) {
     let s = crate::caminhos::sistema();
+    cmd.env_clear();
     for (k, v) in s.variaveis() {
         cmd.env(k, v);
     }
-    // Só pastas do sistema: nada do usuário entra na busca de comandos nem no autoload de módulos.
     let sys32 = s.windir.join("System32");
     let ps = sys32.join("WindowsPowerShell").join("v1.0");
     let path = std::env::join_paths([&sys32, &s.windir, &sys32.join("Wbem"), &ps]);
@@ -64,6 +75,13 @@ fn ambiente_host(cmd: &mut Command) {
     ]);
     if let (Ok(path), Ok(modulos)) = (path, modulos) {
         cmd.env("PATH", path).env("PSModulePath", modulos);
+    }
+    cmd.env("ComSpec", sys32.join("cmd.exe"))
+        .env("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC");
+    for k in AMBIENTE_HERDADO {
+        if let Some(v) = std::env::var_os(k) {
+            cmd.env(k, v);
+        }
     }
 }
 
@@ -593,12 +611,19 @@ mod testes {
             .map(|(k, _)| k.to_os_string())
             .collect();
         let esperadas = crate::caminhos::sistema().variaveis();
-        assert_eq!(chaves.len(), esperadas.len() + 2);
-        for (k, _) in esperadas {
+        for (k, _) in &esperadas {
             assert!(chaves.iter().any(|c| c == k), "{k}");
         }
-        for k in ["PATH", "PSModulePath"] {
+        for k in ["PATH", "PSModulePath", "ComSpec", "PATHEXT"] {
             assert!(chaves.iter().any(|c| c == k), "{k}");
+        }
+        // Nada fora da lista explícita (ex.: COR_PROFILER herdado) chega ao host.
+        for c in &chaves {
+            let nome = c.to_string_lossy();
+            let permitida = esperadas.iter().any(|(k, _)| *k == nome)
+                || ["PATH", "PSModulePath", "ComSpec", "PATHEXT"].contains(&nome.as_ref())
+                || AMBIENTE_HERDADO.contains(&nome.as_ref());
+            assert!(permitida, "{nome}");
         }
     }
 
