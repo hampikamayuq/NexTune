@@ -28,8 +28,8 @@ Status: em desenvolvimento. Ainda não há versão utilizável.
 ## Verificação
 
 - Rust: `cargo test --manifest-path src-tauri/Cargo.toml` e `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings`.
-- PowerShell (Pester 5 e PSScriptAnalyzer) e o instalador: só no Windows, com `powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1` (`-SoTestes` pula o build). O GitHub Actions roda o mesmo script a cada push em `main`.
-- Pester 6 e PSScriptAnalyzer também rodam direto nesta máquina: `Invoke-Pester -Path scripts/tests` (sem `-CI`) e `Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error`.
+- PowerShell (Pester ≥ 5.5 e PSScriptAnalyzer) e o instalador: só no Windows, com `powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1` (`-SoTestes` pula o build). O GitHub Actions roda o mesmo script a cada push em `main`.
+- Localmente o Pester 6 atende o mínimo e roda direto: `Invoke-Pester -Path scripts/tests` (sem `-CI`); o PSScriptAnalyzer também: `Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error`.
 - Interface: abrir `ui/index.html` num navegador entra no modo demonstração (nada toca o sistema); `?vista=programas`, `?vista=quarentena`, `?vista=disco`, `?vista=atualizacoes` e `?vista=modojogo` abrem direto nessas telas.
 
 ## Chave do atualizador
@@ -45,17 +45,16 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. A c
 
 - Lembretes: o plugin não expõe o clique na notificação no Windows e clicar nela não foi verificado; não leva à tela específica (o Início mostra os mesmos cartões).
 
-- RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB). O número é a soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; tratado no Plano 5 (janela destruída na bandeja). Para medir de novo: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1` (veja as opções no topo do script).
+- RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB). O número é a soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada. O Plano 5 destrói a janela quando o app fica na bandeja (meta ≤ 30 MB); os dois números precisam ser medidos de novo depois do build do Actions. Para medir de novo: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/medir.ps1` (veja as opções no topo do script).
 - Os scripts do Plano 2 (`quarentena.ps1`, `sistema.ps1`, `programas.ps1`) foram escritos e revisados fora do Windows; a primeira rodada do Pester e do PSScriptAnalyzer acontece no Actions ou com `tools/ci-local.ps1`.
 - `protegidos.json` cobre drivers NVIDIA, AMD, Intel e Realtek; Synaptics, ELAN, Qualcomm, Conexant e MediaTek ainda aparecem "sem classificação".
-- A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário não estava nesta máquina e entra depois.
+- A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário não estava aqui e entra depois.
 - Atualizações: drivers via Windows Update ficam fora (critério `Type='Software'`). O COM do Windows Update e o `winget` não rodam nos testes (só o parser e a forma da saída): a primeira rodada real é manual, depois do build do Actions.
-- Disco: os textos por resultado seguem o enum `RepairStatus` do `Repair-Volume` lido nesta máquina (`ScanNoErrorsFound`, `ScanErrorsFoundNeedSpotFix`, `NeedOfflineScanAndFix`…), mas qual valor o `-Scan` devolve na prática ainda não foi conferido elevado; um valor fora da lista cai no texto genérico e conta como "com erros". Unidade cujo tipo (HDD/SSD) não dá para ler fica com Otimizar travado.
+- Disco: os textos por resultado seguem o enum `RepairStatus` do `Repair-Volume` lido localmente (`ScanNoErrorsFound`, `ScanErrorsFoundNeedSpotFix`, `NeedOfflineScanAndFix`…), mas qual valor o `-Scan` devolve na prática ainda não foi conferido elevado; um valor fora da lista cai no texto genérico e conta como "com erros". Unidade cujo tipo (HDD/SSD) não dá para ler fica com Otimizar travado.
 - Disco: a última verificação vem do registro do NexTune (`Estado\disco.json`) e dos eventos Wininit 1001 / Chkdsk 26226; verificações feitas por outros caminhos podem não aparecer. `corrigir` marca o bit sujo do volume (`fsutil dirty set`, o mesmo efeito de `chkdsk /f` agendado) em vez de `Repair-Volume -OfflineScanAndFix`, para nunca desmontar uma unidade de dados em uso.
-- RAM na bandeja (meta ≤ 30 MB com a janela destruída) só pode ser medida depois do build do Actions com `tools/medir.ps1`.
 - `createUpdaterArtifacts` e o secret `TAURI_SIGNING_PRIVATE_KEY` entram no Plano 6, depois que o usuário gerar a chave (ver "Chave do atualizador").
-- `Cargo.lock` não foi atualizado localmente (sem Rust nesta máquina): o primeiro build do Actions o regenera e ele deve ser commitado.
-- Modo Jogo, bandeja, autostart, lembretes e atualizador foram verificados só em modo teste/demo; a primeira rodada real é manual depois do build.
+- `Cargo.lock` não foi atualizado localmente (sem Rust localmente): o primeiro build do Actions o regenera e ele deve ser commitado.
+- Modo Jogo, bandeja, autostart, lembretes e atualizador foram verificados só em modo teste/demo; a primeira rodada real é manual depois do build do Actions.
 
 ## Créditos
 
