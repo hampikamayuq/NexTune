@@ -575,8 +575,9 @@ mod testes {
     #[tokio::test]
     async fn modulo_nao_permitido_nao_inicia_processo() {
         let h = novo_host(120);
+        // "programas" era o exemplo até o Plano 2 criar o módulo: precisa ser um nome que nunca exista.
         let r = h
-            .executar("programas", "listar", json!({}), false, |_| {})
+            .executar("inexistente", "listar", json!({}), false, |_| {})
             .await;
         assert!(matches!(
             r,
