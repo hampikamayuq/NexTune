@@ -1,6 +1,6 @@
 # NexTune — Plano 6: Release, site, desinstalador e pastas do sistema
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Deixar o NexTune publicável: Release assinada por tag no GitHub Actions (instalador, `.sig`, `latest.json`, `SHA256.txt`), desinstalador que não deixa resto, app elevado que não confia nas variáveis de ambiente, site de uma página e README para quem baixa.
 
@@ -39,8 +39,8 @@
 - Consumes: `Read-EstadoJogo`, `Restore-EstadoAnterior`, `Get-ArquivoEstado`, `Write-MarcadorJogo` (modojogo.ps1); `Get-AppPastas`, `Write-AppLog`, `Write-Linha`, `Write-JsonAtomico` (common.ps1); `New-Juncao` (_helpers.ps1).
 - Produces: `desinstalar.ps1 [-ApagarDados] [-Teste]` (chamado pela Tarefa 2 com `-ApagarDados` opcional); `Remove-PastaSegura` em `common.ps1`.
 
-- [ ] **Passo 1: mover `Remove-PastaSegura` de `quarentena.ps1` para `common.ps1`** (mesmo corpo); `Invoke-Pester -Path scripts/tests/quarentena.Tests.ps1` → todos passam.
-- [ ] **Passo 2: escrever `scripts/tests/desinstalar.Tests.ps1`** (BOM + CRLF):
+- [x] **Passo 1: mover `Remove-PastaSegura` de `quarentena.ps1` para `common.ps1`** (mesmo corpo); `Invoke-Pester -Path scripts/tests/quarentena.Tests.ps1` → todos passam.
+- [x] **Passo 2: escrever `scripts/tests/desinstalar.Tests.ps1`** (BOM + CRLF):
 
 ```powershell
 BeforeAll {
@@ -91,10 +91,10 @@ Describe 'desinstalar.ps1' {
 }
 ```
 
-- [ ] **Passo 3: rodar e ver falhar** (`Invoke-Pester -Path scripts/tests/desinstalar.Tests.ps1`): 3 falhas, script inexistente.
-- [ ] **Passo 4: escrever `scripts/desinstalar.ps1`** — `param([switch]$ApagarDados, [switch]$Teste)`; dot-source `common.ps1` e `modojogo.ps1`; (1) se `Read-EstadoJogo` existe e legível → `Restore-EstadoAnterior`, apagar o arquivo de estado, `Write-AppLog`; (2) `-Teste` → `Write-MarcadorJogo 'schtasks-delete.txt'`, senão `schtasks.exe /Delete /TN NexTune /F` por caminho absoluto em `[Environment]::GetFolderPath('Windows')` (API, não `$env:`); (3) `-ApagarDados` → `Remove-PastaSegura (Get-AppPastas $Teste).Base` com `try/catch` → `Write-Linha` do erro. Nunca `Write-Host`.
-- [ ] **Passo 5: rodar e ver passar**; `Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error` → 0.
-- [ ] **Passo 6: commit** `feat(desinstalar): script do desinstalador (Modo Jogo, tarefa de início, dados sem seguir junctions)`.
+- [x] **Passo 3: rodar e ver falhar** (`Invoke-Pester -Path scripts/tests/desinstalar.Tests.ps1`): 3 falhas, script inexistente.
+- [x] **Passo 4: escrever `scripts/desinstalar.ps1`** — `param([switch]$ApagarDados, [switch]$Teste)`; dot-source `common.ps1` e `modojogo.ps1`; (1) se `Read-EstadoJogo` existe e legível → `Restore-EstadoAnterior`, apagar o arquivo de estado, `Write-AppLog`; (2) `-Teste` → `Write-MarcadorJogo 'schtasks-delete.txt'`, senão `schtasks.exe /Delete /TN NexTune /F` por caminho absoluto em `[Environment]::GetFolderPath('Windows')` (API, não `$env:`); (3) `-ApagarDados` → `Remove-PastaSegura (Get-AppPastas $Teste).Base` com `try/catch` → `Write-Linha` do erro. Nunca `Write-Host`.
+- [x] **Passo 5: rodar e ver passar**; `Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning,Error` → 0.
+- [x] **Passo 6: commit** `feat(desinstalar): script do desinstalador (Modo Jogo, tarefa de início, dados sem seguir junctions)`.
 
 ### Tarefa 2: hooks NSIS
 
@@ -104,9 +104,9 @@ Describe 'desinstalar.ps1' {
 
 **Interfaces:** consome `scripts/desinstalar.ps1 [-ApagarDados]` instalado em `$INSTDIR\scripts\`; variáveis do template Tauri `$UpdateMode` e `$DeleteAppDataCheckboxState` (conferidas em `installer.nsi` do tauri-bundler: o hook `NSIS_HOOK_PREUNINSTALL` roda antes de `CheckIfAppIsRunning` e da remoção dos recursos).
 
-- [ ] **Passo 1: `hooks.nsh`** com só `NSIS_HOOK_PREUNINSTALL`: `${If} $UpdateMode <> 1` → `$R9 = ""`; se `$DeleteAppDataCheckboxState = 1` → `$R9 = "-ApagarDados"`, senão `MessageBox MB_YESNO|MB_ICONQUESTION "Apagar também a quarentena, os backups e os registros do NexTune (C:\ProgramData\NexTune)?$\r$\nA quarentena pode guardar itens removidos nos últimos 7 dias." /SD IDYES IDNO +2` → `StrCpy $R9 "-ApagarDados"`; `${DisableX64FSRedirection}`; `nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\scripts\desinstalar.ps1" $R9'`; `Pop $R8`; `${EnableX64FSRedirection}`; `${EndIf}`.
-- [ ] **Passo 2: `installerHooks` no `tauri.conf.json`.**
-- [ ] **Passo 3: verificação** só no Actions (sem NSIS local): o build precisa gerar o instalador. Commit `feat(instalador): hook de desinstalação chama desinstalar.ps1 (fora de atualização)`.
+- [x] **Passo 1: `hooks.nsh`** com só `NSIS_HOOK_PREUNINSTALL`: `${If} $UpdateMode <> 1` → `$R9 = ""`; se `$DeleteAppDataCheckboxState = 1` → `$R9 = "-ApagarDados"`, senão `MessageBox MB_YESNO|MB_ICONQUESTION "Apagar também a quarentena, os backups e os registros do NexTune (C:\ProgramData\NexTune)?$\r$\nA quarentena pode guardar itens removidos nos últimos 7 dias." /SD IDYES IDNO +2` → `StrCpy $R9 "-ApagarDados"`; `${DisableX64FSRedirection}`; `nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\scripts\desinstalar.ps1" $R9'`; `Pop $R8`; `${EnableX64FSRedirection}`; `${EndIf}`.
+- [x] **Passo 2: `installerHooks` no `tauri.conf.json`.**
+- [x] **Passo 3: verificação** só no Actions (sem NSIS local): o build precisa gerar o instalador. Commit `feat(instalador): hook de desinstalação chama desinstalar.ps1 (fora de atualização)`.
 
 ### Tarefa 3: pastas do sistema pela API (Rust) e ambiente do host
 
@@ -117,9 +117,9 @@ Describe 'desinstalar.ps1' {
 - Produces: `pub struct Sistema { pub windir, pub program_files, pub program_files_x86, pub program_data, pub appdata, pub local_appdata, pub perfil: PathBuf }`; `pub fn sistema() -> &'static Sistema` (OnceLock); `impl Sistema { pub fn system_drive(&self) -> PathBuf; pub fn variaveis(&self) -> Vec<(&'static str, PathBuf)> }` com as chaves `windir, SystemRoot, SystemDrive, ProgramFiles, ProgramFiles(x86), ProgramData, APPDATA, LOCALAPPDATA, USERPROFILE, TEMP, TMP` (TEMP/TMP = `local_appdata\Temp`).
 - Windows: `GetWindowsDirectoryW` e `SHGetKnownFolderPath(FOLDERID_ProgramFiles | ProgramFilesX86 | ProgramData | RoamingAppData | LocalAppData | Profile, KF_FLAG_DEFAULT, null)` + `CoTaskMemFree`; falha → padrões `C:\Windows`, `C:\Program Files`… Não-Windows: variáveis de ambiente (só compilação/testes fora do Windows).
 
-- [ ] **Passo 1: testes** em `caminhos.rs`: `sistema_devolve_caminhos_absolutos` (todos `is_absolute()`, `windir` termina em `windows` sem caixa, `variaveis()` tem 11 pares com valores absolutos); em `host.rs`: `variaveis_para_o_host_vem_da_api` (`ambiente_host(&mut cmd)` aplica exatamente as chaves de `Sistema::variaveis`; conferir pela lista, não pelo processo).
-- [ ] **Passo 2: implementar**; trocar todo `env_ou`/`env_opt`/`env_pasta` por `sistema()`; `iniciar` chama `ambiente_host(&mut cmd)`.
-- [ ] **Passo 3: `cargo test` e `clippy -D warnings` só no Actions** (sem Rust local): push e ler as anotações. Commit `feat(rust): pastas do sistema pela API do Windows; host PowerShell recebe o ambiente saneado`.
+- [x] **Passo 1: testes** em `caminhos.rs`: `sistema_devolve_caminhos_absolutos` (todos `is_absolute()`, `windir` termina em `windows` sem caixa, `variaveis()` tem 11 pares com valores absolutos); em `host.rs`: `variaveis_para_o_host_vem_da_api` (`ambiente_host(&mut cmd)` aplica exatamente as chaves de `Sistema::variaveis`; conferir pela lista, não pelo processo).
+- [x] **Passo 2: implementar**; trocar todo `env_ou`/`env_opt`/`env_pasta` por `sistema()`; `iniciar` chama `ambiente_host(&mut cmd)`.
+- [x] **Passo 3: `cargo test` e `clippy -D warnings` só no Actions** (sem Rust local): push e ler as anotações. Commit `feat(rust): pastas do sistema pela API do Windows; host PowerShell recebe o ambiente saneado`.
 
 ### Tarefa 4: Release por tag, `-Release` no ci-local e Cargo.lock automático
 
@@ -127,9 +127,9 @@ Describe 'desinstalar.ps1' {
 - Create: `src-tauri/tauri.release.conf.json` = `{"bundle":{"createUpdaterArtifacts":true}}`
 - Modify: `tools/ci-local.ps1` (switch `-Release`), `.github/workflows/build.yml`
 
-- [ ] **Passo 1: `ci-local.ps1 -Release`**: antes de qualquer passo, se `-Release` e `$env:TAURI_SIGNING_PRIVATE_KEY` vazio → `Stop-ComFalha 'TAURI_SIGNING_PRIVATE_KEY ausente: configure o secret antes de criar a tag'`; o build vira `npm run build -- --config src-tauri/tauri.release.conf.json`; depois do build exige `*-setup.exe.sig` ao lado do instalador.
-- [ ] **Passo 2: `build.yml`**: `permissions: contents: write`; passo de build com `env: TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}` e `-Release` quando `github.ref_type == 'tag'`; em tag, antes do build, falhar se `v<version do tauri.conf.json> != github.ref_name`; novo passo "Commitar Cargo.lock" (`if: !cancelled() && github.ref == 'refs/heads/main'`; commit como `github-actions[bot]` + `git push` só se `git status --porcelain src-tauri/Cargo.lock` não vazio); novo passo "Release (rascunho)" em tag: monta `latest.json` (`version`, `pub_date` RFC 3339, `notes`, `platforms.windows-x86_64.{signature = conteúdo do .sig, url = …/releases/download/<tag>/<exe>}`) e `gh release create <tag> --draft --generate-notes --title "NexTune <tag>" <exe> <exe>.sig latest.json SHA256.txt` com `GH_TOKEN: ${{ github.token }}`; remover `src-tauri/Cargo.lock` do artefato.
-- [ ] **Passo 3: verificação**: push em `main` → run verde + commit do bot com `Cargo.lock`; a trilha de tag só pode ser verificada depois do secret (usuário). Commit `ci: release em rascunho por tag (instalador assinado, latest.json) e Cargo.lock commitado pelo Actions`.
+- [x] **Passo 1: `ci-local.ps1 -Release`**: antes de qualquer passo, se `-Release` e `$env:TAURI_SIGNING_PRIVATE_KEY` vazio → `Stop-ComFalha 'TAURI_SIGNING_PRIVATE_KEY ausente: configure o secret antes de criar a tag'`; o build vira `npm run build -- --config src-tauri/tauri.release.conf.json`; depois do build exige `*-setup.exe.sig` ao lado do instalador.
+- [x] **Passo 2: `build.yml`**: `permissions: contents: write`; passo de build com `env: TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}` e `-Release` quando `github.ref_type == 'tag'`; em tag, antes do build, falhar se `v<version do tauri.conf.json> != github.ref_name`; novo passo "Commitar Cargo.lock" (`if: !cancelled() && github.ref == 'refs/heads/main'`; commit como `github-actions[bot]` + `git push` só se `git status --porcelain src-tauri/Cargo.lock` não vazio); novo passo "Release (rascunho)" em tag: monta `latest.json` (`version`, `pub_date` RFC 3339, `notes`, `platforms.windows-x86_64.{signature = conteúdo do .sig, url = …/releases/download/<tag>/<exe>}`) e `gh release create <tag> --draft --generate-notes --title "NexTune <tag>" <exe> <exe>.sig latest.json SHA256.txt` com `GH_TOKEN: ${{ github.token }}`; remover `src-tauri/Cargo.lock` do artefato.
+- [x] **Passo 3: verificação**: push em `main` → run verde + commit do bot com `Cargo.lock`; a trilha de tag só pode ser verificada depois do secret (usuário). Commit `ci: release em rascunho por tag (instalador assinado, latest.json) e Cargo.lock commitado pelo Actions`.
 
 ### Tarefa 5: site e README
 
@@ -137,12 +137,28 @@ Describe 'desinstalar.ps1' {
 - Create: `docs/index.html` (uma página, CSS embutido, sem JS, pt-BR), `docs/.nojekyll`
 - Modify: `README.md`
 
-- [ ] **Passo 1: `docs/index.html`** com: o que o NexTune faz (um parágrafo + lista curta por módulo); o que nunca faz (sem rede a partir da interface, só HTTPS ao GitHub para atualizar; nada apagado sem quarentena/backup; nunca mexe em ACLs; nunca `kill` em programas; sem telemetria); botão "Baixar" → `https://github.com/hampikamayuq/NexTune/releases/latest`; requisitos (Windows 10/11 64 bits, conta de administrador); "Conferir o SHA-256" (`certutil -hashfile … SHA256` × `SHA256.txt`); "Por que o Windows avisa" (SmartScreen: Mais informações → Executar assim mesmo; **Smart App Control**: o que é, que a decisão de desligar é do usuário e irreversível até reinstalar o Windows, e que a versão assinada é prioridade da 1.x — spec 10); "Código aberto": link do repositório e como auditar (`scripts/` em PowerShell legível, Actions público). Verificar no navegador (servidor estático + Playwright, uma captura).
-- [ ] **Passo 2: README**: topo para quem baixa (mesmas seções, resumidas, link do site); seção "Para desenvolvedores" com o conteúdo atual (o que existe, verificação, chave); "Publicar uma versão" (passos: secret, `version` em `tauri.conf.json`/`Cargo.toml`/`package.json`, `git tag vX.Y.Z && git push origin vX.Y.Z`, revisar o rascunho, checklist manual da spec 13, publicar); pendências sem os itens resolvidos aqui (Cargo.lock, `createUpdaterArtifacts`, hooks).
-- [ ] **Passo 3: commit** `docs: site de uma página e README para quem baixa`.
+- [x] **Passo 1: `docs/index.html`** com: o que o NexTune faz (um parágrafo + lista curta por módulo); o que nunca faz (sem rede a partir da interface, só HTTPS ao GitHub para atualizar; nada apagado sem quarentena/backup; nunca mexe em ACLs; nunca `kill` em programas; sem telemetria); botão "Baixar" → `https://github.com/hampikamayuq/NexTune/releases/latest`; requisitos (Windows 10/11 64 bits, conta de administrador); "Conferir o SHA-256" (`certutil -hashfile … SHA256` × `SHA256.txt`); "Por que o Windows avisa" (SmartScreen: Mais informações → Executar assim mesmo; **Smart App Control**: o que é, que a decisão de desligar é do usuário e irreversível até reinstalar o Windows, e que a versão assinada é prioridade da 1.x — spec 10); "Código aberto": link do repositório e como auditar (`scripts/` em PowerShell legível, Actions público). Verificar no navegador (servidor estático + Playwright, uma captura).
+- [x] **Passo 2: README**: topo para quem baixa (mesmas seções, resumidas, link do site); seção "Para desenvolvedores" com o conteúdo atual (o que existe, verificação, chave); "Publicar uma versão" (passos: secret, `version` em `tauri.conf.json`/`Cargo.toml`/`package.json`, `git tag vX.Y.Z && git push origin vX.Y.Z`, revisar o rascunho, checklist manual da spec 13, publicar); pendências sem os itens resolvidos aqui (Cargo.lock, `createUpdaterArtifacts`, hooks).
+- [x] **Passo 3: commit** `docs: site de uma página e README para quem baixa`.
 
 ### Fechamento
 
-- [ ] Rodar `tools/ci-local.ps1 -SoTestes` local (BOM, PSSA, Pester, greps da interface); push; run verde no Actions.
-- [ ] Revisão independente (subagentes): Rust (`caminhos.rs`/`host.rs`), PowerShell + NSIS + workflow. Corrigir CRITICAL/HIGH.
-- [ ] Atualizar este plano (caixas, "Decisões durante a execução"), memória do projeto.
+- [x] Rodar `tools/ci-local.ps1 -SoTestes` local (BOM, PSSA, Pester, greps da interface); push; run verde no Actions.
+- [x] Revisão independente (subagentes): Rust (`caminhos.rs`/`host.rs`), PowerShell + NSIS + workflow. Corrigir CRITICAL/HIGH.
+- [x] Atualizar este plano (caixas, "Decisões durante a execução"), memória do projeto.
+
+## Decisões durante a execução (2026-11-21)
+
+- Execução inline (uma sessão) com revisão independente por dois subagentes ao final (Rust; segurança de PowerShell + NSIS + workflow), em vez de um implementador por tarefa: tarefas pequenas e heterogêneas, e o custo real estava na validação no Actions (sem Rust nem NSIS locais).
+- Release sai como **rascunho** (`gh release create --draft`): publicar é clique do usuário depois do checklist manual; só então `releases/latest/download/latest.json` existe para o atualizador.
+- `Cargo.lock`: o job `publicar` (token de escrita, só código do workflow) commita em `main` o lock gerado pelo job `build` (token só de leitura), só com build verde e só com fontes do crates.io. Push com `GITHUB_TOKEN` não dispara novo run.
+- Chave de assinatura: só no passo do build e só em tag; lint/testes rodam antes, sem segredo. Ações de terceiros fixadas por commit; `rust-cache` desligado em tag.
+- Desinstalador: hook `PREUNINSTALL` com `$UpdateMode` do template Tauri (nada em atualização), `CheckIfAppIsRunning` antes de qualquer passo, pergunta com padrão Sim (`/SD IDYES`), caixa `/DELETEAPPDATA` do Tauri respeitada; limpa `COR_PROFILER`/`COR_ENABLE_PROFILING`/`PSModulePath` do ambiente herdado antes de chamar o PowerShell. Não reabre programas fechados pelo Modo Jogo (sem valor na desinstalação; os `.exe` ficam em pastas do usuário). `%APPDATA%\NexTune` (ajustes) fica.
+- `Get-AppPastas` passou a recusar a base quando é junction e a renomear subpastas com dono não confiável ou link (um usuário comum pode plantá-las antes da primeira execução, e o dono mantém `WRITE_DAC` mesmo depois de reaplicar a DACL do pai). `Remove-PastaSegura` foi para `common.ps1`.
+- Rust: `Sistema` (API) substitui `env_*`; o host nasce com `env_clear()` e lista explícita (12 pastas + `PATH`, `PSModulePath`, `ComSpec`, `PATHEXT` + 6 informativas herdadas). `Path::new("C:").is_absolute()` é falso: o teste pula `SystemDrive`.
+- Pendências aceitas: `pages/reinstall.nsh` do Tauri ("desinstalar antes de instalar") pode rodar o desinstalador sem `/UPDATE`, e aí a pergunta aparece (o usuário pediu desinstalação); `$INSTDIR` de um `uninstall.exe` copiado para outra pasta não é conferido com o `InstallLocation` do registro (exige consentimento de administrador); `__PSLockdownPolicy` em HKCU só causa falha silenciosa (DoS).
+
+## Verificação final (2026-11-21)
+
+- Run #18 (commit a62cfea) verde nos dois jobs: lint, 328 testes Pester, clippy, cargo test e build do instalador (4,44 MB); o job `publicar` commitou o `Cargo.lock` regenerado (046d6e2).
+- Não verificado por falta de ambiente: o hook NSIS em execução real, a trilha de tag (precisa do secret `TAURI_SIGNING_PRIVATE_KEY`) e o desinstalador elevado.
