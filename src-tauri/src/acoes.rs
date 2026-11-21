@@ -41,6 +41,7 @@ const MODULOS: &[&str] = &[
     "disco",
     "atualizacoes",
     "modojogo",
+    "reparo",
 ];
 
 /// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`). A UI roda
@@ -65,6 +66,7 @@ const ESCRITA: &[(&str, &str)] = &[
     ("atualizacoes", "atualizarProgramas"),
     ("modojogo", "ativar"),
     ("modojogo", "desativar"),
+    ("reparo", "reparar"),
 ];
 
 /// Tipos de item que `programas/limparRestos` aceita.
@@ -81,6 +83,8 @@ const MAX_CAMINHO: usize = 1024;
 const MAX_IDS_AJUSTES: usize = 50;
 /// Máximo de ids por chamada de `atualizacoes/instalar|atualizarProgramas`.
 const MAX_IDS_ATUALIZACOES: usize = 50;
+/// Máximo de produtos por chamada de `reparo/reparar`.
+const MAX_IDS_REPARO: usize = 30;
 /// Máximo de executáveis em `modojogo/ativar` (`fechar`).
 const MAX_FECHAR: usize = 50;
 
@@ -124,6 +128,16 @@ fn re_id_ajuste() -> &'static Regex {
 fn re_letra() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"^[A-Z]:$").expect("regex válida"))
+}
+
+/// Código de produto do Windows Installer: GUID entre chaves (`{8-4-4-4-12}`). O PowerShell o recusa
+/// de novo antes de montar qualquer chave de registro; aqui ele nunca vira caminho.
+fn re_id_produto_msi() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"^\{[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\}$")
+            .expect("regex válida")
+    })
 }
 
 /// `Identity.UpdateID` do Windows Update: um GUID sem chaves.
@@ -771,6 +785,26 @@ pub fn validar(
             copiar_simular(&m, &mut saida, teste)?;
             Ok(Value::Object(saida))
         }
+        ("reparo", "diagnosticar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["simular"])?;
+            let mut saida = Map::new();
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("reparo", "reparar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["ids", "confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert(
+                "ids".into(),
+                lista_de_ids(&m, re_id_produto_msi(), MAX_IDS_REPARO, "produto")?,
+            );
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
         ("modojogo", "estado" | "processos") => {
             let m = como_objeto(params)?;
             so_chaves(&m, &["simular"])?;
@@ -1023,7 +1057,7 @@ mod testes {
 
     #[test]
     fn modulos() {
-        assert_eq!(modulos_permitidos().len(), 11);
+        assert_eq!(modulos_permitidos().len(), 12);
         for m in [
             "host",
             "diagnostico",
@@ -1036,6 +1070,7 @@ mod testes {
             "disco",
             "atualizacoes",
             "modojogo",
+            "reparo",
         ] {
             assert!(modulos_permitidos().contains(&m), "{m}");
         }
@@ -1954,6 +1989,48 @@ mod testes {
         assert_eq!(validar("atualizacoes", "listar", &sim, true).unwrap(), sim);
         parametro(validar("atualizacoes", "listar", &sim, false));
         parametro(validar("atualizacoes", "listar", &json!({"x": 1}), false));
+    }
+
+    const ID_MSI: &str = "{37B34C3A-D825-40AF-BB33-A4DA7A6E4782}";
+
+    #[test]
+    fn reparo_diagnosticar_valido_e_invalido() {
+        assert_eq!(
+            validar("reparo", "diagnosticar", &json!({}), false).unwrap(),
+            json!({})
+        );
+        let sim = json!({"simular": {"produtos": []}});
+        assert_eq!(validar("reparo", "diagnosticar", &sim, true).unwrap(), sim);
+        parametro(validar("reparo", "diagnosticar", &sim, false));
+        parametro(validar("reparo", "diagnosticar", &json!({"x": 1}), false));
+        assert!(!e_escrita("reparo", "diagnosticar"));
+    }
+
+    #[test]
+    fn reparo_reparar_exige_confirmacao_e_guid_com_chaves() {
+        assert!(e_escrita("reparo", "reparar"));
+        let p = json!({"ids": [ID_MSI], "confirmado": true});
+        assert_eq!(validar("reparo", "reparar", &p, false).unwrap(), p);
+        parametro(validar("reparo", "reparar", &json!({"ids": [ID_MSI]}), false));
+        parametro(validar("reparo", "reparar", &json!({"ids": [ID_MSI], "confirmado": false}), false));
+        parametro(validar("reparo", "reparar", &json!({"ids": [], "confirmado": true}), false));
+        // sem chaves, curto demais, com caminho de registro ou texto qualquer: recusado
+        for ruim in [
+            "37B34C3A-D825-40AF-BB33-A4DA7A6E4782",
+            "{37B34C3A-D825-40AF-BB33-A4DA7A6E478}",
+            r"{37B34C3A-D825-40AF-BB33-A4DA7A6E4782}\..\x",
+            "HKLM\\SOFTWARE",
+        ] {
+            parametro(validar("reparo", "reparar", &json!({"ids": [ruim], "confirmado": true}), false));
+        }
+        let muitos: Vec<String> = (0..=MAX_IDS_REPARO)
+            .map(|i| format!("{{37B34C3A-D825-40AF-BB33-{i:012}}}"))
+            .collect();
+        parametro(validar("reparo", "reparar", &json!({"ids": muitos, "confirmado": true}), false));
+        assert!(matches!(
+            validar("reparo", "apagar", &json!({}), false),
+            Err(ErroValidacao::NaoPermitida(_))
+        ));
     }
 
     #[test]

@@ -1,0 +1,20 @@
+{
+  "naoReparar": [
+    {
+      "padrao": "^NexTune",
+      "motivo": "É este programa."
+    },
+    {
+      "padrao": "^Microsoft Edge WebView2|EdgeWebView|^Microsoft Edge",
+      "motivo": "O NexTune e outros programas dependem dele: reinstale pelo instalador da Microsoft em vez de remover o registro."
+    },
+    {
+      "padrao": "^Microsoft Update Health Tools|PC Health Check|Verificação de integridade do PC Windows",
+      "motivo": "Componente do Windows Update: o Windows o reinstala sozinho."
+    },
+    {
+      "padrao": "^Windows |^Microsoft Windows",
+      "motivo": "Faz parte do Windows: o reparo é pelo Windows Update ou pelo sfc /scannow."
+    }
+  ]
+}
