@@ -1,12 +1,14 @@
 # Compila o NexTune para Windows nos servidores do GitHub.
-# - job build (token só de leitura): a mesma verificação do PC (tools/ci-local.ps1: BOM,
-#   PSScriptAnalyzer, Pester, checagens da interface, clippy, cargo test, build e limite de tamanho
-#   do instalador) e guarda instalador + SHA256.txt (+ .sig em tag) e o Cargo.lock como artefatos.
-#   O secret de assinatura só entra em tag v*.
-# - job publicar (token com escrita, roda só código do próprio workflow): em main, commita o
-#   Cargo.lock que o build regenerou (não há Rust na máquina de desenvolvimento); em tag v*, cria a
-#   Release como RASCUNHO com instalador, .sig, latest.json e SHA256.txt. Publicar é manual, depois
-#   do checklist da spec (seção 13).
+# - job build (token só de leitura, sem credenciais persistidas): a mesma verificação do PC
+#   (tools/ci-local.ps1: BOM, PSScriptAnalyzer, Pester, checagens da interface, clippy, cargo test)
+#   num passo sem segredo nenhum, e o build do instalador em outro; a chave de assinatura entra só
+#   nesse segundo passo e só em tag v*. Guarda instalador + SHA256.txt (+ .sig em tag) e o Cargo.lock
+#   como artefatos.
+# - job publicar (token com escrita; roda só código deste workflow): em main, se o build passou,
+#   commita o Cargo.lock que ele regenerou (não há Rust na máquina de desenvolvimento), depois de
+#   conferir que todas as fontes são o crates.io; em tag v*, cria a Release como RASCUNHO com
+#   instalador, .sig, latest.json e SHA256.txt. Publicar é manual, depois do checklist da spec (13).
+# Ações de terceiros fixadas por commit (tag/branch anotados ao lado).
 
 name: Compilar NexTune
 
@@ -23,17 +25,19 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
-      - uses: Swatinem/rust-cache@v2
+      # Cache só fora de tag: o build assinado não reaproveita nada de outros runs.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: github.ref_type != 'tag'
         with:
           workspaces: src-tauri
 
@@ -56,24 +60,30 @@ jobs:
             exit 1
           }
 
-      - name: Verificar e compilar (lint, testes, build e tamanho)
+      - name: Verificar (lint, testes, clippy, cargo test)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1 -SoTestes
+          exit $LASTEXITCODE
+
+      - name: Guardar o Cargo.lock regenerado
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cargo-lock
+          path: src-tauri/Cargo.lock
+
+      - name: Compilar o instalador (assinado em tag)
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ github.ref_type == 'tag' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
         run: |
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1 -Release
+            powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1 -SoBuild -Release
           } else {
-            powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1
+            powershell -NoProfile -ExecutionPolicy Bypass -File tools/ci-local.ps1 -SoBuild
           }
           exit $LASTEXITCODE
-
-      - name: Guardar o Cargo.lock regenerado
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-lock
-          path: src-tauri/Cargo.lock
 
       - name: Calcular SHA-256 do instalador
         shell: pwsh
@@ -84,7 +94,7 @@ jobs:
           } | Set-Content "$dir/SHA256.txt"
           Get-Content "$dir/SHA256.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: NexTune-windows
           path: |
@@ -94,14 +104,14 @@ jobs:
 
   publicar:
     needs: build
-    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
+    if: ${{ needs.build.result == 'success' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: cargo-lock
           path: lock
@@ -109,6 +119,10 @@ jobs:
       - name: Commitar Cargo.lock regenerado
         if: github.ref == 'refs/heads/main'
         run: |
+          # O lock vem do job de build (código de terceiros rodou lá): só fontes do crates.io passam.
+          if grep '^source = ' lock/Cargo.lock | grep -v 'registry+https://github.com/rust-lang/crates.io-index'; then
+            echo '::error::Cargo.lock com fonte fora do crates.io'; exit 1
+          fi
           cp lock/Cargo.lock src-tauri/Cargo.lock
           if git diff --quiet -- src-tauri/Cargo.lock; then
             echo 'Cargo.lock já está atualizado'
@@ -120,14 +134,14 @@ jobs:
             git push
           fi
 
-      - uses: actions/download-artifact@v4
-        if: github.ref_type == 'tag' && needs.build.result == 'success'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: github.ref_type == 'tag'
         with:
           name: NexTune-windows
           path: dist
 
       - name: Criar a Release (rascunho) com latest.json
-        if: github.ref_type == 'tag' && needs.build.result == 'success'
+        if: github.ref_type == 'tag'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

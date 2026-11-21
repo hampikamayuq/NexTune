@@ -7,8 +7,11 @@
     $Script:Marcadores = Join-Path $Script:Base 'modojogo'
     $Script:Fora = Join-Path $env:TEMP 'NexTuneForaTeste'
     $Script:Guid = '381b4222-f694-41f0-9685-ff5bb260df2e'
-    # O script sobrescreve PSModulePath no processo (roda aqui mesmo, nao em processo filho).
-    $Script:ModulePathAntes = $env:PSModulePath
+    # O script sobrescreve variaveis de ambiente no processo (roda aqui mesmo, nao em processo filho).
+    $Script:EnvAntes = @{}
+    foreach ($k in @('PSModulePath', 'windir', 'SystemRoot', 'SystemDrive', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE')) {
+        $Script:EnvAntes[$k] = [Environment]::GetEnvironmentVariable($k)
+    }
     function Write-EstadoFalso {
         $e = [ordered]@{ ativo = $true; preset = 'suave'; desde = '2026-11-21T10:00:00'; fechados = @(); naoFechados = @(); servicosPausados = @(); planoAplicado = $true; planoAnterior = $Script:Guid; notificacoesAplicadas = $false }
         Write-JsonAtomico (Join-Path (Get-AppPastas $true).Estado 'modojogo.json') $e
@@ -16,7 +19,7 @@
 }
 
 AfterAll {
-    $env:PSModulePath = $Script:ModulePathAntes
+    foreach ($k in $Script:EnvAntes.Keys) { [Environment]::SetEnvironmentVariable($k, $Script:EnvAntes[$k]) }
     foreach ($p in @((Join-Path $env:TEMP 'NexTuneTeste'), $Script:Fora)) {
         if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }
     }
@@ -50,5 +53,17 @@ Describe 'desinstalar.ps1' {
         & $Script:Script -Teste -ApagarDados
         $Script:Base | Should -Not -Exist
         (Join-Path $Script:Fora 'alvo.txt') | Should -Exist
+    }
+
+    It 'recusa tudo quando a propria pasta de dados e uma junction' {
+        Remove-Item -LiteralPath $Script:Base -Recurse -Force
+        New-Item -ItemType Directory -Path $Script:Fora -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $Script:Fora 'alvo.txt') -Value 'fica'
+        New-Juncao $Script:Base $Script:Fora
+        try {
+            & $Script:Script -Teste -ApagarDados
+            $LASTEXITCODE | Should -Be 1
+            (Join-Path $Script:Fora 'alvo.txt') | Should -Exist
+        } finally { Remove-Juncao $Script:Base }
     }
 }

@@ -24,9 +24,15 @@ $env:PSModulePath = "$PSHOME\Modules;$env:ProgramFiles\WindowsPowerShell\Modules
 . "$PSScriptRoot\common.ps1"
 . "$PSScriptRoot\modojogo.ps1"
 
+# Get-AppPastas recusa (throw) a pasta de dados quando ela e um link/junction: nesse caso nada e tocado.
+try { $pastas = Get-AppPastas $Teste }
+catch { Write-Linha ('desinstalar: ' + $_.Exception.Message); exit 1 }
+
 $lido = Read-EstadoJogo $Teste
 if ($lido.existe -and -not $lido.ilegivel) {
-    $r = Restore-EstadoAnterior $lido.estado $Teste
+    # Sem reabrir programas: na desinstalacao nao ha valor nisso, e os .exe gravados ficam em pastas do usuario.
+    $estado = $lido.estado | Select-Object -Property * -ExcludeProperty fechados
+    $r = Restore-EstadoAnterior $estado $Teste
     Remove-Item -LiteralPath (Get-ArquivoEstado $Teste) -Force -ErrorAction SilentlyContinue
     Write-AppLog ('desinstalar: Modo Jogo desfeito (falhas: ' + @($r.falhas).Count + ')') $Teste
 }
@@ -35,7 +41,6 @@ if ($Teste) { Write-MarcadorJogo 'schtasks-delete.txt' 'schtasks /Delete /TN Nex
 else { & "$pastaWin\System32\schtasks.exe" /Delete /TN NexTune /F 2>$null | Out-Null }
 
 if ($ApagarDados) {
-    $base = (Get-AppPastas $Teste).Base
-    try { Remove-PastaSegura $base }
-    catch { Write-Linha ('desinstalar: nao foi possivel apagar ' + $base + ': ' + $_.Exception.Message) }
+    try { Remove-PastaSegura $pastas.Base }
+    catch { Write-Linha ('desinstalar: nao foi possivel apagar ' + $pastas.Base + ': ' + $_.Exception.Message) }
 }

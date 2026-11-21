@@ -1,6 +1,8 @@
-﻿param([switch]$SoTestes, [switch]$Release)
+﻿param([switch]$SoTestes, [switch]$SoBuild, [switch]$Release)
 
 # Verificação local equivalente ao CI. Sai com código 1 na primeira falha.
+# -SoTestes: tudo menos o build. -SoBuild: só o build e o tamanho (o CI separa os dois para a chave de
+# assinatura só existir no passo do build). -Release: artefatos assinados do atualizador, com --locked.
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
@@ -40,6 +42,7 @@ function Invoke-Passo([string]$Nome, [scriptblock]$Bloco) {
     }
 }
 
+if (-not $SoBuild) {
 # 0. Todo .ps1 deve ser UTF-8 com BOM (EF BB BF), senão o PowerShell 5.1 lê como ANSI
 Write-Host "==> BOM UTF-8" -ForegroundColor Cyan
 $semBom = @(Get-ChildItem -Path scripts, tools -Filter "*.ps1" -Recurse | Where-Object {
@@ -125,10 +128,12 @@ if ($semI18n.Count -gt 0) {
 # 3. Rust
 Invoke-Passo 'cargo clippy' { cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings }
 Invoke-Passo 'cargo test'   { cargo test --manifest-path src-tauri/Cargo.toml }
+}
 
 # 4. Build e tamanho do instalador (somente sem -SoTestes)
 if (-not $SoTestes) {
-    if ($Release) { Invoke-Passo 'npm run build (release)' { npm run build -- --config src-tauri/tauri.release.conf.json } }
+    # Em release o Cargo.lock commitado é lei (--locked): o que foi testado em main é o que vai no instalador.
+    if ($Release) { Invoke-Passo 'npm run build (release)' { npm run build -- --config src-tauri/tauri.release.conf.json -- --locked } }
     else { Invoke-Passo 'npm run build' { npm run build } }
     $instaladores = @(Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis' -Filter '*.exe' -ErrorAction SilentlyContinue)
     if ($instaladores.Count -eq 0) { Stop-ComFalha 'instalador NSIS não encontrado' }

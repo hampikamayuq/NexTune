@@ -288,6 +288,8 @@ function Set-PlanoEnergia {
     [CmdletBinding()]
     param([string]$Guid, [bool]$Teste, $Sim = $null)
     if ($Teste -and $null -ne $Sim -and $Sim.falharPlano -eq $true) { throw 'powercfg simulado falhou' }
+    # O GUID vem do estado em disco: so a forma exata chega ao powercfg (o PS 5.1 nao escapa aspas em argumentos).
+    if ($Guid -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw "GUID de plano inválido: $Guid" }
     if ($Teste) { Write-MarcadorJogo ('powercfg-' + $Guid + '.txt') 'powercfg /setactive'; return }
     & "$env:windir\System32\powercfg.exe" /setactive $Guid | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "powercfg terminou com código $LASTEXITCODE" }

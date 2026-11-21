@@ -86,10 +86,15 @@ function Get-AppPastas {
     [CmdletBinding()]
     param([bool]$Teste = $false)
     $aviso = $null
-    if ($Teste) { $base = Join-Path $env:TEMP 'NexTuneTeste' }
-    else {
-        $base = Join-Path $env:ProgramData 'NexTune'
-        # %ProgramData% deixa qualquer usuario criar pastas: a nossa precisa de dono e DACL proprios.
+    $base = if ($Teste) { Join-Path $env:TEMP 'NexTuneTeste' } else { Join-Path $env:ProgramData 'NexTune' }
+    # Qualquer usuario cria pastas em %ProgramData%: se a nossa ja existe como junction/link, nada aqui e
+    # confiavel (Get-Acl e a propria limpeza seguiriam o link). Recusa em vez de "corrigir".
+    if ((Test-Path -LiteralPath $base) -and (Test-Reparse (Get-Item -LiteralPath $base -Force))) {
+        throw "a pasta de dados $base é um link ou junção: recusada"
+    }
+    if (-not $Teste) {
+        # A nossa pasta precisa de dono e DACL proprios; subpastas plantadas antes (dono nao confiavel ou
+        # link) saem do caminho, porque o dono mantem WRITE_DAC mesmo depois de reaplicar a DACL do pai.
         if (-not $Script:BaseVerificada) {
             try {
                 if (-not (Test-Path -LiteralPath $base)) { Set-SegurancaPastaApp $base }
@@ -99,6 +104,13 @@ function Get-AppPastas {
                     if (-not (Test-SidConfiavel $dono) -or -not $acl.AreAccessRulesProtected) {
                         Set-SegurancaPastaApp $base
                         $aviso = "aviso: permissões de $base corrigidas (dono anterior $dono)"
+                    }
+                    foreach ($sub in @(Get-ChildItem -LiteralPath $base -Directory -Force -ErrorAction Stop)) {
+                        if ((Test-Reparse $sub) -or -not (Test-SidConfiavel (Get-DonoSid $sub.FullName))) {
+                            $novo = $sub.Name + '.suspeito-' + [DateTime]::UtcNow.Ticks
+                            Rename-Item -LiteralPath $sub.FullName -NewName $novo -Force -ErrorAction Stop
+                            $aviso = "aviso: $($sub.FullName) não era nossa (link ou dono estranho); renomeada para $novo"
+                        }
                     }
                 }
                 $Script:BaseVerificada = $true
