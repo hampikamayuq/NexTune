@@ -37,7 +37,7 @@ pub(crate) fn pasta_system32() -> PathBuf {
     if n > 0 && n < buf.len() {
         PathBuf::from(String::from_utf16_lossy(&buf[..n]))
     } else {
-        crate::caminhos::env_ou("SystemRoot", r"C:\Windows").join("System32")
+        crate::caminhos::sistema().windir.join("System32")
     }
 }
 
@@ -45,6 +45,14 @@ pub(crate) fn pasta_system32() -> PathBuf {
 #[cfg(not(windows))]
 pub(crate) fn pasta_system32() -> PathBuf {
     PathBuf::new()
+}
+
+/// Pastas do sistema vindas da API, não do ambiente herdado (que um processo sem elevação altera):
+/// os scripts seguem lendo `$env:windir`, `$env:ProgramData` etc., mas com valores confiáveis.
+fn ambiente_host(cmd: &mut Command) {
+    for (k, v) in crate::caminhos::sistema().variaveis() {
+        cmd.env(k, v);
+    }
 }
 
 /// `powershell.exe` por caminho absoluto em System32 (nunca pela busca do PATH).
@@ -195,6 +203,7 @@ impl Interno {
         if !self.allowlist_extra.is_empty() {
             cmd.arg("-AllowlistExtra").args(&self.allowlist_extra);
         }
+        ambiente_host(&mut cmd);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -560,6 +569,22 @@ mod testes {
             .expect("canal fechado");
         assert!(matches!(ev.mensagem, Mensagem::Progresso { .. }));
         (ev.id, tarefa)
+    }
+
+    #[test]
+    fn variaveis_para_o_host_vem_da_api() {
+        let mut cmd = Command::new("x");
+        ambiente_host(&mut cmd);
+        let chaves: Vec<_> = cmd
+            .as_std()
+            .get_envs()
+            .map(|(k, _)| k.to_os_string())
+            .collect();
+        let esperadas = crate::caminhos::sistema().variaveis();
+        assert_eq!(chaves.len(), esperadas.len());
+        for (k, _) in esperadas {
+            assert!(chaves.iter().any(|c| c == k), "{k}");
+        }
     }
 
     #[tokio::test]

@@ -12,16 +12,130 @@ pub struct Pastas {
     pub data: PathBuf,
 }
 
-fn env_pasta(nome: &str) -> PathBuf {
-    std::env::var_os(nome)
-        .map(PathBuf::from)
-        .unwrap_or_default()
+/// Pastas do sistema lidas da API do Windows, nunca das variáveis de ambiente: um processo sem
+/// elevação altera `HKCU\Environment`, e este app (elevado) herdaria `windir`/`ProgramFiles` falsos.
+#[derive(Debug, Clone)]
+pub struct Sistema {
+    pub windir: PathBuf,
+    pub program_files: PathBuf,
+    pub program_files_x86: PathBuf,
+    pub program_data: PathBuf,
+    pub appdata: PathBuf,
+    pub local_appdata: PathBuf,
+    pub perfil: PathBuf,
+}
+
+impl Sistema {
+    /// `C:` a partir da pasta do Windows.
+    pub fn system_drive(&self) -> PathBuf {
+        let s = self.windir.to_string_lossy();
+        PathBuf::from(s.get(..2).filter(|p| p.ends_with(':')).unwrap_or("C:"))
+    }
+
+    /// Variáveis que o host PowerShell recebe no lugar das herdadas (os scripts seguem lendo `$env:`).
+    pub fn variaveis(&self) -> Vec<(&'static str, PathBuf)> {
+        let temp = self.local_appdata.join("Temp");
+        vec![
+            ("windir", self.windir.clone()),
+            ("SystemRoot", self.windir.clone()),
+            ("SystemDrive", self.system_drive()),
+            ("ProgramFiles", self.program_files.clone()),
+            ("ProgramFiles(x86)", self.program_files_x86.clone()),
+            ("ProgramData", self.program_data.clone()),
+            ("APPDATA", self.appdata.clone()),
+            ("LOCALAPPDATA", self.local_appdata.clone()),
+            ("USERPROFILE", self.perfil.clone()),
+            ("TEMP", temp.clone()),
+            ("TMP", temp),
+        ]
+    }
+}
+
+pub fn sistema() -> &'static Sistema {
+    static S: OnceLock<Sistema> = OnceLock::new();
+    S.get_or_init(ler_sistema)
+}
+
+/// Variável de ambiente ou padrão: só como último recurso, quando a API falha (ou fora do Windows).
+fn env_ou(nome: &str, padrao: &str) -> PathBuf {
+    match std::env::var_os(nome) {
+        Some(v) if !v.is_empty() => PathBuf::from(v),
+        _ => PathBuf::from(padrao),
+    }
+}
+
+#[cfg(windows)]
+fn ler_sistema() -> Sistema {
+    use windows_sys::Win32::UI::Shell::{
+        FOLDERID_LocalAppData, FOLDERID_Profile, FOLDERID_ProgramData, FOLDERID_ProgramFiles,
+        FOLDERID_ProgramFilesX86, FOLDERID_RoamingAppData,
+    };
+    let ou_env =
+        |id, nome: &str, padrao: &str| pasta_conhecida(id).unwrap_or_else(|| env_ou(nome, padrao));
+    Sistema {
+        windir: pasta_windows().unwrap_or_else(|| env_ou("windir", r"C:\Windows")),
+        program_files: ou_env(&FOLDERID_ProgramFiles, "ProgramFiles", r"C:\Program Files"),
+        program_files_x86: ou_env(
+            &FOLDERID_ProgramFilesX86,
+            "ProgramFiles(x86)",
+            r"C:\Program Files (x86)",
+        ),
+        program_data: ou_env(&FOLDERID_ProgramData, "ProgramData", r"C:\ProgramData"),
+        appdata: ou_env(&FOLDERID_RoamingAppData, "APPDATA", ""),
+        local_appdata: ou_env(&FOLDERID_LocalAppData, "LOCALAPPDATA", ""),
+        perfil: ou_env(&FOLDERID_Profile, "USERPROFILE", ""),
+    }
+}
+
+#[cfg(not(windows))]
+fn ler_sistema() -> Sistema {
+    Sistema {
+        windir: env_ou("windir", r"C:\Windows"),
+        program_files: env_ou("ProgramFiles", r"C:\Program Files"),
+        program_files_x86: env_ou("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        program_data: env_ou("ProgramData", r"C:\ProgramData"),
+        appdata: env_ou("APPDATA", ""),
+        local_appdata: env_ou("LOCALAPPDATA", ""),
+        perfil: env_ou("USERPROFILE", ""),
+    }
+}
+
+/// `GetWindowsDirectoryW`; `None` se falhar.
+#[cfg(windows)]
+fn pasta_windows() -> Option<PathBuf> {
+    use windows_sys::Win32::System::SystemInformation::GetWindowsDirectoryW;
+    let mut buf = [0u16; 260];
+    // SAFETY: `buf` é válido e o tamanho passado é o do buffer.
+    let n = unsafe { GetWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    (n > 0 && n < buf.len()).then(|| PathBuf::from(String::from_utf16_lossy(&buf[..n])))
+}
+
+/// `SHGetKnownFolderPath` do token deste processo; `None` se falhar.
+#[cfg(windows)]
+fn pasta_conhecida(id: &windows_sys::core::GUID) -> Option<PathBuf> {
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
+    let mut p: *mut u16 = std::ptr::null_mut();
+    // SAFETY: `id` e `p` são válidos; a string devolvida termina em zero e é liberada com CoTaskMemFree.
+    unsafe {
+        if SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut p) != 0 || p.is_null() {
+            return None;
+        }
+        let mut n = 0;
+        while *p.add(n) != 0 {
+            n += 1;
+        }
+        let s = String::from_utf16_lossy(std::slice::from_raw_parts(p, n));
+        CoTaskMemFree(p as _);
+        Some(PathBuf::from(s))
+    }
 }
 
 fn pastas_de_ambiente(scripts: PathBuf, data: PathBuf) -> Pastas {
+    let s = sistema();
     Pastas {
-        appdata: env_pasta("APPDATA").join("NexTune"),
-        programdata: env_pasta("ProgramData").join("NexTune"),
+        appdata: s.appdata.join("NexTune"),
+        programdata: s.program_data.join("NexTune"),
         scripts,
         data,
     }
@@ -96,19 +210,6 @@ fn resolver(p: &str) -> String {
     partes.join("\\")
 }
 
-pub(crate) fn env_ou(nome: &str, padrao: &str) -> PathBuf {
-    match std::env::var_os(nome) {
-        Some(v) if !v.is_empty() => PathBuf::from(v),
-        _ => PathBuf::from(padrao),
-    }
-}
-
-fn env_opt(nome: &str) -> Option<PathBuf> {
-    std::env::var_os(nome)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
 /// Espelha `Test-ProtectedPath` de `scripts/common.ps1` (defesa em profundidade, spec 9.3).
 /// A expansão de nomes curtos 8.3 é feita apenas no lado PowerShell; aqui a comparação é
 /// lexical (minúsculas, sem `\` final, `.`/`..` resolvidos). Caminho vazio ou relativo é protegido.
@@ -128,26 +229,20 @@ pub fn caminho_protegido(p: &Path) -> bool {
         return true; // raiz de unidade
     }
 
-    let windir = env_ou("windir", "C:\\Windows");
-    let base = env_opt("ProgramData")
-        .map(|d| d.join("NexTune"))
-        .unwrap_or_default();
-    for pre in [&windir, &base] {
-        let s = pre.to_string_lossy();
-        if s.is_empty() {
-            continue;
-        }
-        let x = normalizar(&s);
+    let s = sistema();
+    let windir = &s.windir;
+    let base = s.program_data.join("NexTune");
+    for pre in [windir, &base] {
+        let x = normalizar(&pre.to_string_lossy());
         if n == x || n.starts_with(&format!("{x}\\")) {
             return true;
         }
     }
 
-    let pf = env_ou("ProgramFiles", "C:\\Program Files");
-    let pf86 = env_ou("ProgramFiles(x86)", "C:\\Program Files (x86)");
-
-    let mut exatos: Vec<PathBuf> = vec![
-        env_ou("SystemDrive", "C:"),
+    let (pf, pf86) = (&s.program_files, &s.program_files_x86);
+    let menu = "Microsoft\\Windows\\Start Menu\\Programs";
+    let exatos: Vec<PathBuf> = vec![
+        s.system_drive(),
         windir.clone(),
         windir.join("System32"),
         windir.join("SysWOW64"),
@@ -159,20 +254,19 @@ pub fn caminho_protegido(p: &Path) -> bool {
         pf.join("Microsoft"),
         pf86.join("Microsoft"),
         base,
+        s.program_data.clone(),
+        s.program_data.join("Microsoft"),
+        s.program_data.join(menu),
+        s.appdata.clone(),
+        s.appdata.join("Microsoft"),
+        s.appdata.join(menu),
+        s.local_appdata.clone(),
+        s.local_appdata.join("Programs"),
+        s.local_appdata.join("Microsoft"),
+        s.perfil.clone(),
+        s.perfil.join("Documents"),
+        s.perfil.join("Desktop"),
     ];
-    let menu = "Microsoft\\Windows\\Start Menu\\Programs";
-    if let Some(d) = env_opt("ProgramData") {
-        exatos.extend([d.clone(), d.join("Microsoft"), d.join(menu)]);
-    }
-    if let Some(d) = env_opt("APPDATA") {
-        exatos.extend([d.clone(), d.join("Microsoft"), d.join(menu)]);
-    }
-    if let Some(d) = env_opt("LOCALAPPDATA") {
-        exatos.extend([d.clone(), d.join("Programs"), d.join("Microsoft")]);
-    }
-    if let Some(d) = env_opt("USERPROFILE") {
-        exatos.extend([d.clone(), d.join("Documents"), d.join("Desktop")]);
-    }
     for e in exatos {
         let s = e.to_string_lossy();
         if s.is_empty() {
@@ -236,6 +330,22 @@ mod testes {
             sem_prefixo_verbatim(PathBuf::from(r"\\?\UNC\srv\p")),
             PathBuf::from(r"\\?\UNC\srv\p")
         );
+    }
+
+    #[test]
+    fn sistema_devolve_caminhos_absolutos() {
+        let s = sistema();
+        let v = s.variaveis();
+        assert_eq!(v.len(), 11);
+        for (k, p) in &v {
+            assert!(p.is_absolute(), "{k}: {}", p.display());
+        }
+        assert!(
+            s.windir.to_string_lossy().to_lowercase().ends_with("windows"),
+            "{}",
+            s.windir.display()
+        );
+        assert_eq!(s.system_drive().to_string_lossy().len(), 2);
     }
 
     #[test]

@@ -14,7 +14,6 @@
 //!   ao shell do usuário, então o navegador abre sem elevação), sem shell intermediário e sem
 //!   janela de console.
 
-use crate::caminhos::env_ou;
 use crate::comandos::Estado;
 use regex::Regex;
 use std::path::{Path, PathBuf};
@@ -190,13 +189,8 @@ fn exe_sob(exe: &Path, raizes: &[PathBuf]) -> bool {
 
 /// O executável está instalado (sob `%ProgramFiles%` ou `%ProgramFiles(x86)%`).
 pub fn exe_em_program_files(exe: &Path) -> bool {
-    exe_sob(
-        exe,
-        &[
-            env_ou("ProgramFiles", r"C:\Program Files"),
-            env_ou("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-        ],
-    )
+    let s = crate::caminhos::sistema();
+    exe_sob(exe, &[s.program_files.clone(), s.program_files_x86.clone()])
 }
 
 /// Escapa texto para conteúdo de elemento XML.
