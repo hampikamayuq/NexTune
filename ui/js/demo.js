@@ -15,6 +15,8 @@ const demo = {
   _ajustesWin: null,
   _disco: null,
   _atualiz: null,
+  _modoJogo: null,
+  _autostart: false,
   _protecao: false,   // Proteção do Sistema desligada até ligarProtecao (PC de fábrica com disco pequeno)
   _ponto: false,      // criarPonto ainda não rodou nesta sessão
   _seq: 0,
@@ -185,6 +187,7 @@ const demo = {
     if (modulo === 'ajusteswin') return this._executarAjustesWin(acao, params || {});
     if (modulo === 'disco') return this._executarDisco(acao, params || {}, onProgresso);
     if (modulo === 'atualizacoes') return this._executarAtualizacoes(acao, params || {}, onProgresso);
+    if (modulo === 'modojogo') return this._executarModoJogo(acao, params || {});
     if (modulo === 'quarentena') return this._executarQuarentena(acao, params, onProgresso);
     if (modulo === 'sistema') return this._executarSistema(acao, params, onProgresso);
     throw new Error('Ação não disponível na demonstração: ' + modulo + '/' + acao);
@@ -387,6 +390,46 @@ const demo = {
       return { atualizados: feitos, falhas: ids.filter((id) => !feitos.includes(id)).map((id) => ({ id, erro: 'winget terminou com código -1978335189' })) };
     }
     throw new Error('Ação não disponível na demonstração: atualizacoes/' + acao);
+  },
+
+  autostart(ligar) { this._autostart = !!ligar; return this._autostart; },
+
+  _modoJogoInicial() {
+    const p = (exe, nome, mb, protegido) => Object.assign({ exe, nome, caminho: 'C:\\Program Files\\' + nome + '\\' + exe, ramBytes: mb * MB, protegido: !!protegido, motivoProtegido: null }, protegido ? { motivoProtegido: protegido } : {});
+    return {
+      estado: { ativo: false },
+      processos: [
+        p('chrome.exe', 'Google Chrome', 540),
+        p('Spotify.exe', 'Spotify', 210),
+        p('Discord.exe', 'Discord', 320, 'Chat de voz com os amigos.'),
+        p('obs64.exe', 'OBS Studio', 260, 'Gravação/transmissão: fechar perde a live.'),
+        p('soffice.exe', 'LibreOffice', 180),
+      ],
+    };
+  },
+
+  async _executarModoJogo(acao, params) {
+    if (!this._modoJogo) this._modoJogo = this._modoJogoInicial();
+    const M = this._modoJogo;
+    await this._dormir(250);
+    if (acao === 'estado') return JSON.parse(JSON.stringify(M.estado));
+    if (acao === 'processos') return { processos: M.processos.map((x) => Object.assign({}, x)) };
+    if (params.confirmado !== true) throw new Error('É preciso confirmar.');
+    if (acao === 'ativar') {
+      const marcados = M.processos.filter((x) => (params.fechar || []).includes(x.exe));
+      const fechados = marcados.filter((x) => !x.protegido).map((x) => ({ exe: x.exe, caminho: x.caminho }));
+      const naoFechados = marcados.filter((x) => x.protegido).map((x) => ({ exe: x.exe, motivo: x.motivoProtegido }));
+      const servicosPausados = params.preset === 'suave' ? [] : (params.preset === 'a_fundo' ? ['wuauserv', 'BITS', 'WSearch', 'SysMain'] : ['wuauserv', 'BITS']);
+      M.estado = { ativo: true, preset: params.preset, desde: new Date().toISOString(), automatico: false, jogo: params.jogo || null, fechados, naoFechados, servicosPausados, planoAnterior: '381b4222-f694-41f0-9685-ff5bb260df2e', notificacoesAnterior: null, windowsInstalando: false };
+      M.processos = M.processos.filter((x) => !fechados.some((f) => f.exe === x.exe));
+      return { ativo: true, preset: params.preset, fechados: fechados.map((f) => f.exe), naoFechados, servicosPausados, windowsInstalando: false, avisos: [] };
+    }
+    if (acao === 'desativar') {
+      const r = { ativo: false, reabertos: (M.estado.fechados || []).map((f) => f.exe), religados: M.estado.servicosPausados || [], falhas: [] };
+      this._modoJogo = null;
+      return r;
+    }
+    throw new Error('Ação não disponível na demonstração: modojogo/' + acao);
   },
 
   async _executarProgramas(acao, params, onProgresso) {

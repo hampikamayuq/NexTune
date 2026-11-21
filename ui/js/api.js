@@ -7,6 +7,7 @@ const _progresso = {}; // modulo -> callback do evento 'progresso'
 const AJUSTES_PADRAO = {
   idioma: 'pt-BR', modoAvancado: false, pontoRestauracao: 'perguntar', diasQuarentena: 7,
   modoLeve: 'auto', tourVisto: false, ultimaVersao: '',
+  jogos: [], modoJogoAuto: false, modoJogoPreset: 'suave', lembretes: false, lembretesDias: 3, bandeja: false,
 };
 const PERFIS_PADRAO = {
   classes: { basico: { ramGbMax: 4.5, nucleosMax: 2 }, gamer: { gpuDedicada: true, ramGbMin: 16 }, padrao: 'medio' },
@@ -48,6 +49,32 @@ const api = {
       const completo = { ...S.ajustes, ...parcial };
       if (!TAURI) return completo;
       return _invoke('ajustes_gravar', { a: completo });
+    },
+  },
+
+  async abrirUrl(url) {
+    if (!TAURI) return null;
+    return _invoke('abrir_url', { url });
+  },
+
+  async autostart(ligar) {
+    if (!TAURI) return demo.autostart(ligar);
+    return _invoke('autostart', { ligar });
+  },
+
+  async autostartEstado() {
+    if (!TAURI) return demo._autostart;
+    return _invoke('autostart_estado');
+  },
+
+  atualizacao: {
+    async verificar() {
+      if (!TAURI) return null;
+      return _invoke('atualizacao_verificar');
+    },
+    async instalar() {
+      if (!TAURI) throw new Error('demo');
+      return _invoke('atualizacao_instalar');
     },
   },
 

@@ -21,6 +21,8 @@ const S = {
   disco: { estado: null, carregando: false, erro: null },
   // Atualizações: resultado de atualizacoes/listar e as seleções (Windows por UpdateID, programas por id do winget).
   atualiz: { lista: null, carregando: false, erro: null, selWin: new Set(), selProg: new Set(), avancadoListado: null },
+  // Modo Jogo: estado/processos do módulo, marcados para fechar e preset escolhido (null = o dos ajustes).
+  modoJogo: { estado: null, processos: null, sel: new Set(), preset: null, carregando: false, erro: null },
   sessaoOk: null,      // null = ainda não verificado; false = usuário elevado difere do usuário do console
 };
 
