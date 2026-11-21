@@ -13,8 +13,24 @@ function Stop-ComFalha([string]$Mensagem) {
 
 function Invoke-Passo([string]$Nome, [scriptblock]$Bloco) {
     Write-Host "==> $Nome" -ForegroundColor Cyan
-    & $Bloco
-    if ($LASTEXITCODE -ne 0) { Stop-ComFalha "$Nome (código $LASTEXITCODE)" }
+    # Captura a saída (stderr incluído: cargo escreve tudo nele) para, em caso de falha, publicar as linhas de
+    # erro como anotação do GitHub Actions, já que o log completo exige login. Preferência 'Continue' porque,
+    # com 'Stop', a primeira linha de stderr redirecionada de um comando nativo vira exceção no PowerShell 5.1.
+    $linhas = New-Object System.Collections.Generic.List[string]
+    $anterior = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Bloco 2>&1 | ForEach-Object { $s = [string]$_; Write-Host $s; $linhas.Add($s) }
+        $codigo = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $anterior }
+    if ($codigo -ne 0) {
+        $rel = @($linhas | Where-Object { $_ -match '^(error|warning)(\[|:| )|^\s*-->|^\s*=\s*(note|help)|^test .* FAILED|^failures:|panicked at|^thread ' })
+        if ($rel.Count -eq 0) { $rel = @($linhas | Select-Object -Last 40) }
+        $texto = ($rel | Select-Object -First 80) -join '%0A'
+        if ($texto.Length -gt 3800) { $texto = $texto.Substring(0, 3800) }
+        Write-Host ("::error title={0} (código {1})::{2}" -f $Nome, $codigo, $texto)
+        Stop-ComFalha "$Nome (código $codigo)"
+    }
 }
 
 # 0. Todo .ps1 deve ser UTF-8 com BOM (EF BB BF), senão o PowerShell 5.1 lê como ANSI
