@@ -6,11 +6,13 @@
 //!   WebView2); "Abrir" recria a janela `main` a partir de `tauri.conf.json`.
 //! - `autostart(ligar)`: tarefa agendada `NexTune` (logon, privilégio mais alto) que roda
 //!   `"<exe>" --bandeja`, criada por XML (`schtasks /XML`) para rodar na bateria e sem limite de
-//!   tempo; recusa quando o executável não está sob `%ProgramFiles%`/`%ProgramFiles(x86)%` (nunca
+//!   tempo; o XML vai para `%ProgramData%\NexTune\Estado` com nome novo e é apagado depois.
+//!   Recusa quando o executável não está sob `%ProgramFiles%`/`%ProgramFiles(x86)%` (nunca
 //!   aponta para pasta gravável pelo usuário). `autostart_estado()` consulta a tarefa.
 //! - `abrir_url(url)`: só `https://<host>/...` ou `ms-windows-store://pdp/?ProductId=<12>`; abre por
-//!   `%SystemRoot%\explorer.exe "<url>"` (o explorer entrega o link ao shell do usuário, então o
-//!   navegador abre sem elevação), sem shell intermediário e sem janela de console.
+//!   `<Windows>\explorer.exe "<url>"` (pasta via `GetSystemDirectoryW`; o explorer entrega o link
+//!   ao shell do usuário, então o navegador abre sem elevação), sem shell intermediário e sem
+//!   janela de console.
 
 use crate::caminhos::env_ou;
 use crate::comandos::Estado;
@@ -123,6 +125,14 @@ pub(crate) fn system32(nome: &str) -> PathBuf {
     crate::host::pasta_system32().join(nome)
 }
 
+/// Pasta do Windows a partir de `GetSystemDirectoryW` (pai de System32), nunca de `%SystemRoot%`:
+/// o usuário controla as variáveis de ambiente e o app roda elevado.
+fn pasta_windows() -> PathBuf {
+    crate::host::pasta_system32()
+        .parent()
+        .map_or_else(|| PathBuf::from(r"C:\Windows"), Path::to_path_buf)
+}
+
 /// Processo de System32 sem janela de console.
 fn comando_oculto(nome: &str) -> Command {
     comando_oculto_em(system32(nome))
@@ -148,9 +158,9 @@ pub fn abrir_url(url: String, estado: State<'_, Estado>) -> Result<(), String> {
     if estado.demo {
         return Ok(());
     }
-    // `%SystemRoot%\explorer.exe`, não System32: o explorer repassa o link à instância do shell do
+    // `<Windows>\explorer.exe`, não System32: o explorer repassa o link à instância do shell do
     // usuário (token sem elevação); o rundll32 herdaria o token elevado do NexTune.
-    let mut cmd = comando_oculto_em(env_ou("SystemRoot", r"C:\Windows").join("explorer.exe"));
+    let mut cmd = comando_oculto_em(pasta_windows().join("explorer.exe"));
     // Entre aspas: o explorer trata vírgula como separador de opções. `url_permitida` já barra aspas.
     #[cfg(windows)]
     {
@@ -214,14 +224,32 @@ fn xml_tarefa(exe: &str) -> String {
     )
 }
 
-/// Grava em UTF-16 LE com BOM (formato que o `schtasks /XML` sempre aceita).
-fn gravar_utf16(caminho: &Path, texto: &str) -> std::io::Result<()> {
-    if let Some(pasta) = caminho.parent() {
-        std::fs::create_dir_all(pasta)?;
+/// Link simbólico ou junção (reparse point de nome).
+fn e_link(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// Grava o XML da tarefa em `pasta` com nome novo (UTF-16 LE com BOM, formato que o
+/// `schtasks /XML` sempre aceita) e devolve o caminho.
+fn gravar_xml_tarefa(pasta: &Path, texto: &str) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    std::fs::create_dir_all(pasta)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let caminho = pasta.join(format!("autostart-{}-{nanos}.xml", std::process::id()));
+    if pasta.parent().is_some_and(e_link) || e_link(pasta) || e_link(&caminho) {
+        return Err(std::io::Error::other("a pasta de estado é um link"));
     }
     let mut bytes = vec![0xFF, 0xFE];
     bytes.extend(texto.encode_utf16().flat_map(u16::to_le_bytes));
-    std::fs::write(caminho, bytes)
+    // `create_new`: falha se alguém já pôs um arquivo (ou link) com esse nome.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&caminho)?
+        .write_all(&bytes)?;
+    Ok(caminho)
 }
 
 fn autostart_estado_interno() -> bool {
@@ -243,20 +271,26 @@ pub fn autostart(ligar: bool, estado: State<'_, Estado>) -> Result<bool, String>
     if ligar && !exe_em_program_files(&exe) {
         return Err("instalação de desenvolvimento: autostart só com o programa instalado".into());
     }
-    let xml = estado.pastas.appdata.join("autostart.xml");
     let mut cmd = comando_oculto("schtasks.exe");
+    let mut xml = None;
     if ligar {
-        gravar_utf16(&xml, &xml_tarefa(&exe.to_string_lossy()))
-            .map_err(|e| format!("não foi possível gravar a definição da tarefa: {e}"))?;
+        // %ProgramData%\NexTune (DACL só leitura para Users, via `Get-AppPastas`), não %APPDATA%:
+        // lá outro processo do usuário trocaria o XML antes do schtasks elevado ler.
+        let c = gravar_xml_tarefa(
+            &estado.pastas.programdata.join("Estado"),
+            &xml_tarefa(&exe.to_string_lossy()),
+        )
+        .map_err(|e| format!("não foi possível gravar a definição da tarefa: {e}"))?;
         cmd.args(["/Create", "/TN", "NexTune", "/XML"])
-            .arg(&xml)
+            .arg(&c)
             .arg("/F");
+        xml = Some(c);
     } else {
         cmd.args(["/Delete", "/TN", "NexTune", "/F"]);
     }
     let s = cmd.stdout(Stdio::null()).stderr(Stdio::null()).status();
-    if ligar {
-        let _ = std::fs::remove_file(&xml);
+    if let Some(c) = &xml {
+        let _ = std::fs::remove_file(c);
     }
     let s = s.map_err(|e| format!("falha ao rodar schtasks: {e}"))?;
     if !s.success() {
