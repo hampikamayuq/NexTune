@@ -18,6 +18,9 @@ const S = {
   quarentena: { entradas: null, sel: new Set(), erro: null, carregando: false, ultimo: null },
   inicio: { itens: null, carregando: false, erro: null, filtro: 'todos', avancadoListado: null },
   ajustesWin: { lista: null, carregando: false, erro: null, avancadoListado: null },
+  disco: { estado: null, carregando: false, erro: null },
+  // Atualizações: resultado de atualizacoes/listar e as seleções (Windows por UpdateID, programas por id do winget).
+  atualiz: { lista: null, carregando: false, erro: null, selWin: new Set(), selProg: new Set(), avancadoListado: null },
   sessaoOk: null,      // null = ainda não verificado; false = usuário elevado difere do usuário do console
 };
 

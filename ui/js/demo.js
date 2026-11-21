@@ -13,6 +13,8 @@ const demo = {
   _quarentena: null,
   _inicio: null,
   _ajustesWin: null,
+  _disco: null,
+  _atualiz: null,
   _protecao: false,   // Proteção do Sistema desligada até ligarProtecao (PC de fábrica com disco pequeno)
   _ponto: false,      // criarPonto ainda não rodou nesta sessão
   _seq: 0,
@@ -181,6 +183,8 @@ const demo = {
     if (modulo === 'programas') return this._executarProgramas(acao, params, onProgresso);
     if (modulo === 'inicializacao') return this._executarInicializacao(acao, params || {});
     if (modulo === 'ajusteswin') return this._executarAjustesWin(acao, params || {});
+    if (modulo === 'disco') return this._executarDisco(acao, params || {}, onProgresso);
+    if (modulo === 'atualizacoes') return this._executarAtualizacoes(acao, params || {}, onProgresso);
     if (modulo === 'quarentena') return this._executarQuarentena(acao, params, onProgresso);
     if (modulo === 'sistema') return this._executarSistema(acao, params, onProgresso);
     throw new Error('Ação não disponível na demonstração: ' + modulo + '/' + acao);
@@ -285,6 +289,104 @@ const demo = {
       feitos.push(id);
     }
     return acao === 'aplicar' ? { aplicados: feitos, falhas, precisaReiniciar } : { restaurados: feitos, falhas, precisaReiniciar };
+  },
+
+  // C: HDD do sistema nunca verificado (o Início recomenda verificar); D: SSD verificado há 10 dias.
+  _discoInicial() {
+    return {
+      unidades: [
+        { letra: 'C:', rotulo: 'Windows', total: 930 * GB, livre: 412 * GB, tipoDisco: 'hdd', sistema: true, sujo: false, agendada: false, ultimaVerificacao: null, semErros: null, diasSemVerificar: null },
+        { letra: 'D:', rotulo: 'Jogos', total: 480 * GB, livre: 200 * GB, tipoDisco: 'ssd', sistema: false, sujo: false, agendada: false, ultimaVerificacao: this._dia(10), semErros: true, diasSemVerificar: 10 },
+      ],
+      inicioRapido: true,
+    };
+  },
+
+  async _executarDisco(acao, params, onProgresso) {
+    if (!this._disco) this._disco = this._discoInicial();
+    const D = this._disco;
+    const copia = () => ({ unidades: D.unidades.map((u) => Object.assign({}, u)), inicioRapido: D.inicioRapido });
+    if (acao === 'estado') { await this._dormir(200); return copia(); }
+    if (acao === 'reiniciar') {
+      if (params.confirmado !== true) throw new Error('É preciso confirmar.');
+      await this._dormir(200);
+      return { agendado: true };
+    }
+    const u = D.unidades.find((x) => x.letra === params.letra);
+    if (!u) throw new Error('unidade não encontrada: ' + params.letra);
+    if (acao === 'verificar') {
+      await this._simular(onProgresso, 'disco', ['Verificando ' + u.letra + ' (pode levar alguns minutos)…', 'Lendo o resultado…']);
+      u.ultimaVerificacao = new Date().toISOString(); u.semErros = true; u.diasSemVerificar = 0;
+      return { letra: u.letra, resultado: 'NoErrorsFound', semErros: true, verificadoEm: u.ultimaVerificacao };
+    }
+    if (params.confirmado !== true) throw new Error('É preciso confirmar.');
+    if (acao === 'corrigir') {
+      await this._dormir(300);
+      u.sujo = true; u.agendada = true;
+      return { letra: u.letra, agendada: true, inicioRapido: D.inicioRapido };
+    }
+    if (acao === 'otimizar') {
+      if (u.sujo) throw new Error('o volume está marcado para verificação; reinicie o PC antes de otimizar');
+      if (u.semErros !== true) throw new Error('verifique a unidade antes de otimizar (a verificação precisa terminar sem erros)');
+      const operacao = u.tipoDisco === 'ssd' ? 'trim' : 'desfragmentar';
+      await this._simular(onProgresso, 'disco', [operacao === 'trim' ? 'Fazendo TRIM em ' + u.letra + '…' : 'Desfragmentando ' + u.letra + '…']);
+      return { letra: u.letra, operacao };
+    }
+    throw new Error('Ação não disponível na demonstração: disco/' + acao);
+  },
+
+  _atualizIniciais() {
+    const w = (id, titulo, kb, tam, tipo, extra) => Object.assign({ id, titulo, kb, tamanhoBytes: tam, categorias: [], tipo, exigeReinicio: false, excluido: null }, extra || {});
+    return {
+      windows: [
+        w('a1b2c3d4-0001-4000-8000-000000000001', '2026-11 Atualização Cumulativa para Windows 11 Versão 25H2 (KB5048667)', 'KB5048667', 320 * MB, 'seguranca', { exigeReinicio: true }),
+        w('a1b2c3d4-0002-4000-8000-000000000002', '2026-11 Atualização Cumulativa do .NET Framework 3.5 e 4.8.1 (KB5048163)', 'KB5048163', 60 * MB, 'qualidade'),
+        w('a1b2c3d4-0003-4000-8000-000000000003', '2026-11 Cumulative Update Preview for Windows 11 (KB5050094)', 'KB5050094', 400 * MB, 'qualidade', { exigeReinicio: true, excluido: 'preview' }),
+        w('a1b2c3d4-0004-4000-8000-000000000004', 'Windows 11, versão 26H1', null, 4 * GB, 'outro', { exigeReinicio: true, excluido: 'upgrade' }),
+      ],
+      programas: [
+        { id: 'Google.Chrome', nome: 'Google Chrome', versaoAtual: '130.0.6723.117', versaoNova: '131.0.6778.86', origem: 'winget' },
+        { id: 'VideoLAN.VLC', nome: 'VLC media player', versaoAtual: '3.0.20', versaoNova: '3.0.21', origem: 'winget' },
+        { id: 'Spotify.Spotify', nome: 'Spotify', versaoAtual: '1.2.40', versaoNova: '1.2.50', origem: 'winget' },
+      ],
+    };
+  },
+
+  async _executarAtualizacoes(acao, params, onProgresso) {
+    if (!this._atualiz) this._atualiz = this._atualizIniciais();
+    const A = this._atualiz;
+    if (acao === 'listar') {
+      await this._simular(onProgresso, 'atualizacoes', ['Consultando o Windows Update…', 'Consultando o winget…']);
+      const av = params.avancado === true;
+      return {
+        windows: A.windows.filter((w) => av || !w.excluido).map((w) => Object.assign({}, w)),
+        windowsErro: null,
+        programas: A.programas.map((p) => Object.assign({}, p)),
+        winget: { disponivel: true, erro: null },
+      };
+    }
+    if (params.confirmado !== true) throw new Error('É preciso confirmar.');
+    const ids = params.ids || [];
+    if (acao === 'instalar') {
+      const feitos = []; const falhas = []; let precisaReiniciar = false;
+      for (const id of ids) {
+        const w = A.windows.find((x) => x.id === id);
+        if (!w) { falhas.push({ id, erro: 'atualização não está mais disponível' }); continue; }
+        if (w.excluido === 'upgrade') { falhas.push({ id, erro: 'atualização de versão do Windows fica fora do NexTune: use Configurações › Windows Update' }); continue; }
+        if (w.excluido === 'preview' && params.avancado !== true) { falhas.push({ id, erro: 'atualização Preview só no modo avançado' }); continue; }
+        feitos.push(id); if (w.exigeReinicio) precisaReiniciar = true;
+      }
+      await this._simular(onProgresso, 'atualizacoes', ['Baixando ' + feitos.length + ' atualizações…', 'Instalando…']);
+      A.windows = A.windows.filter((w) => !feitos.includes(w.id));
+      return { instalados: feitos, falhas, precisaReiniciar };
+    }
+    if (acao === 'atualizarProgramas') {
+      await this._simular(onProgresso, 'atualizacoes', ids.map((id) => 'Atualizando ' + id + '…'));
+      const feitos = ids.filter((id) => A.programas.some((p) => p.id === id));
+      A.programas = A.programas.filter((p) => !feitos.includes(p.id));
+      return { atualizados: feitos, falhas: ids.filter((id) => !feitos.includes(id)).map((id) => ({ id, erro: 'winget terminou com código -1978335189' })) };
+    }
+    throw new Error('Ação não disponível na demonstração: atualizacoes/' + acao);
   },
 
   async _executarProgramas(acao, params, onProgresso) {

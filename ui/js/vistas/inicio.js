@@ -15,6 +15,16 @@ function lixoVerdeBytes() {
     .reduce((s, c) => s + c.tamanhoBytes, 0);
 }
 
+// Unidade do sistema nunca verificada por aqui, ou sem verificação há mais dias que o limite do perfil.
+function discoRecomendado() {
+  const u = discoSistema();
+  if (!u) return null;
+  const limite = (S.perfis && S.perfis.limites && S.perfis.limites.diasSemVerificarDisco) || 90;
+  if (!u.ultimaVerificacao) return { u, texto: t('inicio.discoNunca') };
+  if (u.diasSemVerificar != null && u.diasSemVerificar >= limite) return { u, texto: t('inicio.discoDias', { n: u.diasSemVerificar }) };
+  return null;
+}
+
 VISTAS.inicio = {
   render(main) {
     const v = h('section', { class: 'vista' }, h('h1', { text: t('inicio.titulo') }));
@@ -54,7 +64,7 @@ VISTAS.inicio = {
           h('div', { class: 'tamanho', text: fmtBytes(lixo) }),
           h('div', { class: 'texto', text: t('inicio.lixo') })),
         h('button', { type: 'button', class: 'btn acao', text: t('inicio.limpar'), onclick: () => { limpezaMarcarVerdes(); irPara('limpeza'); } })));
-    } else if (!inicioRecomendados().length) {
+    } else if (!inicioRecomendados().length && !discoRecomendado()) {
       v.append(h('p', { class: 'suave', text: t('inicio.nadaAgora') }));
     }
 
@@ -65,6 +75,15 @@ VISTAS.inicio = {
           h('div', { class: 'titulo-card', text: t(nInicio === 1 ? 'inicio.inicializacaoUm' : 'inicio.inicializacao', { n: nInicio }) }),
           h('div', { class: 'texto', text: t('inicio.inicializacaoTexto') })),
         h('button', { type: 'button', class: 'btn acao', text: t('inicio.ver'), onclick: () => irPara('inicializacao') })));
+    }
+
+    const disco = discoRecomendado();
+    if (disco) {
+      v.append(h('div', { class: 'cartao recomendado card-inicio' },
+        h('div', {},
+          h('div', { class: 'titulo-card', text: disco.texto }),
+          h('div', { class: 'texto', text: t('inicio.discoTexto') })),
+        h('button', { type: 'button', class: 'btn acao', text: t('inicio.verificar'), onclick: () => irPara('disco') })));
     }
 
     v.append(
