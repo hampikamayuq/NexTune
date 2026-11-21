@@ -12,18 +12,6 @@ $Script:MaxIds = 200
 $Script:PrefixoChaveTeste = 'HKCU\Software\NexTuneTeste'
 $Script:RegExe = "$env:windir\System32\reg.exe"
 $Script:TiposItem = @('arquivo', 'pasta', 'chave')
-$Script:RaizRegistro = @{
-    HKCU                = 'HKEY_CURRENT_USER'
-    HKEY_CURRENT_USER   = 'HKEY_CURRENT_USER'
-    HKLM                = 'HKEY_LOCAL_MACHINE'
-    HKEY_LOCAL_MACHINE  = 'HKEY_LOCAL_MACHINE'
-    HKU                 = 'HKEY_USERS'
-    HKEY_USERS          = 'HKEY_USERS'
-    HKCR                = 'HKEY_CLASSES_ROOT'
-    HKEY_CLASSES_ROOT   = 'HKEY_CLASSES_ROOT'
-    HKCC                = 'HKEY_CURRENT_CONFIG'
-    HKEY_CURRENT_CONFIG = 'HKEY_CURRENT_CONFIG'
-}
 
 function Test-IdQuarentena {
     # Puro: id no formato yyyyMMdd-HHmmss-xxxx (4 hex minusculos).
@@ -32,24 +20,6 @@ function Test-IdQuarentena {
 }
 
 # ---------- registro ----------
-
-function Test-ChaveRegistro {
-    # Puro: o texto tem a forma de chave aceita pelo reg.exe (HKCU\..., HKEY_LOCAL_MACHINE\...)?
-    param([string]$Chave)
-    if ([string]::IsNullOrWhiteSpace($Chave)) { return $false }
-    if ($Chave -match '[\r\n"]') { return $false }
-    if ($Chave -notmatch '^[A-Za-z_]+\\[^\\]') { return $false }
-    $raiz = @($Chave -split '\\', 2)[0]
-    return $Script:RaizRegistro.ContainsKey($raiz)
-}
-
-function ConvertTo-CaminhoRegistro {
-    # 'HKCU\Software\X' (forma do reg.exe) -> 'Registry::HKEY_CURRENT_USER\Software\X' (forma do provedor).
-    param([string]$Chave)
-    if (-not (Test-ChaveRegistro $Chave)) { throw "chave de registro inválida: $Chave" }
-    $partes = @($Chave.TrimEnd('\') -split '\\', 2)
-    return ('Registry::' + $Script:RaizRegistro[$partes[0]] + '\' + $partes[1])
-}
 
 function Test-ChaveTeste {
     # Puro: a chave esta sob HKCU\Software\NexTuneTeste (unica area permitida em modo teste)?

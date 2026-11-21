@@ -30,7 +30,7 @@ use std::sync::{Arc, Mutex as MutexSync};
 use tauri::{Emitter, State, Window};
 use tokio::sync::Mutex;
 
-const DADOS_PERMITIDOS: &[&str] = &["perfis", "bloatware", "protegidos"];
+const DADOS_PERMITIDOS: &[&str] = &["perfis", "bloatware", "protegidos", "inicio", "ajustes"];
 
 pub struct Estado {
     pub pastas: Pastas,
@@ -521,5 +521,112 @@ mod testes {
             },
         };
         assert_eq!(evento_json("limpeza", l).unwrap()["tipoLog"], "ok");
+    }
+
+    /// Textos da interface (`ui/i18n/pt-BR.js`): o corpo entre o primeiro `{` e o último `}` é JSON.
+    fn textos_pt_br() -> serde_json::Map<String, Value> {
+        let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        let js = std::fs::read_to_string(raiz.join("ui/i18n/pt-BR.js")).expect("pt-BR.js");
+        // A primeira linha é `window.I18N = window.I18N || {};`: o dicionário vem depois do marcador.
+        let marcador = "['pt-BR'] = ";
+        let ini = js.find(marcador).expect("marcador do dicionário") + marcador.len();
+        let fim = js.rfind('}').expect("fecha }");
+        serde_json::from_str::<Value>(&js[ini..=fim])
+            .expect("corpo de pt-BR.js é JSON")
+            .as_object()
+            .expect("objeto")
+            .clone()
+    }
+
+    /// Lê `data/inicio.json` e `data/ajustes.json` reais e confere a forma dos dois (Plano 3, Task 1),
+    /// incluindo Review Focus 5: chave de Política ⇔ `politica:true`, e `politica` ⇒ `avancado`.
+    #[test]
+    fn inicio_e_ajustes_ok() {
+        let data = crate::caminhos::pastas_dev().data;
+        let compila = |p: &Value| {
+            let p = p.as_str().expect("padrao é texto");
+            regex::RegexBuilder::new(p)
+                .case_insensitive(true)
+                .build()
+                .unwrap_or_else(|e| panic!("padrão inválido {p:?}: {e}"));
+        };
+        let regra_ok = |e: &Value| {
+            compila(&e["padrao"]);
+            assert!(
+                matches!(e["cor"].as_str(), Some("verde" | "amarelo" | "vermelho")),
+                "cor inválida: {e}"
+            );
+            assert!(
+                e["motivo"].as_str().is_some_and(|m| !m.trim().is_empty()),
+                "motivo ausente em {e}"
+            );
+        };
+
+        let i = ler_dados(&data, "inicio").unwrap();
+        let itens = i["itens"].as_array().expect("inicio.itens é lista");
+        let tarefas = i["tarefas"].as_array().expect("inicio.tarefas é lista");
+        assert!(!itens.is_empty());
+        itens.iter().chain(tarefas.iter()).for_each(regra_ok);
+
+        let a = ler_dados(&data, "ajustes").unwrap();
+        let ajustes = a["ajustes"].as_array().expect("ajustes é lista");
+        assert!(!ajustes.is_empty());
+        let re_id = regex::Regex::new(r"^[a-z0-9_]{1,40}$").unwrap();
+        let textos = textos_pt_br();
+        let mut ids = std::collections::HashSet::new();
+        for e in ajustes {
+            let id = e["id"].as_str().expect("id é texto");
+            assert!(re_id.is_match(id), "id inválido: {id}");
+            assert!(ids.insert(id.to_string()), "id repetido: {id}");
+            assert!(
+                matches!(
+                    e["grupo"].as_str(),
+                    Some("anuncios" | "privacidade" | "copilot" | "explorador" | "desempenho")
+                ),
+                "grupo inválido em {id}"
+            );
+            assert!(
+                matches!(e["recomendadoPara"].as_str(), Some("todos" | "fraco" | "nenhum")),
+                "recomendadoPara inválido em {id}"
+            );
+            let politica = e["politica"].as_bool().expect("politica é booleano");
+            let avancado = e["avancado"].as_bool().expect("avancado é booleano");
+            assert!(e["soWin11"].is_boolean() && e["reiniciarExplorer"].is_boolean(), "{id}");
+            assert!(!politica || avancado, "{id}: politica exige avancado");
+            for k in ["nome", "desc"] {
+                let chave = format!("ajuste.{id}.{k}");
+                assert!(
+                    textos.get(&chave).and_then(Value::as_str).is_some_and(|t| !t.is_empty()),
+                    "falta {chave} em pt-BR.js"
+                );
+            }
+            let chaves = e["chaves"].as_array().expect("chaves é lista");
+            assert!(!chaves.is_empty(), "{id} sem chaves");
+            for c in chaves {
+                let chave = c["chave"].as_str().expect("chave é texto");
+                let baixa = chave.to_lowercase();
+                assert!(
+                    baixa.starts_with(r"hkcu\") || baixa.starts_with(r"hklm\"),
+                    "{id}: chave fora de HKCU/HKLM: {chave}"
+                );
+                // A tela de Configurações grava AllowTelemetry em CurrentVersion\Policies\DataCollection:
+                // não é chave de Política de Grupo.
+                let de_politica = baixa.contains(r"\policies\")
+                    && !baixa.contains(r"currentversion\policies\datacollection");
+                assert_eq!(de_politica, politica, "{id}: politica não bate com a chave {chave}");
+                for proibido in ["windows defender", "windowsupdate", "edge"] {
+                    assert!(!baixa.contains(proibido), "{id}: anti-objetivo em {chave}");
+                }
+                assert!(
+                    c["nome"].as_str().is_some_and(|n| !n.is_empty()),
+                    "{id}: nome vazio"
+                );
+                match c["tipo"].as_str() {
+                    Some("DWord") => assert!(c["aplicar"].is_i64(), "{id}: DWord pede inteiro"),
+                    Some("String") => assert!(c["aplicar"].is_string(), "{id}: String pede texto"),
+                    outro => panic!("{id}: tipo inválido {outro:?}"),
+                }
+            }
+        }
     }
 }
