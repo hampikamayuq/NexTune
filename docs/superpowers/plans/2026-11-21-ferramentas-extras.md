@@ -25,7 +25,7 @@ Todo arquivo que reaproveitar código ganha no cabeçalho a linha `Baseado em <p
 
 ## Global Constraints
 
-- pt-BR em todo texto visível; `.ps1` em UTF-8 com BOM e CRLF; PSScriptAnalyzer sem avisos; sem rede a partir da interface (exceção explícita: DISM `/RestoreHealth` baixa do Windows Update, e a tela avisa).
+- pt-BR em todo texto visível; `.ps1` em UTF-8 com BOM e CRLF; PSScriptAnalyzer sem avisos; sem rede a partir da interface (exceções explícitas, avisadas na tela: DISM `/RestoreHealth` baixa do Windows Update; o DNS seguro consulta `dns.msftncsi.com` uma vez para conferir que o DNS novo responde).
 - Escrita: ponto de restauração antes (`garantirPonto`), backup do estado anterior, log em `%ProgramData%\NexTune\Logs`, confirmação, desfazer.
 - Binários do sistema por caminho absoluto (`$env:windir\System32\...`, que o host já recebe da API).
 - Nunca `Stop-Process`/kill; nunca apagar fora da quarentena; nunca mexer em ACLs.
@@ -58,7 +58,7 @@ Valem para PowerShell, Rust (`acoes.rs`), interface e `demo.js`. Nomes em camelC
   - `seguro:true` só sob `%ProgramFiles%`, `%ProgramFiles(x86)%` e `%ProgramData%`; em `%APPDATA%`/`%LOCALAPPDATA%` tudo vem `seguro:false` (configurações, chaves e jogos salvos de programas em uso não deixam rastro no Uninstall). Também `seguro:false`: pasta com jogo salvo, chave ou licença (`Saved`, `*.sav`, `*.key`, `*.lic`…), Store ilegível, atalho fora de disco fixo. "Instalado" inclui nomes de executáveis e subpastas da pasta de instalação, serviços e alvos de atalhos válidos. Raízes redirecionadas para a rede nunca são percorridas; teto global de 120 s (`incompleto:true`). A regra global de "seguro" é do NexTune (o RetroLimpia só pontua casamentos por programa).
   - Além disso, `seguro:true` só quando o nome limpo (sem versão, arquitetura, parênteses, sufixos como `x64`, `Inc`) não casa com nenhum programa instalado (nome ou editor, nos dois sentidos de "contém") nem com `protegidos.json` (Review Focus 4: "Adobe" × "Adobe Acrobat" → `seguro:false`). `motivo` explica em pt-BR.
   - `bytes` pelo `Get-TamanhoComTeto` (teto 10 s por pasta). Em modo teste as raízes ficam em `%TEMP%\NexTuneTeste\restosAntigos\{ProgramFiles,ProgramFilesX86,ProgramData,AppData,LocalAppData,Menu}` e os instalados vêm do Uninstall falso já usado pelos testes de `programas`.
-- Interface: seção "Restos de programas antigos" em Programas; os itens marcados vão por `programas/limparRestos { itens:[{tipo, caminho}], confirmado:true, nome:'Restos antigos' }`; só os `seguro:true` vêm marcados.
+- Interface: seção "Restos de programas antigos" em Programas; os itens marcados vão por `programas/limparRestos { itens:[{tipo, caminho}], confirmado:true, nome:'programas antigos' }` (a entrada da quarentena fica "Restos de programas antigos"); só os `seguro:true` vêm marcados.
 
 ### drivers
 - `drivers/listar {}` → `{ dispositivos: [{ id, nome, classe, codigo, explicacao, critico }] }`: dispositivos presentes (`Present = TRUE`, sem os fantasmas desconectados) com `ConfigManagerErrorCode` diferente de 0 e de 22; `id` = `PNPDeviceID`; `explicacao` em pt-BR por código (tabela no script; código desconhecido tem texto genérico com o número); `critico` = classe que nunca é reinstalada (`DiskDrive`, `HDC`, `SCSIAdapter`, `Display`, `System`, `Processor`, `Computer`, `Volume`, `VolumeSnapshot`, `Keyboard`, `Mouse`, `HIDClass`, `USB`, `Firmware`, `SecurityDevices`, `SDHost`, `Battery`, e `Net` quando é o único adaptador ativo).
@@ -70,11 +70,11 @@ Valem para PowerShell, Rust (`acoes.rs`), interface e `demo.js`. Nomes em camelC
 - `rede/estado {}` → `{ adaptadores: [{ indice, nome, descricao, dns: [ip], automatico }], provedor: 'cloudflare'|'google'|'quad9'|'automatico'|'outro', dohDisponivel, bloqueadoPorPolitica, temBackup }`. `bloqueadoPorPolitica` = política `DoHPolicy` = 1 (proibido); o NexTune nunca apaga valores de política. Adaptadores físicos ativos; `dohDisponivel` = Windows 11 (build ≥ 22000).
 - `rede/limparDns {}` → `{ ok }` (`<System32>\ipconfig.exe /flushdns`).
 - `rede/redefinir { confirmado }` → `{ precisaReiniciar: true, detalhe }` (`netsh winsock reset` e `netsh int ip reset`, por caminho absoluto).
-- `rede/dnsSeguro { provedor, confirmado }` → `{ adaptadores: [{ indice, nome, ok, erro, mantido }], provedor, aviso? }`. `provedor` ∈ `cloudflare|google|quad9|automatico`. Antes da primeira troca grava `%ProgramData%\NexTune\Backups\dns.json` com os servidores de cada adaptador (e se vinham do DHCP); trocas seguintes não sobrescrevem esse backup. `automatico` restaura exatamente o backup (servidores fixos ou DHCP, por família) e remove os modelos DoH que o NexTune adicionou; sem backup, volta ao DHCP só os adaptadores cujos servidores fixos são de um dos três provedores (os outros ficam `mantido:true`). IPv4 e IPv6 são fixados (dual-stack é comum no Brasil; IPv6 do roteador vazaria as consultas): servidores IPv4 e modelos DoH do Sophia Script (MIT, farag2), IPv6 da documentação de cada provedor. Depois de aplicar, uma consulta a `dns.msftncsi.com` (a mesma que o Windows faz para saber se há internet) confere que o nome ainda resolve; se resolvia antes e parou, aquele adaptador volta ao anterior. É o único uso de rede do módulo. Backup com formato inesperado faz a ação recusar sem tocar no arquivo. Windows 10 recusa os três provedores com mensagem clara ("DNS seguro precisa do Windows 11"); `automatico` funciona nos dois.
+- `rede/dnsSeguro { provedor, confirmado }` → `{ adaptadores: [{ indice, nome, ok, erro, mantido, revertido }], provedor, aviso? }` (`revertido` = o adaptador voltou ao DNS anterior porque a conferência falhou ou o DoH não pôde ser gravado). `provedor` ∈ `cloudflare|google|quad9|automatico`. Antes da primeira troca grava `%ProgramData%\NexTune\Backups\dns.json` com os servidores de cada adaptador (e se vinham do DHCP); trocas seguintes não sobrescrevem esse backup. `automatico` restaura exatamente o backup (servidores fixos ou DHCP, por família) e remove os modelos DoH que o NexTune adicionou; sem backup, volta ao DHCP só os adaptadores cujos servidores fixos são de um dos três provedores (os outros ficam `mantido:true`). IPv4 e IPv6 são fixados (dual-stack é comum no Brasil; IPv6 do roteador vazaria as consultas): servidores IPv4 e modelos DoH do Sophia Script (MIT, farag2), IPv6 da documentação de cada provedor. Depois de aplicar, uma consulta a `dns.msftncsi.com` (a mesma que o Windows faz para saber se há internet) confere que o nome ainda resolve; se resolvia antes e parou, aquele adaptador volta ao anterior. É o único uso de rede do módulo. Backup com formato inesperado faz a ação recusar sem tocar no arquivo. Windows 10 recusa os três provedores com mensagem clara ("DNS seguro precisa do Windows 11"); `automatico` funciona nos dois.
 - Escrita: `limparDns`, `redefinir`, `dnsSeguro` (sessão verificada). A interface roda `garantirPonto()` antes de `redefinir` e `dnsSeguro`, não antes de `limparDns`.
 
 ### Interface
-Três telas novas no menu, depois de Reparo: **Espaço**, **Dispositivos** (drivers) e **Rede**; restos antigos dentro de Programas. Toda escrita com `.acao .escrita`, confirmação dizendo o que vai acontecer e como desfazer, erros por `mostrarErroEscrita`, textos em `pt-BR.js`, demo completo.
+Três telas novas no menu, depois de Reparo: **Espaço**, **Dispositivos** (drivers) e **Rede**; restos antigos dentro de Programas. Toda escrita com `.acao .escrita` e confirmação dizendo (exceção: limpar o cache de DNS, que não tem o que desfazer e o texto diz isso) o que vai acontecer e como desfazer, erros por `mostrarErroEscrita`, textos em `pt-BR.js`, demo completo.
 
 ---
 
@@ -162,7 +162,7 @@ Ajustes novos:
 ### Fechamento
 
 - [ ] `tools/ci-local.ps1 -SoTestes` local; push; Actions verde (Rust).
-- [ ] Revisão independente (segurança: serviços, drivers, rede).
-- [ ] README (ferramentas novas e créditos do Sophia Script), memória do projeto.
+- [x] Revisão independente (segurança: serviços, drivers, rede).
+- [x] README (ferramentas novas e créditos do Sophia Script), memória do projeto.
 
 **Ordem sugerida:** 1 e 2 (privacidade, mais baratos e com código pronto), 3 (só leitura), 4, 5, 6, 7, 8. Cada tarefa pode virar uma versão (0.1.x) sozinha.

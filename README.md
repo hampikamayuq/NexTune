@@ -104,6 +104,8 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. O p
 - Verificação manual na máquina real: bandeja, autostart na bateria, Modo Jogo, Windows Update, winget, desinstalador com Modo Jogo pendente, o Reparo num PC com produtos órfãos, e do Plano 8 o reparo de dispositivos, o DNS seguro (IPv6, VPN, rede com DoH bloqueado), o analisador de espaço num disco grande e os restos antigos num PC usado. Tudo isso foi testado só em modo teste/demo.
 - Lembretes: o plugin não expõe o clique na notificação no Windows; clicar nela não leva à tela específica (o Início mostra os mesmos cartões).
 - RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB), soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; na bandeja a janela é destruída (meta ≤ 30 MB). Medir de novo com `tools/medir.ps1` depois do instalador.
+- Pastas e arquivos do OneDrive em nuvem são pontos de nova análise (reparse points): o Espaço e os restos antigos os tratam como link (não somam nem entram) e `abrir_pasta` recusa caminhos dentro deles. É o lado seguro; conferir num PC com a Área de Trabalho no OneDrive se vale distinguir só links e junções.
+- Dispositivos com id contendo `:` ou `*` (UPnP/WSD, `ROOT\*ISATAP`) aparecem na lista, mas não podem ser reparados pela tela.
 - `protegidos.json` cobre NVIDIA, AMD, Intel e Realtek; Synaptics, ELAN, Qualcomm, Conexant e MediaTek ainda aparecem "sem classificação".
 - A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário entra depois.
 - Atualizações: drivers via Windows Update ficam fora (`Type='Software'`); o COM do Windows Update e o `winget` não rodam nos testes.

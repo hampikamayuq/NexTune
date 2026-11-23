@@ -751,7 +751,8 @@ function Invoke-EstadoRede {
     $dados = [ordered]@{
         adaptadores          = $lista
         provedor             = (Get-ProvedorDetectado $adaptadores)
-        dohDisponivel        = (((Get-BuildWindows $Teste $sim) -ge $Script:BuildWin11) -and -not $bloqueado)
+        # dohDisponivel = Windows 11 (contrato); a politica vem separada em bloqueadoPorPolitica.
+        dohDisponivel        = ((Get-BuildWindows $Teste $sim) -ge $Script:BuildWin11)
         bloqueadoPorPolitica = $bloqueado
         temBackup            = (Test-Path -LiteralPath (Get-ArquivoBackupRede $Teste) -PathType Leaf)
     }

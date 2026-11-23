@@ -736,7 +736,7 @@ window.I18N['pt-BR'] = {
   "drivers.backup": "Fazer backup dos drivers",
   "drivers.backupTitulo": "Fazer backup dos drivers?",
   "drivers.backupTexto": "O NexTune copia os drivers de fabricantes instalados neste PC com a ferramenta do próprio Windows (pnputil). Não muda nada no sistema: só cria a cópia.",
-  "drivers.backupOnde": "A cópia fica em C:\\ProgramData\\NexTune\\Drivers, numa pasta com a data e a hora de hoje. Para apagar, é só apagar essa pasta.",
+  "drivers.backupOnde": "A cópia fica na pasta de dados do NexTune (ProgramData\\NexTune\\Drivers), numa pasta com a data e a hora de hoje. Para apagar, é só apagar essa pasta.",
   "drivers.backupTamanho": "Costuma ocupar algumas centenas de MB (às vezes mais de 1 GB) e pode levar alguns minutos.",
   "drivers.backupProgresso": "Copiando os drivers…",
   "drivers.backupFeito": "Backup dos drivers feito.",

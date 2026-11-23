@@ -208,7 +208,7 @@ Describe 'rede.ps1: estado' {
         (Invoke-Rede 'estado' @{ simular = @{ adaptadores = @($meio) } }).dados.provedor | Should -Be 'outro'
     }
 
-    It 'dohDisponivel segue o build e a politica DoHPolicy; temBackup segue o arquivo de backup' {
+    It 'dohDisponivel segue so o build; bloqueadoPorPolitica segue a DoHPolicy; temBackup segue o arquivo de backup' {
         $r = Invoke-Rede 'estado' @{ simular = @{ build = 19045 } }
         $r.dados.dohDisponivel | Should -BeFalse
         $r.dados.bloqueadoPorPolitica | Should -BeFalse
@@ -217,7 +217,7 @@ Describe 'rede.ps1: estado' {
         (Invoke-Rede 'estado' @{ simular = @{ build = 22631 } }).dados.bloqueadoPorPolitica | Should -BeFalse
         Set-PoliticaT 1
         $r = Invoke-Rede 'estado' @{ simular = @{ build = 22631 } }
-        $r.dados.dohDisponivel | Should -BeFalse
+        $r.dados.dohDisponivel | Should -BeTrue
         $r.dados.bloqueadoPorPolitica | Should -BeTrue
         Write-BackupT '{}'
         (Invoke-Rede 'estado' @{ simular = @{ build = 22631 } }).dados.temBackup | Should -BeTrue
