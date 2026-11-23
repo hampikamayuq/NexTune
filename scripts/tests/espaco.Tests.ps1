@@ -85,12 +85,32 @@ Describe 'espaco.ps1: funcoes puras' {
             (Get-TetoParam @{ tetoSegundos = 300 }).segundos | Should -Be 300
             (Get-TetoParam @{ tetoSegundos = 5 }).erro | Should -BeNullOrEmpty
         }
-        It 'fora de 5..300, fracionario, texto ou booleano e recusado' {
+        It 'fora de 5..300, texto ou booleano e recusado' {
             (Get-TetoParam @{ tetoSegundos = 4 }).erro | Should -Match 'intervalo'
             (Get-TetoParam @{ tetoSegundos = 301 }).erro | Should -Match 'intervalo'
-            (Get-TetoParam @{ tetoSegundos = 5.5 }).erro | Should -Not -BeNullOrEmpty
             (Get-TetoParam @{ tetoSegundos = '60' }).erro | Should -Not -BeNullOrEmpty
             (Get-TetoParam @{ tetoSegundos = $true }).erro | Should -Not -BeNullOrEmpty
+        }
+        It 'fracionario tem mensagem propria; 60.0 vale 60' {
+            (Get-TetoParam @{ tetoSegundos = 5.5 }).erro | Should -Be 'tetoSegundos precisa ser um número inteiro'
+            (Get-TetoParam @{ tetoSegundos = 60.0 }).segundos | Should -Be 60
+        }
+    }
+
+    Context 'Test-AcessoNegado' {
+        It 'acesso negado, direto ou embrulhado (MethodInvocationException), e acesso negado' {
+            Test-AcessoNegado (New-Object UnauthorizedAccessException 'x') | Should -BeTrue
+            Test-AcessoNegado (New-Object Security.SecurityException 'x') | Should -BeTrue
+            $emb = New-Object System.Management.Automation.MethodInvocationException ('fora', (New-Object UnauthorizedAccessException 'dentro'))
+            Test-AcessoNegado $emb | Should -BeTrue
+        }
+        It 'pasta que sumiu, caminho longo e erro de E/S nao sao acesso negado' {
+            Test-AcessoNegado (New-Object IO.DirectoryNotFoundException 'x') | Should -BeFalse
+            Test-AcessoNegado (New-Object IO.PathTooLongException 'x') | Should -BeFalse
+            Test-AcessoNegado (New-Object IO.IOException 'x') | Should -BeFalse
+            $emb = New-Object System.Management.Automation.MethodInvocationException ('fora', (New-Object IO.DirectoryNotFoundException 'dentro'))
+            Test-AcessoNegado $emb | Should -BeFalse
+            Test-AcessoNegado $null | Should -BeFalse
         }
     }
 
@@ -133,6 +153,7 @@ Describe 'espaco.ps1: analisar' {
         @($r.dados.pastas | ForEach-Object { $_.nome }) | Should -Be @('Grande', 'Media', 'Pequena', 'Link', 'Vazia')
         @($r.dados.pastas | ForEach-Object { $_.bytes }) | Should -Be @(7000, 2000, 150, 0, 0)
         @($r.dados.pastas | Where-Object { $_.semAcesso -or $_.parcial }).Count | Should -Be 0
+        @($r.dados.pastas | Where-Object { $_.link } | ForEach-Object { $_.nome }) | Should -Be @('Link')
         $grande = @($r.dados.pastas)[0]
         (Get-CaminhoLongo $grande.caminho) | Should -Be (Get-CaminhoLongo (Join-Path $Script:Raiz 'Grande'))
         @($r.dados.arquivos | ForEach-Object { $_.nome }) | Should -Be @('b.bin', 'a.bin', 'c.bin', 'solto.bin', 'd.bin', 'e.bin')
@@ -144,6 +165,10 @@ Describe 'espaco.ps1: analisar' {
         $link = @($r.dados.pastas | Where-Object { $_.nome -eq 'Link' })
         $link.Count | Should -Be 1
         $link[0].bytes | Should -Be 0
+        $link[0].link | Should -BeTrue
+        $link[0].semAcesso | Should -BeFalse
+        $link[0].parcial | Should -BeFalse
+        @($r.dados.pastas | Where-Object { $_.nome -eq 'Media' })[0].link | Should -BeFalse
         @($r.dados.pastas | Where-Object { $_.nome -eq 'Media' })[0].bytes | Should -Be 2000
         @($r.dados.arquivos | Where-Object { $_.nome -eq 'enorme.bin' }).Count | Should -Be 0
         $r.dados.totalBytes | Should -BeLessThan 1000000
@@ -155,6 +180,7 @@ Describe 'espaco.ps1: analisar' {
         $media.bytes | Should -Be -1
         $media.semAcesso | Should -BeTrue
         $media.parcial | Should -BeFalse
+        $media.link | Should -BeFalse
         @($r.dados.pastas)[-1].nome | Should -Be 'Media'
         $r.dados.totalBytes | Should -Be 7650
         $r.dados.incompleto | Should -BeFalse
@@ -165,6 +191,23 @@ Describe 'espaco.ps1: analisar' {
         $vazia = @($r.dados.pastas | Where-Object { $_.nome -eq 'Vazia' })[0]
         $vazia.bytes | Should -Be 0
         $vazia.semAcesso | Should -BeFalse
+    }
+    It 'pasta do primeiro nivel que sumiu: bytes -1 e parcial, sem semAcesso' {
+        $r = Invoke-Espaco 'analisar' @{ raiz = $Script:Raiz; simular = @{ sumir = @((Join-Path $Script:Raiz 'Media')) } }
+        $r.ok | Should -BeTrue
+        $media = @($r.dados.pastas | Where-Object { $_.nome -eq 'Media' })[0]
+        $media.bytes | Should -Be -1
+        $media.semAcesso | Should -BeFalse
+        $media.parcial | Should -BeTrue
+        $r.dados.totalBytes | Should -Be 7650
+        $r.dados.incompleto | Should -BeFalse
+    }
+    It 'subpasta que sumiu marca parcial e soma o resto' {
+        $r = Invoke-Espaco 'analisar' @{ raiz = $Script:Raiz; simular = @{ sumir = @((Join-Path $Script:Raiz 'Grande\sub')) } }
+        $grande = @($r.dados.pastas | Where-Object { $_.nome -eq 'Grande' })[0]
+        $grande.bytes | Should -Be 3000
+        $grande.parcial | Should -BeTrue
+        $grande.semAcesso | Should -BeFalse
     }
     It 'subpasta sem permissao marca parcial e soma o resto' {
         $r = Invoke-Espaco 'analisar' @{ raiz = $Script:Raiz; simular = @{ negarAcesso = @((Join-Path $Script:Raiz 'Grande\sub')) } }
@@ -179,10 +222,13 @@ Describe 'espaco.ps1: analisar' {
         $r.ok | Should -BeTrue
         @($r.dados.pastas | Where-Object { $_.nome -eq 'Media' })[0].bytes | Should -Be 2000
     }
-    It 'raiz sem permissao falha' {
+    It 'raiz sem permissao ou que sumiu falha' {
         $r = Invoke-Espaco 'analisar' @{ raiz = $Script:Raiz; simular = @{ negarAcesso = @($Script:Raiz) } }
         $r.ok | Should -BeFalse
         $r.erro | Should -Match 'sem acesso'
+        $r = Invoke-Espaco 'analisar' @{ raiz = $Script:Raiz; simular = @{ sumir = @($Script:Raiz) } }
+        $r.ok | Should -BeFalse
+        $r.erro | Should -Match 'não foi possível ler'
     }
     It 'teto de tempo: a primeira pasta para no meio, as outras vem com -1 e parcial, incompleto' {
         $r = Invoke-Espaco 'analisar' @{ raiz = $Script:Raiz; tetoSegundos = 5; simular = @{ tetoMs = 0 } }
@@ -197,9 +243,23 @@ Describe 'espaco.ps1: analisar' {
             $p.parcial | Should -BeTrue
             $p.semAcesso | Should -BeFalse
         }
-        @($r.dados.pastas | Where-Object { $_.nome -eq 'Link' })[0].bytes | Should -Be 0
+        $link = @($r.dados.pastas | Where-Object { $_.nome -eq 'Link' })[0]
+        $link.bytes | Should -Be 0
+        $link.link | Should -BeTrue
         $r.dados.totalBytes | Should -Be 3500
         @($r.dados.arquivos | ForEach-Object { $_.nome }) | Should -Be @('a.bin', 'solto.bin')
+    }
+    It 'teto de tempo tambem e conferido na listagem da propria raiz' {
+        # conferirACada 1 + tetoMs 0: a listagem da raiz para depois da primeira entrada (a ordem depende do disco).
+        $r = Invoke-Espaco 'analisar' @{ raiz = $Script:Raiz; simular = @{ tetoMs = 0; conferirACada = 1 } }
+        $r.ok | Should -BeTrue
+        $r.dados.incompleto | Should -BeTrue
+        (@($r.dados.pastas).Count + @($r.dados.arquivos).Count) | Should -Be 1
+        foreach ($p in @($r.dados.pastas | Where-Object { -not $_.link })) {
+            $p.bytes | Should -Be -1
+            $p.parcial | Should -BeTrue
+        }
+        $r.dados.totalBytes | Should -BeLessOrEqual 500
     }
     It 'guarda so as 20 maiores pastas e os 20 maiores arquivos quando ha 25' {
         $r = Invoke-Espaco 'analisar' @{ raiz = $Script:Raiz25 }

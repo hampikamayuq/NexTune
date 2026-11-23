@@ -1,17 +1,21 @@
 ﻿# espaco.ps1 - analisador de espaco (so leitura): onde esta o espaco ocupado dentro de uma pasta.
 # Acao: analisar {raiz, tetoSegundos?} -> {raiz, totalBytes, incompleto,
-#        pastas: [{caminho, nome, bytes, semAcesso, parcial}], arquivos: [{caminho, nome, bytes}]}.
+#        pastas: [{caminho, nome, bytes, semAcesso, parcial, link}], arquivos: [{caminho, nome, bytes}]}.
 # pastas = as 20 maiores do primeiro nivel e arquivos = os 20 maiores da arvore percorrida, do maior para o menor;
 # bytes -1 = nao deu para medir. Os arquivos soltos na raiz entram em totalBytes e em arquivos, nao em pastas.
 # "Um nivel abaixo" = nova chamada com raiz = a pasta clicada.
 # Review Focus 5: junction/link (pasta ou arquivo) nunca e seguido nem somado, em nivel nenhum; um link no primeiro
-# nivel aparece com bytes 0. Pasta do primeiro nivel que nao pode ser listada vem com semAcesso e bytes -1 (nunca 0);
-# subpasta ilegivel ou teto estourado no meio marca parcial. Um unico relogio limita a analise inteira (tetoSegundos
-# 5..300, padrao 60): estourou -> incompleto, e as pastas nao alcancadas vem com bytes -1 e parcial.
+# nivel aparece com link:true e bytes 0. Pasta do primeiro nivel que nao pode ser listada: bytes -1 (nunca 0), com
+# semAcesso so quando e acesso negado (sumiu, caminho longo demais ou outro erro de E/S -> parcial). Subpasta ilegivel
+# ou teto estourado no meio marca parcial (bytes = o que foi somado ate ali). Um unico relogio limita a analise
+# inteira (tetoSegundos 5..300, padrao 60), conferido tambem na listagem da propria raiz: estourou -> incompleto, e as
+# pastas nao alcancadas vem com bytes -1 e parcial. A listagem e em fluxo (EnumerateFileSystemInfos): erro no meio de
+# uma pasta guarda o que ja foi lido e marca parcial.
 # Nao grava nada (nem log): apagar continua sendo pela Limpeza ou pela quarentena.
-# Em modo teste: simular {negarAcesso?: [caminho], tetoMs?}. negarAcesso faz a listagem dessas pastas falhar como
-# "acesso negado" (sem mexer em ACL); tetoMs troca o teto, em milissegundos (0 = so a primeira pasta comeca).
-# As pastas de teste ficam em %TEMP%\NexTuneTeste\espaco.
+# Em modo teste: simular {negarAcesso?: [caminho], sumir?: [caminho], tetoMs?, conferirACada?}. negarAcesso faz a
+# listagem dessas pastas falhar como acesso negado (sem mexer em ACL) e sumir como pasta que nao existe mais; tetoMs
+# troca o teto, em milissegundos (0 = so a primeira pasta comeca); conferirACada troca de quantas em quantas entradas
+# o relogio e conferido dentro de uma pasta. As pastas de teste ficam em %TEMP%\NexTuneTeste\espaco.
 . "$PSScriptRoot\common.ps1"
 
 $Script:MaxItensEspaco = 20
@@ -31,12 +35,15 @@ function Get-TetoParam {
     if ($null -ne $Params) { $v = $Params.tetoSegundos }
     if ($null -eq $v) { return @{ segundos = $Script:TetoPadraoSegundos; erro = $null } }
     if ($v -isnot [ValueType] -or $v -is [bool]) { return @{ segundos = 0; erro = 'tetoSegundos inválido' } }
-    $n = 0
-    try { $n = [int]$v } catch { return @{ segundos = 0; erro = 'tetoSegundos inválido' } }
-    if ([double]$v -ne [double]$n -or $n -lt $Script:TetoMinSegundos -or $n -gt $Script:TetoMaxSegundos) {
+    $d = 0.0
+    try { $d = [double]$v } catch { return @{ segundos = 0; erro = 'tetoSegundos inválido' } }
+    if ([double]::IsNaN($d) -or [double]::IsInfinity($d) -or $d -ne [math]::Floor($d)) {
+        return @{ segundos = 0; erro = 'tetoSegundos precisa ser um número inteiro' }
+    }
+    if ($d -lt $Script:TetoMinSegundos -or $d -gt $Script:TetoMaxSegundos) {
         return @{ segundos = 0; erro = ('tetoSegundos fora do intervalo {0}..{1}' -f $Script:TetoMinSegundos, $Script:TetoMaxSegundos) }
     }
-    return @{ segundos = $n; erro = $null }
+    return @{ segundos = [int]$d; erro = $null }
 }
 
 function Add-ItemLimitado {
@@ -50,6 +57,18 @@ function Add-ItemLimitado {
     $i = 0
     while ($i -lt $Lista.Count -and $Lista[$i].bytes -lt $Item.bytes) { $i++ }
     $Lista.Insert($i, $Item)
+}
+
+function Test-AcessoNegado {
+    # Puro: a excecao, ou alguma interna dela (MethodInvocationException e erros da enumeracao vem embrulhados), e
+    # falta de permissao? Pasta que sumiu, caminho longo demais e outros erros de E/S nao sao.
+    param($Excecao)
+    $e = $Excecao
+    while ($null -ne $e) {
+        if ($e -is [UnauthorizedAccessException] -or $e -is [Security.SecurityException]) { return $true }
+        $e = $e.InnerException
+    }
+    return $false
 }
 
 # ---------- leitura ----------
@@ -74,32 +93,28 @@ function Get-RaizAnalise {
     return @{ caminho = $cheio; erro = $null }
 }
 
-function Get-FilhoPasta {
-    # Entradas de uma pasta (arquivos e subpastas, ocultos inclusive), lidas de uma vez pelo .NET e sem seguir nada.
-    # Lanca quando a pasta nao pode ser listada, o que separa "sem acesso" de "vazia" (array vazio).
-    # $Negadas (so modo teste): pastas que respondem como acesso negado, sem mexer em ACL.
-    param([string]$Pasta, [string[]]$Negadas)
-    if ($null -ne $Negadas -and $Negadas.Count -gt 0) {
-        $n = $Pasta.TrimEnd('\')
-        foreach ($x in $Negadas) {
-            if ([string]::Equals($n, $x, [StringComparison]::OrdinalIgnoreCase)) {
-                throw (New-Object UnauthorizedAccessException ('acesso negado (simulado): ' + $Pasta))
-            }
-        }
-    }
-    $entradas = (New-Object IO.DirectoryInfo $Pasta).GetFileSystemInfos()
-    return , $entradas
+function Assert-PastaSimulada {
+    # So modo teste: pasta marcada em simular falha como a listagem real falharia (acesso negado ou pasta que sumiu),
+    # sem mexer em ACL. $Falhas: caminho sem barra no fim -> 'negar' | 'sumir' (hashtable, sem diferenciar caixa).
+    param([string]$Pasta, $Falhas)
+    $tipo = $Falhas[$Pasta.TrimEnd('\')]
+    if ($tipo -eq 'negar') { throw (New-Object UnauthorizedAccessException ('acesso negado (simulado): ' + $Pasta)) }
+    if ($tipo -eq 'sumir') { throw (New-Object IO.DirectoryNotFoundException ('a pasta sumiu (simulado): ' + $Pasta)) }
 }
 
 function Measure-PastaPrimeiroNivel {
     # Soma uma pasta do primeiro nivel com pilha (sem recursao), pulando todo ponto de reparse (junction, link,
-    # ponto de montagem) sem somar. Os arquivos disputam a lista $Maiores. A propria pasta e sempre listada; o relogio
-    # global e conferido antes de cada subpasta (e a cada $ConferirRelogioACada entradas).
-    # Devolve @{ bytes; semAcesso; parcial; estourou }: semAcesso = a propria pasta nao pode ser listada (bytes -1).
-    param([string]$Pasta, $Relogio, [int64]$TetoMs, $Maiores, [string[]]$Negadas)
+    # ponto de montagem) sem somar. Cada pasta e lida em fluxo (EnumerateFileSystemInfos dentro do foreach, que nao
+    # junta tudo na memoria). Os arquivos disputam a lista $Maiores. A propria pasta e sempre listada; o relogio global
+    # e conferido antes de cada subpasta e a cada $ConferirACada entradas.
+    # Erro antes da primeira entrada da propria pasta: bytes -1, com semAcesso (acesso negado) ou parcial (outro erro).
+    # Erro depois disso, ou numa subpasta: guarda o que ja foi lido e marca parcial.
+    # Devolve @{ bytes; semAcesso; parcial; estourou }.
+    param([string]$Pasta, $Relogio, [int64]$TetoMs, $Maiores, $Falhas, [int]$ConferirACada)
     $r = @{ bytes = [int64]0; semAcesso = $false; parcial = $false; estourou = $false }
     $reparse = [IO.FileAttributes]::ReparsePoint
     $max = $Script:MaxItensEspaco
+    $simulando = ($null -ne $Falhas -and $Falhas.Count -gt 0)
     $pilha = New-Object System.Collections.Generic.Stack[string]
     $pilha.Push($Pasta)
     $primeira = $true
@@ -107,27 +122,33 @@ function Measure-PastaPrimeiroNivel {
     while ($pilha.Count -gt 0) {
         if (-not $primeira -and $Relogio.ElapsedMilliseconds -ge $TetoMs) { $r.parcial = $true; $r.estourou = $true; break }
         $dir = $pilha.Pop()
-        $filhos = $null
-        try { $filhos = Get-FilhoPasta $dir $Negadas }
-        catch {
-            if ($primeira) { $r.bytes = [int64]-1; $r.semAcesso = $true; return $r }
-            $r.parcial = $true
-        }
+        $propria = $primeira
         $primeira = $false
-        if ($null -eq $filhos) { continue }
-        foreach ($f in $filhos) {
-            $n++
-            if (($n % $Script:ConferirRelogioACada) -eq 0 -and $Relogio.ElapsedMilliseconds -ge $TetoMs) {
-                $r.parcial = $true; $r.estourou = $true; return $r
+        $lidas = 0
+        try {
+            if ($simulando) { Assert-PastaSimulada $dir $Falhas }
+            foreach ($f in [IO.DirectoryInfo]::new($dir).EnumerateFileSystemInfos()) {
+                $lidas++
+                $n++
+                if (($n % $ConferirACada) -eq 0 -and $Relogio.ElapsedMilliseconds -ge $TetoMs) {
+                    $r.parcial = $true; $r.estourou = $true; return $r
+                }
+                # Test-Reparse em linha: uma chamada de funcao por arquivo pesa em arvores grandes.
+                if (($f.Attributes -band $reparse) -ne 0) { continue }
+                if ($f -is [IO.DirectoryInfo]) { $pilha.Push($f.FullName); continue }
+                $tam = [int64]$f.Length
+                $r.bytes += $tam
+                if ($Maiores.Count -lt $max -or $tam -gt $Maiores[0].bytes) {
+                    Add-ItemLimitado $Maiores ([pscustomobject]@{ caminho = $f.FullName; nome = $f.Name; bytes = $tam }) $max
+                }
             }
-            # Test-Reparse em linha: uma chamada de funcao por arquivo pesa em arvores grandes.
-            if (($f.Attributes -band $reparse) -ne 0) { continue }
-            if ($f -is [IO.DirectoryInfo]) { $pilha.Push($f.FullName); continue }
-            $tam = [int64]$f.Length
-            $r.bytes += $tam
-            if ($Maiores.Count -lt $max -or $tam -gt $Maiores[0].bytes) {
-                Add-ItemLimitado $Maiores ([pscustomobject]@{ caminho = $f.FullName; nome = $f.Name; bytes = $tam }) $max
+        } catch {
+            if ($propria -and $lidas -eq 0) {
+                $r.bytes = [int64]-1
+                if (Test-AcessoNegado $_.Exception) { $r.semAcesso = $true } else { $r.parcial = $true }
+                return $r
             }
+            $r.parcial = $true
         }
     }
     return $r
@@ -144,13 +165,17 @@ function Invoke-Analisar {
     $t = Get-TetoParam $Params
     if ($null -ne $t.erro) { Send-Result $Id $null $false $t.erro; return }
     $tetoMs = [int64]$t.segundos * 1000
-    $negadas = @()
+    $conferir = $Script:ConferirRelogioACada
+    $falhas = @{}
     $sim = Get-Simulacao $Params $Teste
     if ($null -ne $sim) {
         if ($null -ne $sim.tetoMs) { $tetoMs = [int64]$sim.tetoMs }
-        if ($null -ne $sim.negarAcesso) {
-            $negadas = @(@($sim.negarAcesso) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
-                    ForEach-Object { ([IO.Path]::GetFullPath([string]$_)).TrimEnd('\') })
+        if ($null -ne $sim.conferirACada) { $conferir = [math]::Max(1, [int]$sim.conferirACada) }
+        foreach ($c in @($sim.negarAcesso)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$c)) { $falhas[([IO.Path]::GetFullPath([string]$c)).TrimEnd('\')] = 'negar' }
+        }
+        foreach ($c in @($sim.sumir)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$c)) { $falhas[([IO.Path]::GetFullPath([string]$c)).TrimEnd('\')] = 'sumir' }
         }
     }
     $raiz = $v.caminho
@@ -159,36 +184,48 @@ function Invoke-Analisar {
     $relogio = [Diagnostics.Stopwatch]::StartNew()
     Send-Progress $Id 0 ('Analisando ' + $raiz)
 
-    $entradas = $null
-    try { $entradas = Get-FilhoPasta $raiz $negadas }
-    catch { Send-Result $Id $null $false ('sem acesso à pasta ' + $raiz); return }
-
-    # Arquivos soltos na raiz: entram no total e na lista de arquivos, nao em pastas.
+    # Listagem da propria raiz, em fluxo e sob o mesmo relogio. Arquivos soltos entram no total e na lista de
+    # arquivos, nao em pastas. Teto ou erro no meio: o que ja foi lido fica e a analise sai incompleta.
     $total = [int64]0
     $maiores = New-Object System.Collections.Generic.List[object]
     $nivel = New-Object System.Collections.Generic.List[object]
-    foreach ($e in $entradas) {
-        if ($e -is [IO.DirectoryInfo]) { $nivel.Add($e); continue }
-        if (($e.Attributes -band $reparse) -ne 0) { continue }
-        $tam = [int64]$e.Length
-        $total += $tam
-        if ($maiores.Count -lt $max -or $tam -gt $maiores[0].bytes) {
-            Add-ItemLimitado $maiores ([pscustomobject]@{ caminho = $e.FullName; nome = $e.Name; bytes = $tam }) $max
+    $incompleto = $false
+    $lidas = 0
+    try {
+        if ($falhas.Count -gt 0) { Assert-PastaSimulada $raiz $falhas }
+        foreach ($e in [IO.DirectoryInfo]::new($raiz).EnumerateFileSystemInfos()) {
+            $lidas++
+            if ($e -is [IO.DirectoryInfo]) {
+                $nivel.Add($e)
+            } elseif (($e.Attributes -band $reparse) -eq 0) {
+                $tam = [int64]$e.Length
+                $total += $tam
+                if ($maiores.Count -lt $max -or $tam -gt $maiores[0].bytes) {
+                    Add-ItemLimitado $maiores ([pscustomobject]@{ caminho = $e.FullName; nome = $e.Name; bytes = $tam }) $max
+                }
+            }
+            if (($lidas % $conferir) -eq 0 -and $relogio.ElapsedMilliseconds -ge $tetoMs) { $incompleto = $true; break }
         }
+    } catch {
+        if ($lidas -eq 0) {
+            $msg = if (Test-AcessoNegado $_.Exception) { 'sem acesso à pasta ' + $raiz } else { 'não foi possível ler a pasta ' + $raiz }
+            Send-Result $Id $null $false $msg
+            return
+        }
+        $incompleto = $true
     }
 
     # Uma caminhada por pasta do primeiro nivel, em ordem de nome (deterministica), todas sob o mesmo relogio.
     $ordenadas = @($nivel | Sort-Object -Property Name)
     $qtd = $ordenadas.Count
     $pastas = New-Object System.Collections.Generic.List[object]
-    $incompleto = $false
     $comecou = $false
     for ($i = 0; $i -lt $qtd; $i++) {
         $d = $ordenadas[$i]
-        $p = [pscustomobject]@{ caminho = $d.FullName; nome = $d.Name; bytes = [int64]0; semAcesso = $false; parcial = $false }
+        $p = [pscustomobject]@{ caminho = $d.FullName; nome = $d.Name; bytes = [int64]0; semAcesso = $false; parcial = $false; link = $false }
         $pastas.Add($p)
-        # Link no primeiro nivel: aparece com 0 e nao entra na soma (nem depois do teto: nao ha o que medir).
-        if (($d.Attributes -band $reparse) -ne 0) { continue }
+        # Link no primeiro nivel: aparece com link:true e 0, nunca e percorrido (nem depois do teto: nao ha o que medir).
+        if (($d.Attributes -band $reparse) -ne 0) { $p.link = $true; continue }
         if ($incompleto -or ($comecou -and $relogio.ElapsedMilliseconds -ge $tetoMs)) {
             $incompleto = $true
             $p.bytes = [int64]-1
@@ -197,7 +234,7 @@ function Invoke-Analisar {
         }
         $comecou = $true
         Send-Progress $Id ([int][math]::Floor(100 * $i / $qtd)) ('Medindo ' + $d.Name)
-        $m = Measure-PastaPrimeiroNivel $d.FullName $relogio $tetoMs $maiores $negadas
+        $m = Measure-PastaPrimeiroNivel $d.FullName $relogio $tetoMs $maiores $falhas $conferir
         $p.bytes = [int64]$m.bytes
         $p.semAcesso = [bool]$m.semAcesso
         $p.parcial = [bool]$m.parcial
