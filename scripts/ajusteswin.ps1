@@ -82,13 +82,6 @@ function Test-RecomendadoAjuste {
     }
 }
 
-function Get-BuildWindows {
-    param([bool]$Teste, $Sim)
-    if ($Teste -and $null -ne $Sim -and $null -ne $Sim.build) { return [int]$Sim.build }
-    try { return [int](Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber }
-    catch { return [int][Environment]::OSVersion.Version.Build }
-}
-
 # ---------- registro ----------
 
 function Get-ValorAtual {
