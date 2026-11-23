@@ -566,7 +566,7 @@ const demo = {
     const menu = 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs';
     const r = (tipo, caminho, nome, bytes, seguro, motivo) => ({ tipo, caminho, nome, bytes: Math.round(bytes), seguro, motivo });
     // No AppData nada é seguro: configurações e jogos salvos de programas em uso não deixam rastro no Uninstall.
-    const appData = 'Fica no AppData: pode guardar configurações ou jogos salvos de um programa que você ainda usa. Confira antes de marcar.';
+    const appData = 'Dados do usuário (configurações, chaves, jogos salvos): confira antes de mover.';
     return [
       r('pasta', 'C:\\Program Files (x86)\\Nero', 'Nero', 412 * MB, true, 'Nenhum programa instalado tem este nome ou editor, e a pasta não muda há mais de 30 dias.'),
       r('pasta', 'C:\\ProgramData\\McAfee', 'McAfee', 186 * MB, true, 'Nenhum programa instalado tem este nome ou editor, e a pasta não muda há mais de 30 dias.'),
