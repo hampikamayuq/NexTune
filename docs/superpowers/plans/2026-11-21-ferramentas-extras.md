@@ -129,8 +129,8 @@ Ajustes novos:
 
 **Produces:** `espaco/analisar {raiz}` → `{ pastas: [{caminho, bytes, semAcesso}], arquivos: [{caminho, bytes}] }`: as 20 maiores pastas do primeiro nível (e um nível abaixo ao clicar) e os 20 maiores arquivos, com uma caminhada própria que não segue links e respeita um teto de tempo global (o `Get-TamanhoComTeto` de `programas.ps1` tem teto por chamada e não junta os maiores arquivos). Só leitura; apagar continua sendo pela Limpeza ou pela quarentena.
 
-- [ ] **Passo 1:** testes com pasta falsa (junction para fora, pasta sem permissão, arquivos grandes): ordem certa, junction não somada, `semAcesso` marcado (Review Focus 5).
-- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes com pasta falsa (junction para fora, pasta sem permissão, arquivos grandes): ordem certa, junction não somada, `semAcesso` marcado (Review Focus 5).
+- [x] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 6: restos de programas já desinstalados (porta de `residuos.ps1`)
 
@@ -138,8 +138,8 @@ Ajustes novos:
 
 **Produces:** `programas/restosAntigos -> { itens: [{tipo, caminho, nome, bytes, seguro}] }` em `%ProgramFiles%`, `%ProgramFiles(x86)%`, `%ProgramData%`, `%APPDATA%`, `%LOCALAPPDATA%` e atalhos do menu Iniciar. Regra do RetroLimpia: "seguro" só quando o nome limpo (sem versão, arquitetura e parênteses) não casa com nenhum programa instalado nem com `protegidos.json`. A limpeza reaproveita `limparRestos` (vai para a quarentena).
 
-- [ ] **Passo 1:** testes: pasta de programa removido é achada; pasta de programa ainda instalado com nome parecido não é "segura" (Review Focus 4); pasta protegida nunca aparece.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes: pasta de programa removido é achada; pasta de programa ainda instalado com nome parecido não é "segura" (Review Focus 4); pasta protegida nunca aparece.
+- [x] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 7: dispositivos com problema e backup de drivers (porta de `drivers.ps1`)
 
@@ -147,8 +147,8 @@ Ajustes novos:
 
 **Produces:** `drivers/listar` (dispositivos com `ConfigManagerErrorCode` diferente de 0 e 22, com o código explicado em pt-BR); `drivers/backup {confirmado}` (`pnputil /export-driver * <ProgramData\NexTune\Drivers\AAAAMMDD-HHMMSS>`); `drivers/reparar {id, confirmado}` escalonado como no RetroLimpia (desligar e ligar; reinstalar o driver só para classes não críticas; procurar hardware de novo), parando no primeiro passo que resolve.
 
-- [ ] **Passo 1:** testes com `simular.dispositivos`: lista e textos; `reparar` para no passo que resolve; classe crítica (disco, display do sistema) nunca é reinstalada.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes com `simular.dispositivos`: lista e textos; `reparar` para no passo que resolve; classe crítica (disco, display do sistema) nunca é reinstalada.
+- [x] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 8: rede
 
@@ -156,8 +156,8 @@ Ajustes novos:
 
 **Produces:** `rede/limparDns` (`ipconfig /flushdns`); `rede/redefinir {confirmado}` (`netsh winsock reset` e `netsh int ip reset`, avisa que precisa reiniciar); `rede/dnsSeguro {provedor: 'cloudflare'|'google'|'quad9'|'automatico', confirmado}` (servidores e DoH por adaptador, com backup dos servidores anteriores e restauração; só no Windows 11, como no Sophia).
 
-- [ ] **Passo 1:** testes com `simular.adaptadores`: backup e restauração exatos dos servidores; Windows 10 recusa DoH com mensagem clara.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes com `simular.adaptadores`: backup e restauração exatos dos servidores; Windows 10 recusa DoH com mensagem clara.
+- [x] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Fechamento
 
