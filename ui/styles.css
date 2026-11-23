@@ -364,3 +364,84 @@ fieldset.cartao legend { font-weight: 600; padding: 0 0.4rem; }
 .linha-link input[type="text"] { flex: 1; min-width: 0; background: var(--painel2); border: 1px solid var(--linha); border-radius: 8px; padding: 0.45rem 0.7rem; }
 .linha-link .link-store { margin-top: 0; }
 .notas-atu { white-space: pre-wrap; }
+
+/* botão pequeno dentro de linhas */
+.btn.mini { padding: 0.25rem 0.7rem; font-size: 0.8125rem; white-space: nowrap; }
+.caminho { font-family: "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; }
+
+/* Espaço */
+.trilha-esp { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.45rem; margin: 1.25rem 0 0.75rem; font-size: 0.9375rem; }
+.trilha-esp .sep { color: var(--suave); }
+.trilha-esp .atual { font-weight: 600; }
+.resumo-esp .linha-total { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.resumo-esp .linha-total .suave { overflow-wrap: anywhere; min-width: 0; }
+.resumo-esp .grande { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.resumo-esp .aviso { margin-bottom: 0; }
+.lista-esp { border: 1px solid var(--linha); border-radius: var(--raio); background: var(--painel); padding: 0.25rem 1rem; }
+.pasta-esp {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.3rem 0.9rem; align-items: center;
+  padding: 0.6rem 0; border-top: 1px solid var(--linha);
+}
+.pasta-esp:first-child, .arq-esp:first-child { border-top: 0; }
+.cab-esp { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; min-width: 0; }
+.nome-esp { font-weight: 600; text-align: left; overflow-wrap: anywhere; }
+.nome-esp.link { color: var(--texto); text-decoration-color: var(--acento); }
+.nome-esp.link:hover:not(:disabled) { color: var(--acento); }
+.pasta-esp.fixa .nome-esp { color: var(--suave); }
+.tam-esp { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.tam-esp.desc-tam { color: var(--suave); font-size: 0.875rem; }
+.barra-esp { grid-column: 1 / 3; height: 0.45rem; border-radius: 99px; background: var(--painel2); overflow: hidden; }
+.barra-esp i { display: block; height: 100%; width: calc(var(--pct, 0) * 1%); background: var(--acento); border-radius: 99px; }
+.barra-esp.parcial i { background: repeating-linear-gradient(135deg, var(--acento) 0 6px, rgba(88, 195, 238, 0.55) 6px 12px); }
+.arq-esp { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.2rem 0.9rem; align-items: center; padding: 0.55rem 0; border-top: 1px solid var(--linha); }
+.arq-info { display: flex; flex-direction: column; min-width: 0; }
+.arq-nome { font-weight: 600; overflow-wrap: anywhere; }
+.nota-esp { margin-top: 1.25rem; border-left: 3px solid var(--linha); padding-left: 0.9rem; }
+.nota-esp p { margin-bottom: 0.4rem; }
+
+/* resultados em passos (Dispositivos, Rede) */
+.passos-modal { margin: 0 0 0.75rem; padding-left: 1.3rem; }
+.passos-modal li { margin-bottom: 0.35rem; }
+.passos-res { list-style: none; margin: 0.6rem 0; padding: 0; }
+.passos-res li { display: grid; grid-template-columns: 1.4rem auto 1fr; gap: 0.6rem; align-items: baseline; padding: 0.35rem 0; border-top: 1px solid var(--linha); }
+.passos-res li:first-child { border-top: 0; }
+.passos-res .marca-passo { font-weight: 700; text-align: center; }
+.passos-res li.ok .marca-passo { color: var(--verde); }
+.passos-res li.falhou .marca-passo { color: var(--amarelo); }
+.passos-res li > :last-child { text-align: right; }
+.resultado.atencao .grande.aviso-texto { color: var(--amarelo); }
+.prog.disp .pequeno { margin-top: 0.15rem; }
+.prog.disp .motivo { color: var(--amarelo); }
+
+/* Rede */
+.adaptador { padding: 0.65rem 0; border-top: 1px solid var(--linha); }
+.adaptador:last-child { padding-bottom: 0; }
+.dns-lista { font-family: "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; margin-top: 0.15rem; }
+.ferramenta { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.6rem; }
+.ferramenta p { margin: 0.15rem 0 0; }
+.ferramenta .btn { flex: none; }
+.preset.indisp { opacity: 0.55; cursor: not-allowed; }
+.preset strong { margin-right: 0.4rem; }
+.preset .selo { margin-right: 0.4rem; }
+
+/* Programas: seção recolhível de restos antigos */
+.secao-antigos { margin: 0 0 1rem; padding: 0.35rem 0.6rem; }
+.secao-antigos > div { padding: 0 0.65rem 0.8rem; }
+.secao-abrir {
+  display: flex; align-items: center; gap: 0.6rem; width: 100%; border: 0; background: transparent; color: var(--texto);
+  font-weight: 600; text-align: left; padding: 0.55rem 0.65rem; border-radius: 8px; cursor: pointer;
+}
+.secao-abrir:hover { background: var(--painel2); }
+.secao-abrir .seta { width: 1rem; color: var(--suave); }
+.secao-antigos .acoes { align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+
+/* menu cabe em janelas baixas (760×500) */
+#menu { overflow-y: auto; }
+@media (max-height: 640px) {
+  #menu { gap: 0.1rem; padding: 0.6rem 0.6rem; }
+  #menu .item { padding: 0.32rem 0.8rem; }
+}
+@media (max-width: 900px) {
+  .ferramenta { flex-direction: column; align-items: flex-start; }
+}
+.passos-res li.mantido .marca-passo { color: var(--suave); }

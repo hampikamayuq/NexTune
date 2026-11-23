@@ -207,6 +207,9 @@ const demo = {
     if (modulo === 'modojogo') return this._executarModoJogo(acao, params || {});
     if (modulo === 'reparo') return this._executarReparo(acao, params || {});
     if (modulo === 'saude') return this._executarSaude(acao, params || {}, onProgresso);
+    if (modulo === 'espaco') return this._executarEspaco(acao, params || {}, onProgresso);
+    if (modulo === 'drivers') return this._executarDrivers(acao, params || {}, onProgresso);
+    if (modulo === 'rede') return this._executarRede(acao, params || {}, onProgresso);
     if (modulo === 'quarentena') return this._executarQuarentena(acao, params, onProgresso);
     if (modulo === 'sistema') return this._executarSistema(acao, params, onProgresso);
     throw new Error('Ação não disponível na demonstração: ' + modulo + '/' + acao);
@@ -527,22 +530,271 @@ const demo = {
       const prog = this._programas.find((p) => p.id === params.id) || { nome: params.nome, editor: params.editor || '' };
       return { candidatos: this._restos(prog) };
     }
+    if (acao === 'restosAntigos') {
+      if (!this._antigos) this._antigos = this._restosAntigosIniciais();
+      await this._simular(onProgresso, 'programas', ['Lendo programas instalados…', 'Procurando restos em C:\\Program Files…', 'Procurando restos em AppData…', 'Procurando atalhos quebrados no Menu Iniciar…']);
+      return { itens: this._antigos.map((x) => Object.assign({}, x)) };
+    }
     if (acao === 'limparRestos') {
       if (params.confirmado !== true) throw new Error('É preciso confirmar.');
       const itens = params.itens || [];
       if (!itens.length) throw new Error('Nenhum item para mover.');
       if (!this._quarentena) this._quarentena = this._quarentenaInicial();
       await this._simular(onProgresso, 'programas', itens.map((i) => 'Movendo ' + i.caminho + '…'));
+      // Restos antigos movidos somem da próxima busca e entram na quarentena com o tamanho de verdade.
+      let tamAntigos = 0;
+      if (this._antigos) {
+        const movidos = new Set(itens.map((i) => i.caminho));
+        this._antigos.forEach((x) => { if (movidos.has(x.caminho)) tamAntigos += x.bytes; });
+        this._antigos = this._antigos.filter((x) => !movidos.has(x.caminho));
+      }
       this._seq++;
       const id = '20251120-1530' + String(this._seq).padStart(2, '0') + '-' + (0x1a00 + this._seq).toString(16);
       const agora = new Date();
       this._quarentena.unshift({
         id, data: agora.toISOString(), modulo: 'programas', descricao: 'Restos de ' + (params.nome || 'programa'),
-        itens: itens.length, tamanhoBytes: itens.length * 18 * MB,
+        itens: itens.length, tamanhoBytes: tamAntigos || itens.length * 18 * MB,
       });
       return { quarentenaId: id, movidos: itens.length, falhas: [] };
     }
     throw new Error('Ação não disponível na demonstração: programas/' + acao);
+  },
+
+  // Pastas e atalhos de programas já desinstalados; Lenovo e Avast continuam instalados (não seguros).
+  _restosAntigosIniciais() {
+    const u = 'C:\\Users\\Maria';
+    const menu = 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs';
+    const r = (tipo, caminho, nome, bytes, seguro, motivo) => ({ tipo, caminho, nome, bytes: Math.round(bytes), seguro, motivo });
+    return [
+      r('pasta', 'C:\\Program Files (x86)\\Nero', 'Nero', 412 * MB, true, 'Nenhum programa instalado tem este nome ou editor, e a pasta não muda há mais de 30 dias.'),
+      r('pasta', 'C:\\ProgramData\\McAfee', 'McAfee', 186 * MB, true, 'Nenhum programa instalado tem este nome ou editor, e a pasta não muda há mais de 30 dias.'),
+      r('pasta', u + '\\AppData\\Roaming\\Baidu', 'Baidu', 23 * MB, true, 'Nenhum programa instalado tem este nome ou editor, e a pasta não muda há mais de 30 dias.'),
+      r('pasta', u + '\\AppData\\Local\\Lenovo', 'Lenovo', 64 * MB, false, 'Nome parecido com o editor de um programa instalado: Lenovo Vantage (Lenovo)'),
+      r('pasta', 'C:\\ProgramData\\Avast Software\\Browser', 'Browser', 9 * MB, false, 'Fica na pasta de Avast Software, que ainda tem programa instalado: pode ser um componente compartilhado.'),
+      r('atalho', menu + '\\WinRAR\\WinRAR.lnk', 'WinRAR', 1450, true, 'Atalho cujo destino não existe mais: C:\\Program Files\\WinRAR\\WinRAR.exe'),
+      r('atalho', u + '\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Steam.lnk', 'Steam', 2100, false, 'O destino fica num disco que não está conectado agora (E:): o atalho pode voltar a funcionar.'),
+    ];
+  },
+
+  // Árvore da unidade C: para o analisador de espaço. n = nome, b = bytes (só nas folhas sem filhos), k = filhos,
+  // f = arquivos [[nome, bytes]], a = sem acesso, l = link, p = parcial. Pasta sem filhos e com b > 0 ganha filhos
+  // genéricos na hora, para dar para descer em qualquer pasta.
+  _arvoreEspaco() {
+    const p = (n, b, extra) => Object.assign({ n, b }, extra || {});
+    const k = (n, filhos, extra) => Object.assign({ n, k: filhos }, extra || {});
+    return k('C:', [
+      k('Users', [
+        k('Maria', [
+          k('Videos', [p('Viagem praia 2025', 22 * GB), p('Aniversário', 9 * GB)], { f: [['Casamento da Ana.mp4', 14.2 * GB], ['Formatura.mov', 8.4 * GB], ['Tela gravada.mp4', 3.1 * GB]] }),
+          k('AppData', [
+            k('Local', [p('Google', 6.8 * GB), p('Temp', 4.2 * GB), p('Spotify', 3.4 * GB), p('Microsoft', 9.6 * GB, { p: true }), p('Packages', 5.1 * GB), p('Discord', 0.9 * GB)]),
+            k('Roaming', [p('Spotify', 1.6 * GB), p('Microsoft', 2.2 * GB), p('discord', 0.6 * GB), p('Zoom', 0.4 * GB)]),
+            p('LocalLow', 1.1 * GB),
+          ]),
+          k('Downloads', [p('Instaladores', 6.2 * GB), p('Fotos do WhatsApp', 2.8 * GB)], { f: [['Windows11_25H2.iso', 6.7 * GB], ['GTA_V_Setup.exe', 3.9 * GB], ['backup-celular.zip', 4.4 * GB], ['curso-excel.zip', 1.2 * GB]] }),
+          p('Pictures', 18.4 * GB),
+          p('Documents', 7.3 * GB),
+          p('OneDrive', 2.1 * GB),
+          p('Desktop', 1.2 * GB),
+          p('Music', 0.8 * GB),
+          p('Meus Documentos', 0, { l: true }),
+        ], { f: [['NTUSER.DAT', 18 * MB]] }),
+        p('Public', 2.3 * GB),
+        p('Default', 0.2 * GB),
+        p('All Users', 0, { l: true }),
+        p('Default User', 0, { l: true }),
+      ]),
+      k('Windows', [
+        p('WinSxS', 11.4 * GB, { p: true }),
+        p('System32', 6.9 * GB),
+        p('SysWOW64', 1.8 * GB),
+        p('Installer', 3.2 * GB),
+        p('SoftwareDistribution', 1.4 * GB),
+        p('assembly', 0.9 * GB),
+        p('servicing', 0, { b: -1, p: true }),
+        p('LiveKernelReports', 0, { b: -1, p: true }),
+      ], { incompleto: true, f: [['MEMORY.DMP', 1.1 * GB], ['explorer.exe', 5 * MB], ['WindowsUpdate.log', 2 * MB]] }),
+      p('Program Files', 38.6 * GB),
+      p('Program Files (x86)', 12.4 * GB),
+      p('ProgramData', 6.1 * GB, { p: true }),
+      p('System Volume Information', 0, { a: true }),
+      p('Recovery', 0.9 * GB),
+      p('Documents and Settings', 0, { l: true }),
+      p('$Recycle.Bin', 0.5 * GB),
+    ], { f: [['pagefile.sys', 8 * GB], ['hiberfil.sys', 6.4 * GB], ['swapfile.sys', 256 * MB], ['DumpStack.log.tmp', 12 * 1024]] });
+  },
+
+  _noEspaco(raiz) {
+    if (!this._espaco) this._espaco = this._arvoreEspaco();
+    const partes = raiz.replace(/\\+$/, '').split('\\');
+    if (partes[0].toUpperCase() !== 'C:') return null;
+    let no = this._espaco;
+    for (const nome of partes.slice(1)) {
+      const filhos = this._filhosEspaco(no);
+      no = filhos.find((x) => x.n.toLowerCase() === nome.toLowerCase());
+      if (!no) return null;
+    }
+    return no;
+  },
+
+  _filhosEspaco(no) {
+    if (no.k) return no.k;
+    if (no.l || no.a || !(no.b > 0)) return [];
+    const b = no.b;
+    no.k = [
+      { n: 'Dados', b: b * 0.46 }, { n: 'Cache', b: b * 0.27 }, { n: 'Atualizações', b: b * 0.12 }, { n: 'Logs', b: b * 0.03 },
+    ];
+    no.f = [['pacote-' + no.n.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.dat', b * 0.08], ['instalador.msi', b * 0.04]];
+    return no.k;
+  },
+
+  _bytesEspaco(no) {
+    if (no.l || no.a) return 0;
+    if (no.b != null && no.b < 0) return -1;
+    // Folha ainda sem filhos: o tamanho é o b dela (os filhos genéricos, quando criados, somam o mesmo b).
+    if (!no.k) return Math.round(no.b || 0);
+    const arquivos = (no.f || []).reduce((s, f) => s + f[1], 0);
+    return Math.round(no.k.reduce((s, x) => s + Math.max(this._bytesEspaco(x), 0), 0) + arquivos);
+  },
+
+  _arquivosEspaco(no, caminho, saida) {
+    (no.f || []).forEach((f) => saida.push({ caminho: caminho + '\\' + f[0], nome: f[0], bytes: Math.round(f[1]) }));
+    if (no.l || no.a || !no.k) return;
+    no.k.forEach((x) => this._arquivosEspaco(x, caminho + '\\' + x.n, saida));
+  },
+
+  async _executarEspaco(acao, params, onProgresso) {
+    if (acao !== 'analisar') throw new Error('Ação não disponível na demonstração: espaco/' + acao);
+    const raiz = String(params.raiz || '');
+    if (!/^[A-Za-z]:\\/.test(raiz)) throw new Error('raiz deve ser um caminho absoluto de pasta (X:\\...)');
+    const no = this._noEspaco(raiz);
+    if (!no) throw new Error('a pasta não existe: ' + raiz);
+    if (no.l) throw new Error('a pasta é um link ou junção, ou fica dentro de um: recusada');
+    if (no.a) throw new Error('sem acesso à pasta ' + raiz);
+    const base = raiz.replace(/\\+$/, '');
+    const filhos = this._filhosEspaco(no);
+    await this._simular(onProgresso, 'espaco', ['Analisando ' + raiz].concat(filhos.slice(0, 5).map((x) => 'Medindo ' + x.n)));
+    const pastas = filhos.map((x) => {
+      const bytes = x.l ? 0 : (x.a ? -1 : this._bytesEspaco(x));
+      return { caminho: base + '\\' + x.n, nome: x.n, bytes, semAcesso: !!x.a, parcial: !!x.p || bytes < 0, link: !!x.l };
+    }).sort((a, b) => (b.bytes - a.bytes) || a.nome.localeCompare(b.nome)).slice(0, 20);
+    const arquivos = [];
+    this._arquivosEspaco(no, base, arquivos);
+    arquivos.sort((a, b) => b.bytes - a.bytes);
+    const soltos = (no.f || []).reduce((s, f) => s + Math.round(f[1]), 0);
+    const total = pastas.reduce((s, x) => s + Math.max(x.bytes, 0), 0) + soltos;
+    return { raiz: raiz.length === 3 ? raiz : base, totalBytes: total, incompleto: !!no.incompleto, pastas, arquivos: arquivos.slice(0, 20) };
+  },
+
+  // Três dispositivos: a placa de rede resolve no 2º passo, a câmera não resolve, o vídeo é essencial.
+  _driversIniciais() {
+    return [
+      { id: 'PCI\\VEN_10EC&DEV_8168&SUBSYS_86771043&REV_15\\4&2A1B3C4D&0&00E4', nome: 'Realtek PCIe GbE Family Controller', classe: 'Net', codigo: 10,
+        explicacao: 'O dispositivo não consegue iniciar. Tente o reparo; se continuar, instale o driver mais novo do site do fabricante.', critico: false, _resolveNo: 'reinstalar' },
+      { id: 'USB\\VID_0BDA&PID_58C2&MI_00\\6&1F2E3D4C&0&0000', nome: 'Câmera HD integrada', classe: 'Camera', codigo: 28,
+        explicacao: 'O driver deste dispositivo não está instalado. Instale o driver do site do fabricante ou pelo Windows Update.', critico: false, _resolveNo: null },
+      { id: 'PCI\\VEN_8086&DEV_3185&SUBSYS_00000000&REV_06\\3&11583659&0&10', nome: 'Intel UHD Graphics 600', classe: 'Display', codigo: 43,
+        explicacao: 'O Windows parou o dispositivo porque ele informou problemas. Tente o reparo; se continuar, troque de porta ou atualize o driver.', critico: true, _resolveNo: null },
+    ];
+  },
+
+  async _executarDrivers(acao, params, onProgresso) {
+    if (!this._drivers) this._drivers = this._driversIniciais();
+    const publico = (d) => ({ id: d.id, nome: d.nome, classe: d.classe, codigo: d.codigo, explicacao: d.explicacao, critico: d.critico });
+    if (acao === 'listar') {
+      await this._simular(onProgresso, 'drivers', ['Procurando dispositivos com problema…']);
+      return { dispositivos: this._drivers.filter((d) => d.codigo !== 0).map(publico) };
+    }
+    if (params.confirmado !== true) throw new Error('ação exige confirmação');
+    if (acao === 'backup') {
+      await this._simular(onProgresso, 'drivers', ['Copiando os drivers instalados (pode levar alguns minutos)…', 'Contando os drivers copiados…']);
+      const d = new Date();
+      const dois = (n) => String(n).padStart(2, '0');
+      const pasta = 'C:\\ProgramData\\NexTune\\Drivers\\' + d.getFullYear() + dois(d.getMonth() + 1) + dois(d.getDate()) + '-' + dois(d.getHours()) + dois(d.getMinutes()) + dois(d.getSeconds());
+      return { pasta, quantidade: 37, codigo: 0 };
+    }
+    if (acao === 'reparar') {
+      const d = this._drivers.find((x) => x.id === params.id && x.codigo !== 0);
+      if (!d) throw new Error('dispositivo não encontrado ou já sem problema');
+      const passos = [];
+      for (const passo of ['reiniciar', 'reinstalar', 'procurar']) {
+        if (d.critico && passo !== 'procurar') continue;
+        const msg = { reiniciar: 'Desligando e ligando ', reinstalar: 'Reinstalando o driver de ', procurar: 'Procurando alterações de hardware' }[passo];
+        await this._simular(onProgresso, 'drivers', [passo === 'procurar' ? msg : msg + d.nome]);
+        if (d._resolveNo === passo) d.codigo = 0;
+        passos.push({ passo, ok: true, codigoDepois: d.codigo });
+        if (d.codigo === 0) break;
+      }
+      return { resolvido: d.codigo === 0, passos, precisaReiniciar: false };
+    }
+    throw new Error('Ação não disponível na demonstração: drivers/' + acao);
+  },
+
+  // Windows 11 com Wi-Fi (DNS do roteador, IPv4 e IPv6) e cabo com um DNS digitado à mão (OpenDNS): o
+  // provedor atual é "outro"; Automático sem backup mantém o do cabo (mantido:true).
+  _redeInicial() {
+    return {
+      adaptadores: [
+        { indice: 12, nome: 'Wi-Fi', descricao: 'Intel(R) Wi-Fi 6 AX201 160MHz', ipv4: ['192.168.0.1'], ipv6: ['2804:14d:1:0:181:213:132:2'], ipv4Automatico: true, ipv6Automatico: true },
+        { indice: 7, nome: 'Ethernet', descricao: 'Realtek PCIe GbE Family Controller', ipv4: ['208.67.222.222', '208.67.220.220'], ipv6: [], ipv4Automatico: false, ipv6Automatico: true },
+      ],
+      backup: null,
+      build: 26200,
+      bloqueadoPorPolitica: false,
+    };
+  },
+
+  async _executarRede(acao, params, onProgresso) {
+    if (!this._rede) this._rede = this._redeInicial();
+    const R = this._rede;
+    const servidores = { cloudflare: ['1.1.1.1', '1.0.0.1'], google: ['8.8.8.8', '8.8.4.4'], quad9: ['9.9.9.9', '149.112.112.112'] };
+    const servidores6 = { cloudflare: ['2606:4700:4700::1111', '2606:4700:4700::1001'], google: ['2001:4860:4860::8888', '2001:4860:4860::8844'], quad9: ['2620:fe::fe', '2620:fe::9'] };
+    const deProvedor = (a) => !a.ipv4Automatico && Object.values(servidores).some((ips) => ips.join(',') === a.ipv4.join(','));
+    if (acao === 'estado') {
+      await this._simular(onProgresso, 'rede', ['Lendo os adaptadores de rede…']);
+      let provedor = 'outro';
+      if (R.adaptadores.every((a) => a.ipv4Automatico && a.ipv6Automatico)) provedor = 'automatico';
+      for (const [nome, ips] of Object.entries(servidores)) {
+        if (R.adaptadores.every((a) => !a.ipv4Automatico && a.ipv4.join(',') === ips.join(','))) provedor = nome;
+      }
+      return {
+        adaptadores: R.adaptadores.map((a) => ({ indice: a.indice, nome: a.nome, descricao: a.descricao, dns: a.ipv4.concat(a.ipv6), automatico: a.ipv4Automatico && a.ipv6Automatico })),
+        provedor, dohDisponivel: R.build >= 22000, bloqueadoPorPolitica: R.bloqueadoPorPolitica, temBackup: !!R.backup,
+      };
+    }
+    if (acao === 'limparDns') {
+      await this._simular(onProgresso, 'rede', ['Limpando o cache de DNS…']);
+      return { ok: true };
+    }
+    if (params.confirmado !== true) throw new Error('ação exige confirmação');
+    if (acao === 'redefinir') {
+      await this._simular(onProgresso, 'rede', ['Redefinindo o Winsock…', 'Redefinindo o TCP/IP…']);
+      return { precisaReiniciar: true, detalhe: 'O Winsock e o TCP/IP voltaram ao padrão do Windows. Reinicie o PC para concluir.' };
+    }
+    if (acao === 'dnsSeguro') {
+      const provedor = params.provedor;
+      if (!['cloudflare', 'google', 'quad9', 'automatico'].includes(provedor)) throw new Error('provedor de DNS inválido');
+      if (provedor !== 'automatico' && R.build < 22000) throw new Error('DNS seguro precisa do Windows 11');
+      if (provedor !== 'automatico' && R.bloqueadoPorPolitica) throw new Error('uma política do Windows proíbe o DNS seguro neste PC');
+      await this._simular(onProgresso, 'rede', R.adaptadores.map((a) => 'Configurando o DNS de ' + a.nome + '…'));
+      const mantidos = new Set();
+      if (provedor === 'automatico') {
+        const backup = R.backup;
+        R.adaptadores.forEach((a) => {
+          const b = backup && backup.find((x) => x.indice === a.indice);
+          if (b) Object.assign(a, JSON.parse(JSON.stringify(b)));
+          else if (backup || deProvedor(a)) Object.assign(a, { ipv4: ['192.168.0.1'], ipv4Automatico: true, ipv6: ['2804:14d:1:0:181:213:132:2'], ipv6Automatico: true });
+          else if (!a.ipv4Automatico || !a.ipv6Automatico) mantidos.add(a.indice); // sem backup: DNS digitado à mão fica
+        });
+        R.backup = null;
+      } else {
+        // Só antes da primeira troca: trocas seguintes não sobrescrevem o backup.
+        if (!R.backup) R.backup = JSON.parse(JSON.stringify(R.adaptadores));
+        R.adaptadores.forEach((a) => Object.assign(a, { ipv4: servidores[provedor].slice(), ipv6: servidores6[provedor].slice(), ipv4Automatico: false, ipv6Automatico: false }));
+      }
+      return { adaptadores: R.adaptadores.map((a) => ({ indice: a.indice, nome: a.nome, ok: true, erro: null, mantido: mantidos.has(a.indice) })), provedor };
+    }
+    throw new Error('Ação não disponível na demonstração: rede/' + acao);
   },
 
   async _executarQuarentena(acao, params, onProgresso) {

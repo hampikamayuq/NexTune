@@ -202,6 +202,110 @@ function cartaoResultadoProgramas() {
   return cartao;
 }
 
+// ---- restos de programas antigos (programas/restosAntigos, só leitura; mover usa limparRestos) ----
+
+async function procurarRestosAntigos() {
+  const A = S.programas.antigos;
+  if (S.ocupado) return;
+  A.erro = null;
+  A.prog = { pct: 0, msg: t('programas.antigos.procurando') };
+  renderAtual();
+  try {
+    const r = await api.executar('programas', 'restosAntigos', {}, progressoInline(A, 'pra-barra', 'pra-msg'));
+    A.itens = r.itens || [];
+    // Só os seguros vêm marcados; quem decide os outros é o usuário.
+    A.sel = new Set(A.itens.filter((i) => i.seguro).map((i) => i.caminho));
+  } catch (e) {
+    A.erro = e.message || String(e);
+  }
+  A.prog = null;
+  if (S.vista === 'programas') renderAtual();
+}
+
+async function moverRestosAntigos() {
+  const A = S.programas.antigos;
+  if (S.ocupado || !A.itens) return;
+  const sel = A.itens.filter((i) => A.sel.has(i.caminho));
+  if (!sel.length) return;
+  const dias = S.ajustes.diasQuarentena;
+  const tamanho = fmtBytes(sel.reduce((s, i) => s + Math.max(i.bytes || 0, 0), 0));
+  const ok = await perguntar({
+    titulo: sel.length === 1 ? t('programas.moverTituloUm') : t('programas.moverTitulo', { n: sel.length }),
+    corpo: [
+      h('p', { text: sel.length === 1 ? t('programas.moverTextoUm', { tamanho, dias }) : t('programas.moverTexto', { n: sel.length, tamanho, dias }) }),
+      sel.some((i) => !i.seguro) ? h('p', { class: 'aviso pequeno', text: t('programas.antigos.naoSegurosAviso') }) : null,
+    ],
+    ok: t('programas.moverQuarentena'),
+  });
+  if (!ok) return;
+  A.falhas = [];
+  try {
+    const r = await api.executar('programas', 'limparRestos', {
+      itens: sel.map((i) => ({ tipo: i.tipo, caminho: i.caminho })), confirmado: true, nome: t('programas.antigos.nomeQuarentena'),
+    }, null);
+    A.falhas = r.falhas || [];
+    const falhas = A.falhas.length;
+    toast(falhas ? t('programas.movidosFalhas', { n: r.movidos, f: falhas }) : (r.movidos === 1 ? t('programas.movidoUm') : t('programas.movidos', { n: r.movidos })), falhas ? 'aviso' : 'ok');
+  } catch (e) {
+    mostrarErroEscrita(e);
+  }
+  // Uma chamada por vez: primeiro o contador da Quarentena, depois a busca de novo.
+  try { await carregarQuarentena(); } catch (e) { mostrarErro(e); }
+  const falhas = A.falhas;
+  await procurarRestosAntigos();
+  A.falhas = falhas;
+  if (S.vista === 'programas') renderAtual();
+}
+
+function linhaRestoAntigo(i, idx) {
+  const A = S.programas.antigos;
+  const id = 'antigo-' + idx;
+  return h('label', { class: 'resto', for: id },
+    h('input', { type: 'checkbox', id, class: 'acao', checked: A.sel.has(i.caminho),
+      onchange: (e) => { if (e.target.checked) A.sel.add(i.caminho); else A.sel.delete(i.caminho); renderAtual(); } }),
+    h('span', { class: 'linha-resto' },
+      h('span', { class: 'selo', text: t('programas.resto.' + i.tipo) }),
+      h('strong', { text: i.nome }),
+      h('span', { class: 'tam', text: fmtBytes(i.bytes) })),
+    h('span', { class: 'motivo-resto caminho pequeno suave', text: i.caminho }),
+    i.seguro
+      ? h('span', { class: 'suave pequeno motivo-resto', text: i.motivo || '' })
+      : h('span', { class: 'aviso pequeno motivo-resto', text: i.motivo || t('programas.antigos.naoSeguro') }));
+}
+
+function secaoRestosAntigos() {
+  const A = S.programas.antigos;
+  const cab = h('button', { type: 'button', class: 'secao-abrir', 'aria-expanded': A.aberto ? 'true' : 'false', 'aria-controls': 'pr-antigos',
+    onclick: () => { A.aberto = !A.aberto; renderAtual(); } },
+  h('span', { class: 'seta', 'aria-hidden': 'true', text: A.aberto ? '▾' : '▸' }),
+  h('span', { text: t('programas.antigos.titulo') }),
+  A.itens && A.itens.length ? h('span', { class: 'selo', text: String(A.itens.length) }) : null);
+  const caixa = h('div', { class: 'cartao secao-antigos' }, cab);
+  if (!A.aberto) return caixa;
+  const corpo = h('div', { id: 'pr-antigos' },
+    h('p', { class: 'suave pequeno', text: t('programas.antigos.intro', { dias: S.ajustes.diasQuarentena }) }),
+    h('div', { class: 'barra-prog' },
+      h('button', { type: 'button', class: 'btn sec acao', text: t(A.itens ? 'programas.antigos.procurarDeNovo' : 'programas.antigos.procurar'), onclick: () => procurarRestosAntigos() })));
+  caixa.append(corpo);
+  if (A.prog) corpo.append(cartaoProgresso(A.prog, 'pra-barra', 'pra-msg'));
+  if (A.erro) corpo.append(h('p', { class: 'aviso pequeno', text: t('programas.antigos.erro', { erro: A.erro }) }));
+  A.falhas.forEach((f) => corpo.append(h('p', { class: 'aviso pequeno', text: t('programas.falhaResto', { caminho: f.caminho, erro: f.erro }) })));
+  if (!A.itens || A.prog) return caixa;
+  if (!A.itens.length) {
+    corpo.append(h('p', { class: 'suave', text: t('programas.antigos.nenhum') }));
+    return caixa;
+  }
+  const seguros = A.itens.filter((i) => i.seguro).length;
+  corpo.append(h('p', { class: 'pequeno', text: t(A.itens.length === 1 ? 'programas.antigos.achadoUm' : 'programas.antigos.achados', { n: A.itens.length, s: seguros }) }));
+  A.itens.forEach((i, idx) => corpo.append(linhaRestoAntigo(i, idx)));
+  const selecionados = A.itens.filter((i) => A.sel.has(i.caminho));
+  const tamanho = fmtBytes(selecionados.reduce((s, i) => s + Math.max(i.bytes || 0, 0), 0));
+  corpo.append(h('div', { class: 'acoes' },
+    h('span', { class: 'suave pequeno', text: selecionados.length === 1 ? t('programas.antigos.marcadoUm', { tamanho }) : t('programas.antigos.marcados', { n: selecionados.length, tamanho }) }),
+    h('button', { type: 'button', class: 'btn acao escrita', 'data-bloq': selecionados.length ? null : '', text: t('programas.moverQuarentena'), onclick: () => moverRestosAntigos() })));
+  return caixa;
+}
+
 function linhaPrograma(p) {
   const selos = [];
   if (p.tipo === 'store') selos.push(h('span', { class: 'selo', text: t('programas.selo.store') }));
@@ -252,6 +356,7 @@ VISTAS.programas = {
     }
 
     v.append(h('p', { class: 'suave', text: t('programas.intro') }));
+    v.append(secaoRestosAntigos());
 
     const listaEl = h('div', { class: 'lista-prog' });
     const contagem = h('span', { class: 'suave pequeno contagem' });
