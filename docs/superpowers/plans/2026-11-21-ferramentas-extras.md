@@ -43,9 +43,9 @@ Todo arquivo que reaproveitar código ganha no cabeçalho a linha `Baseado em <p
 Valem para PowerShell, Rust (`acoes.rs`), interface e `demo.js`. Nomes em camelCase; `-1` em bytes = desconhecido; datas ISO 8601. `simular` (objeto) só é aceito em modo teste, como nos módulos anteriores. `confirmado` é sempre o booleano `true`. Os módulos novos entram na allowlist de `host.ps1` e em `MODULOS`.
 
 ### espaco (só leitura)
-- `espaco/analisar { raiz, tetoSegundos? }` → `{ raiz, totalBytes, incompleto, pastas: [{ caminho, nome, bytes, semAcesso, parcial }], arquivos: [{ caminho, nome, bytes }] }`.
+- `espaco/analisar { raiz, tetoSegundos? }` → `{ raiz, totalBytes, incompleto, pastas: [{ caminho, nome, bytes, semAcesso, parcial, link }], arquivos: [{ caminho, nome, bytes }] }`.
   - `raiz`: caminho absoluto de pasta (`^[A-Za-z]:\\`), até 260 caracteres, existente e sem link na cadeia (`Test-CadeiaSemLink`); a raiz de unidade (`C:\`) é aceita. `tetoSegundos` inteiro 5..300 (padrão 60), teto da análise inteira.
-  - `pastas`: as 20 maiores do primeiro nível, da maior para a menor; `bytes:-1` quando não deu para medir. `semAcesso:true` quando a própria pasta não pode ser listada; `parcial:true` quando alguma subpasta não pôde ser lida ou o teto estourou no meio dela. Links e junções nunca são seguidos nem somados (Review Focus 5); um link no primeiro nível aparece com `bytes:0` e não entra na soma.
+  - `pastas`: as 20 maiores do primeiro nível, da maior para a menor; `bytes:-1` quando não deu para medir. `semAcesso:true` quando a própria pasta não pode ser listada; `parcial:true` quando alguma subpasta não pôde ser lida ou o teto estourou no meio dela. Links e junções nunca são seguidos nem somados (Review Focus 5); um link no primeiro nível aparece com `link:true, bytes:0` e não entra na soma. `semAcesso` só para acesso negado; pasta que sumiu no meio ou caminho longo demais vem como `bytes:-1, parcial:true`. Uma pasta onde o teto estourou no meio traz o que foi somado até ali com `parcial:true` (a tela mostra "pelo menos X").
   - `arquivos`: os 20 maiores arquivos de toda a árvore percorrida, do maior para o menor.
   - `incompleto:true` quando o teto estourou; as pastas não alcançadas vêm com `bytes:-1, parcial:true`.
   - "Um nível abaixo ao clicar" = nova chamada com `raiz` = a pasta clicada.
@@ -126,7 +126,7 @@ Ajustes novos:
 
 **Files:** Create `scripts/espaco.ps1`, testes; Modify `acoes.rs`, `host.ps1`, `src-tauri/src/bandeja.rs` (comando `abrir_pasta`: só pasta existente, absoluta, sem link, aberta pelo `explorer.exe`), UI (tela "Espaço").
 
-**Produces:** `espaco/analisar {raiz}` → `{ pastas: [{caminho, bytes, semAcesso}], arquivos: [{caminho, bytes}] }`: as 20 maiores pastas do primeiro nível (e um nível abaixo ao clicar) e os 20 maiores arquivos, usando o `Get-TamanhoComTeto` que já existe (sem seguir links, com teto de tempo). Só leitura; apagar continua sendo pela Limpeza ou pela quarentena.
+**Produces:** `espaco/analisar {raiz}` → `{ pastas: [{caminho, bytes, semAcesso}], arquivos: [{caminho, bytes}] }`: as 20 maiores pastas do primeiro nível (e um nível abaixo ao clicar) e os 20 maiores arquivos, com uma caminhada própria que não segue links e respeita um teto de tempo global (o `Get-TamanhoComTeto` de `programas.ps1` tem teto por chamada e não junta os maiores arquivos). Só leitura; apagar continua sendo pela Limpeza ou pela quarentena.
 
 - [ ] **Passo 1:** testes com pasta falsa (junction para fora, pasta sem permissão, arquivos grandes): ordem certa, junction não somada, `semAcesso` marcado (Review Focus 5).
 - [ ] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
