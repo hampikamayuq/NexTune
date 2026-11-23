@@ -533,7 +533,7 @@ const demo = {
     if (acao === 'restosAntigos') {
       if (!this._antigos) this._antigos = this._restosAntigosIniciais();
       await this._simular(onProgresso, 'programas', ['Lendo programas instalados…', 'Procurando restos em C:\\Program Files…', 'Procurando restos em AppData…', 'Procurando atalhos quebrados no Menu Iniciar…']);
-      return { itens: this._antigos.map((x) => Object.assign({}, x)) };
+      return { itens: this._antigos.map((x) => Object.assign({}, x)), incompleto: false };
     }
     if (acao === 'limparRestos') {
       if (params.confirmado !== true) throw new Error('É preciso confirmar.');
@@ -565,10 +565,13 @@ const demo = {
     const u = 'C:\\Users\\Maria';
     const menu = 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs';
     const r = (tipo, caminho, nome, bytes, seguro, motivo) => ({ tipo, caminho, nome, bytes: Math.round(bytes), seguro, motivo });
+    // No AppData nada é seguro: configurações e jogos salvos de programas em uso não deixam rastro no Uninstall.
+    const appData = 'Fica no AppData: pode guardar configurações ou jogos salvos de um programa que você ainda usa. Confira antes de marcar.';
     return [
       r('pasta', 'C:\\Program Files (x86)\\Nero', 'Nero', 412 * MB, true, 'Nenhum programa instalado tem este nome ou editor, e a pasta não muda há mais de 30 dias.'),
       r('pasta', 'C:\\ProgramData\\McAfee', 'McAfee', 186 * MB, true, 'Nenhum programa instalado tem este nome ou editor, e a pasta não muda há mais de 30 dias.'),
-      r('pasta', u + '\\AppData\\Roaming\\Baidu', 'Baidu', 23 * MB, true, 'Nenhum programa instalado tem este nome ou editor, e a pasta não muda há mais de 30 dias.'),
+      r('pasta', u + '\\AppData\\Roaming\\Baidu', 'Baidu', 23 * MB, false, appData),
+      r('pasta', u + '\\AppData\\Local\\PhotoScape', 'PhotoScape', 41 * MB, false, appData),
       r('pasta', u + '\\AppData\\Local\\Lenovo', 'Lenovo', 64 * MB, false, 'Nome parecido com o editor de um programa instalado: Lenovo Vantage (Lenovo)'),
       r('pasta', 'C:\\ProgramData\\Avast Software\\Browser', 'Browser', 9 * MB, false, 'Fica na pasta de Avast Software, que ainda tem programa instalado: pode ser um componente compartilhado.'),
       r('atalho', menu + '\\WinRAR\\WinRAR.lnk', 'WinRAR', 1450, true, 'Atalho cujo destino não existe mais: C:\\Program Files\\WinRAR\\WinRAR.exe'),
@@ -775,7 +778,7 @@ const demo = {
       const provedor = params.provedor;
       if (!['cloudflare', 'google', 'quad9', 'automatico'].includes(provedor)) throw new Error('provedor de DNS inválido');
       if (provedor !== 'automatico' && R.build < 22000) throw new Error('DNS seguro precisa do Windows 11');
-      if (provedor !== 'automatico' && R.bloqueadoPorPolitica) throw new Error('uma política do Windows proíbe o DNS seguro neste PC');
+      if (provedor !== 'automatico' && R.bloqueadoPorPolitica) throw new Error('DNS seguro bloqueado por uma política do Windows');
       await this._simular(onProgresso, 'rede', R.adaptadores.map((a) => 'Configurando o DNS de ' + a.nome + '…'));
       const mantidos = new Set();
       if (provedor === 'automatico') {
@@ -784,7 +787,7 @@ const demo = {
           const b = backup && backup.find((x) => x.indice === a.indice);
           if (b) Object.assign(a, JSON.parse(JSON.stringify(b)));
           else if (backup || deProvedor(a)) Object.assign(a, { ipv4: ['192.168.0.1'], ipv4Automatico: true, ipv6: ['2804:14d:1:0:181:213:132:2'], ipv6Automatico: true });
-          else if (!a.ipv4Automatico || !a.ipv6Automatico) mantidos.add(a.indice); // sem backup: DNS digitado à mão fica
+          else mantidos.add(a.indice); // sem backup: o que não é de um dos três provedores fica como está (mantido)
         });
         R.backup = null;
       } else {
@@ -792,7 +795,7 @@ const demo = {
         if (!R.backup) R.backup = JSON.parse(JSON.stringify(R.adaptadores));
         R.adaptadores.forEach((a) => Object.assign(a, { ipv4: servidores[provedor].slice(), ipv6: servidores6[provedor].slice(), ipv4Automatico: false, ipv6Automatico: false }));
       }
-      return { adaptadores: R.adaptadores.map((a) => ({ indice: a.indice, nome: a.nome, ok: true, erro: null, mantido: mantidos.has(a.indice) })), provedor };
+      return { adaptadores: R.adaptadores.map((a) => ({ indice: a.indice, nome: a.nome, ok: true, erro: '', mantido: mantidos.has(a.indice), revertido: false })), provedor };
     }
     throw new Error('Ação não disponível na demonstração: rede/' + acao);
   },

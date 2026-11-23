@@ -28,9 +28,9 @@ function redeProvedorDisponivel(p) {
   return p === 'automatico' || !!(E && E.dohDisponivel && !E.bloqueadoPorPolitica);
 }
 
-// Adaptador que o script voltou ao DNS anterior porque os nomes pararam de resolver com o DNS seguro.
+// Adaptador que o script devolveu ao DNS anterior (os nomes pararam de resolver ou o DoH não pôde ser gravado).
 function redeRevertido(a) {
-  return !a.ok && /voltamos ao anterior|voltou ao anterior/i.test(a.erro || '');
+  return a.revertido === true;
 }
 
 // Algo a aplicar: escolha diferente da atual, ou "Automático" com backup ainda guardado (restauração pendente).
@@ -101,11 +101,14 @@ async function aplicarDnsRede() {
   if (!ok) return;
   if (!(await garantirPonto())) return;
   R.dns = null;
+  // Como cada adaptador estava antes: "mantido" de um adaptador que já era automático não é "DNS à mão".
+  const antes = {};
+  (R.estado.adaptadores || []).forEach((a) => { antes[a.indice] = a.automatico; });
   R.prog = { pct: 0, msg: t('rede.aplicando', { provedor: nome }) };
   renderAtual();
   try {
     const r = await api.executar('rede', 'dnsSeguro', { provedor, confirmado: true }, progressoInline(R, 're-barra', 're-msg'));
-    R.dns = r;
+    R.dns = Object.assign({}, r, { antes });
     const lista = r.adaptadores || [];
     const revertidos = lista.filter(redeRevertido).length;
     const falhas = lista.filter((a) => !a.ok && !redeRevertido(a)).length;
@@ -170,8 +173,8 @@ function cartaoResultadoDns() {
   const atencao = itens.some((a) => !a.ok) || !!r.aviso;
   const linha = (a) => {
     let classe = 'ok'; let marca = '✓'; let texto = t('rede.adaptadorOk');
-    if (a.mantido) { classe = 'mantido'; marca = '–'; texto = t('rede.adaptadorMantido'); }
-    else if (redeRevertido(a)) { classe = 'falhou'; marca = '↺'; texto = t('rede.adaptadorRevertido', { erro: a.erro }); }
+    if (a.mantido) { classe = 'mantido'; marca = '–'; texto = t((r.antes || {})[a.indice] ? 'rede.adaptadorJaAutomatico' : 'rede.adaptadorMantido'); }
+    else if (redeRevertido(a)) { classe = 'falhou'; marca = '↺'; texto = a.erro || t('rede.adaptadorRevertido'); }
     else if (!a.ok) { classe = 'falhou'; marca = '!'; texto = t('rede.adaptadorErro', { erro: a.erro || '' }); }
     return h('li', { class: classe },
       h('span', { class: 'marca-passo', 'aria-hidden': 'true', text: marca }),

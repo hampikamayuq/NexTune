@@ -204,6 +204,9 @@ function cartaoResultadoProgramas() {
 
 // ---- restos de programas antigos (programas/restosAntigos, só leitura; mover usa limparRestos) ----
 
+// O Rust e o script aceitam no máximo 500 itens por chamada de limparRestos: lotes (uma entrada de quarentena cada).
+const RESTOS_LOTE = 500;
+
 async function procurarRestosAntigos() {
   const A = S.programas.antigos;
   if (S.ocupado) return;
@@ -213,6 +216,7 @@ async function procurarRestosAntigos() {
   try {
     const r = await api.executar('programas', 'restosAntigos', {}, progressoInline(A, 'pra-barra', 'pra-msg'));
     A.itens = r.itens || [];
+    A.incompleto = r.incompleto === true;
     // Só os seguros vêm marcados; quem decide os outros é o usuário.
     A.sel = new Set(A.itens.filter((i) => i.seguro).map((i) => i.caminho));
   } catch (e) {
@@ -239,15 +243,24 @@ async function moverRestosAntigos() {
   });
   if (!ok) return;
   A.falhas = [];
+  let movidos = 0;
+  let algumLote = false;
   try {
-    const r = await api.executar('programas', 'limparRestos', {
-      itens: sel.map((i) => ({ tipo: i.tipo, caminho: i.caminho })), confirmado: true, nome: t('programas.antigos.nomeQuarentena'),
-    }, null);
-    A.falhas = r.falhas || [];
-    const falhas = A.falhas.length;
-    toast(falhas ? t('programas.movidosFalhas', { n: r.movidos, f: falhas }) : (r.movidos === 1 ? t('programas.movidoUm') : t('programas.movidos', { n: r.movidos })), falhas ? 'aviso' : 'ok');
+    for (let i = 0; i < sel.length; i += RESTOS_LOTE) {
+      const lote = sel.slice(i, i + RESTOS_LOTE);
+      const r = await api.executar('programas', 'limparRestos', {
+        itens: lote.map((x) => ({ tipo: x.tipo, caminho: x.caminho })), confirmado: true, nome: t('programas.antigos.nomeQuarentena'),
+      }, null);
+      algumLote = true;
+      movidos += r.movidos || 0;
+      A.falhas = A.falhas.concat(r.falhas || []);
+    }
   } catch (e) {
     mostrarErroEscrita(e);
+  }
+  if (algumLote) {
+    const falhas = A.falhas.length;
+    toast(falhas ? t('programas.movidosFalhas', { n: movidos, f: falhas }) : (movidos === 1 ? t('programas.movidoUm') : t('programas.movidos', { n: movidos })), falhas ? 'aviso' : 'ok');
   }
   // Uma chamada por vez: primeiro o contador da Quarentena, depois a busca de novo.
   try { await carregarQuarentena(); } catch (e) { mostrarErro(e); }
@@ -291,6 +304,7 @@ function secaoRestosAntigos() {
   if (A.erro) corpo.append(h('p', { class: 'aviso pequeno', text: t('programas.antigos.erro', { erro: A.erro }) }));
   A.falhas.forEach((f) => corpo.append(h('p', { class: 'aviso pequeno', text: t('programas.falhaResto', { caminho: f.caminho, erro: f.erro }) })));
   if (!A.itens || A.prog) return caixa;
+  if (A.incompleto) corpo.append(h('p', { class: 'aviso pequeno', text: t('programas.antigos.incompleto') }));
   if (!A.itens.length) {
     corpo.append(h('p', { class: 'suave', text: t('programas.antigos.nenhum') }));
     return caixa;
