@@ -13,6 +13,9 @@
 //!   `<Windows>\explorer.exe "<url>"` (pasta via `GetSystemDirectoryW`; o explorer entrega o link
 //!   ao shell do usuário, então o navegador abre sem elevação), sem shell intermediário e sem
 //!   janela de console.
+//! - `abrir_pasta(caminho)` (Tarefa 5): só pasta absoluta `X:\...` (`pasta_permitida`); no Windows,
+//!   que existe, é pasta e não passa por link, junção nem ponto de montagem da raiz da unidade até
+//!   ela. Abre pelo mesmo `<Windows>\explorer.exe` de `abrir_url`. No demo só valida o texto.
 
 use crate::comandos::Estado;
 use regex::Regex;
@@ -115,7 +118,9 @@ fn re_url() -> &'static Regex {
 /// Links que a interface pode abrir (RF6): https com host, ou página de produto da Microsoft Store.
 pub fn url_permitida(url: &str) -> bool {
     url.len() <= MAX_URL
-        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"')
+        && !url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '"')
         && re_url().is_match(url)
 }
 
@@ -149,6 +154,34 @@ fn comando_oculto_em(exe: PathBuf) -> Command {
     cmd
 }
 
+/// Entrega `alvo` (link ou pasta, já validado e sem aspas) ao `<Windows>\explorer.exe`.
+fn abrir_no_explorer(alvo: &str, aspas: bool) -> std::io::Result<()> {
+    // `<Windows>\explorer.exe`, não System32: o explorer repassa o alvo à instância do shell do
+    // usuário (token sem elevação); o rundll32 herdaria o token elevado do NexTune.
+    let mut cmd = comando_oculto_em(pasta_windows().join("explorer.exe"));
+    // Entre aspas: o explorer trata vírgula como separador de opções. Os validadores já barram aspas.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        if aspas {
+            cmd.raw_arg(format!("\"{alvo}\""));
+        } else {
+            cmd.raw_arg(alvo);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = aspas;
+        cmd.arg(alvo);
+    }
+    let mut filho = cmd.spawn()?;
+    // O explorer sai logo depois de entregar o alvo; espera fora da thread do comando.
+    std::thread::spawn(move || {
+        let _ = filho.wait();
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub fn abrir_url(url: String, estado: State<'_, Estado>) -> Result<(), String> {
     if !url_permitida(&url) {
@@ -157,25 +190,62 @@ pub fn abrir_url(url: String, estado: State<'_, Estado>) -> Result<(), String> {
     if estado.demo {
         return Ok(());
     }
-    // `<Windows>\explorer.exe`, não System32: o explorer repassa o link à instância do shell do
-    // usuário (token sem elevação); o rundll32 herdaria o token elevado do NexTune.
-    let mut cmd = comando_oculto_em(pasta_windows().join("explorer.exe"));
-    // Entre aspas: o explorer trata vírgula como separador de opções. `url_permitida` já barra aspas.
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.raw_arg(format!("\"{url}\""));
+    abrir_no_explorer(&url, true).map_err(|e| format!("não foi possível abrir o link: {e}"))
+}
+
+/// Pastas que a interface pode abrir no Explorer, só pelo texto (vale em todas as plataformas):
+/// `X:\...` absoluto, até 260 caracteres, sem aspas, caracteres de controle nem segmento `..`
+/// (regras completas em `caminhos::pasta_absoluta_valida`).
+pub fn pasta_permitida(caminho: &str) -> bool {
+    crate::caminhos::pasta_absoluta_valida(caminho)
+}
+
+/// Texto que vai ao explorer: sem a barra final, exceto na raiz da unidade (`C:\`), que vai sem
+/// aspas (não tem espaço nem vírgula). Entre aspas, `\"` seria lido como aspa escapada.
+fn alvo_pasta(caminho: &str) -> (&str, bool) {
+    if caminho.len() == 3 {
+        (caminho, false)
+    } else {
+        (caminho.trim_end_matches('\\'), true)
     }
-    #[cfg(not(windows))]
-    cmd.arg(url.as_str());
-    let mut filho = cmd
-        .spawn()
-        .map_err(|e| format!("não foi possível abrir o link: {e}"))?;
-    // O explorer sai logo depois de entregar o link; espera fora da thread do comando.
-    std::thread::spawn(move || {
-        let _ = filho.wait();
-    });
+}
+
+/// Windows: a pasta existe, é pasta, e nem ela nem nenhum ancestral até a raiz da unidade é um
+/// reparse point (link simbólico, junção, ponto de montagem), como `Test-CadeiaSemLink`.
+#[cfg(windows)]
+fn conferir_pasta(caminho: &Path) -> Result<(), String> {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    let m = std::fs::symlink_metadata(caminho).map_err(|e| format!("pasta não encontrada: {e}"))?;
+    if !m.is_dir() {
+        return Err("o caminho não é uma pasta".into());
+    }
+    for p in caminho.ancestors() {
+        let m = std::fs::symlink_metadata(p)
+            .map_err(|e| format!("não foi possível conferir {}: {e}", p.display()))?;
+        if m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(format!("{} é um link ou junção: recusado", p.display()));
+        }
+    }
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn conferir_pasta(_caminho: &Path) -> Result<(), String> {
+    Err("abrir pasta só funciona no Windows".into())
+}
+
+#[tauri::command]
+pub fn abrir_pasta(caminho: String, estado: State<'_, Estado>) -> Result<(), String> {
+    if !pasta_permitida(&caminho) {
+        return Err("pasta não permitida".into());
+    }
+    if estado.demo {
+        return Ok(());
+    }
+    let (alvo, aspas) = alvo_pasta(&caminho);
+    conferir_pasta(Path::new(alvo))?;
+    abrir_no_explorer(alvo, aspas).map_err(|e| format!("não foi possível abrir a pasta: {e}"))
 }
 
 /// `exe` está dentro de uma das `raizes` (comparação sem diferenciar caixa).
@@ -228,7 +298,9 @@ fn e_link(p: &Path) -> bool {
 fn gravar_xml_tarefa(pasta: &Path, texto: &str) -> std::io::Result<PathBuf> {
     use std::io::Write;
     if !pasta.is_absolute() {
-        return Err(std::io::Error::other("pasta temporária sem caminho absoluto"));
+        return Err(std::io::Error::other(
+            "pasta temporária sem caminho absoluto",
+        ));
     }
     std::fs::create_dir_all(pasta)?;
     let nanos = std::time::SystemTime::now()
@@ -309,7 +381,9 @@ mod testes {
     #[test]
     fn url_permitida_aceita() {
         assert!(url_permitida("https://support.lenovo.com/br/pt/x"));
-        assert!(url_permitida("ms-windows-store://pdp/?ProductId=9WZDNCRFHVFW"));
+        assert!(url_permitida(
+            "ms-windows-store://pdp/?ProductId=9WZDNCRFHVFW"
+        ));
         let limite = format!("https://a.com/{}", "a".repeat(MAX_URL - 14));
         assert_eq!(limite.len(), MAX_URL);
         assert!(url_permitida(&limite));
@@ -336,20 +410,88 @@ mod testes {
     }
 
     #[test]
+    fn pasta_permitida_aceita_e_recusa() {
+        for bom in [
+            r"C:\",
+            r"C:\Users\joão\Downloads",
+            r"D:\Jogos, Steam (x86)\",
+        ] {
+            assert!(pasta_permitida(bom), "{bom:?}");
+        }
+        let limite = format!(r"C:\{}", "a".repeat(crate::caminhos::MAX_PASTA - 3));
+        assert!(pasta_permitida(&limite));
+        let longo = format!(r"C:\{}", "a".repeat(crate::caminhos::MAX_PASTA - 2));
+        for ruim in [
+            "",
+            "C:",
+            "C:x",
+            "C:/Users",
+            r"relativo\x",
+            r"\\servidor\pasta",
+            r"\\?\C:\x",
+            r"C:\Users\..\Windows",
+            r"C:\Users\..",
+            r#"C:\a" /select,"C:\b"#,
+            "C:\\a\nb",
+            "C:\\a\u{1b}b",
+            r"C:\a:fluxo",
+            "https://a.com",
+            longo.as_str(),
+        ] {
+            assert!(!pasta_permitida(ruim), "{ruim:?}");
+        }
+    }
+
+    #[test]
+    fn alvo_pasta_tira_a_barra_final_menos_na_raiz() {
+        assert_eq!(alvo_pasta(r"C:\"), (r"C:\", false));
+        assert_eq!(alvo_pasta(r"C:\Users\"), (r"C:\Users", true));
+        assert_eq!(alvo_pasta(r"C:\Program Files"), (r"C:\Program Files", true));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn conferir_pasta_no_windows() {
+        let base = std::env::temp_dir().join(format!("nextune-abrir-pasta-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let arquivo = base.join("a.txt");
+        std::fs::write(&arquivo, b"x").unwrap();
+        assert!(conferir_pasta(&base).is_ok());
+        assert!(conferir_pasta(&arquivo).is_err());
+        assert!(conferir_pasta(&base.join("nao-existe")).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn exe_sob_program_files() {
         let raizes = [
             PathBuf::from(r"C:\Program Files"),
             PathBuf::from(r"C:\Program Files (x86)"),
         ];
-        assert!(exe_sob(Path::new(r"C:\Program Files\NexTune\nextune.exe"), &raizes));
-        assert!(exe_sob(Path::new(r"c:\PROGRAM FILES\NexTune\NexTune.exe"), &raizes));
-        assert!(exe_sob(Path::new(r"C:\Program Files (x86)\X\x.exe"), &raizes));
+        assert!(exe_sob(
+            Path::new(r"C:\Program Files\NexTune\nextune.exe"),
+            &raizes
+        ));
+        assert!(exe_sob(
+            Path::new(r"c:\PROGRAM FILES\NexTune\NexTune.exe"),
+            &raizes
+        ));
+        assert!(exe_sob(
+            Path::new(r"C:\Program Files (x86)\X\x.exe"),
+            &raizes
+        ));
         assert!(!exe_sob(
             Path::new(r"C:\Users\x\AppData\Local\Programs\NexTune\nextune.exe"),
             &raizes
         ));
-        assert!(!exe_sob(Path::new(r"D:\dev\target\release\nextune.exe"), &raizes));
-        assert!(!exe_sob(Path::new(r"C:\Program Files Falso\x.exe"), &raizes));
+        assert!(!exe_sob(
+            Path::new(r"D:\dev\target\release\nextune.exe"),
+            &raizes
+        ));
+        assert!(!exe_sob(
+            Path::new(r"C:\Program Files Falso\x.exe"),
+            &raizes
+        ));
     }
 
     #[test]

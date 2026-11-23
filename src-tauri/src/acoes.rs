@@ -43,6 +43,9 @@ const MODULOS: &[&str] = &[
     "modojogo",
     "reparo",
     "saude",
+    "espaco",
+    "drivers",
+    "rede",
 ];
 
 /// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`). A UI roda
@@ -69,6 +72,11 @@ const ESCRITA: &[(&str, &str)] = &[
     ("modojogo", "desativar"),
     ("reparo", "reparar"),
     ("saude", "reparar"),
+    ("drivers", "backup"),
+    ("drivers", "reparar"),
+    ("rede", "limparDns"),
+    ("rede", "redefinir"),
+    ("rede", "dnsSeguro"),
 ];
 
 /// Tipos de item que `programas/limparRestos` aceita.
@@ -89,6 +97,10 @@ const MAX_IDS_ATUALIZACOES: usize = 50;
 const MAX_IDS_REPARO: usize = 30;
 /// Máximo de executáveis em `modojogo/ativar` (`fechar`).
 const MAX_FECHAR: usize = 50;
+/// Teto de tempo (segundos) aceito em `espaco/analisar`.
+const TETO_ESPACO: std::ops::RangeInclusive<i64> = 5..=300;
+/// Provedores de `rede/dnsSeguro` (contrato da Tarefa 8; caixa exata).
+const PROVEDORES_DNS: &[&str] = &["cloudflare", "google", "quad9", "automatico"];
 
 pub fn modulos_permitidos() -> &'static [&'static str] {
     MODULOS
@@ -163,6 +175,14 @@ pub(crate) fn re_exe() -> &'static Regex {
     RE.get_or_init(|| {
         Regex::new(r#"(?i)^[^\\/:*?"<>|\x00-\x1f]{1,120}\.exe$"#).expect("regex válida")
     })
+}
+
+/// Id de instância PnP (`PNPDeviceID`, ex. `PCI\VEN_8086&DEV_A370\3&11583659&0&A3`): letras,
+/// dígitos e `\ & _ . # { } -`, até 400 caracteres. O PowerShell só o usa se estiver na lista de
+/// `drivers/listar`.
+fn re_id_dispositivo() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9_&\\.#{}?-]{1,400}$").expect("regex válida"))
 }
 
 fn erro(msg: impl Into<String>) -> ErroValidacao {
@@ -314,11 +334,7 @@ fn lista_de_ids(
 }
 
 /// `chave`: lista obrigatória, possivelmente vazia, de até `max` nomes `.exe` sem repetição.
-fn lista_de_exes(
-    m: &Map<String, Value>,
-    chave: &str,
-    max: usize,
-) -> Result<Value, ErroValidacao> {
+fn lista_de_exes(m: &Map<String, Value>, chave: &str, max: usize) -> Result<Value, ErroValidacao> {
     let itens = m
         .get(chave)
         .and_then(Value::as_array)
@@ -830,6 +846,81 @@ pub fn validar(
             copiar_simular(&m, &mut saida, teste)?;
             Ok(Value::Object(saida))
         }
+        ("espaco", "analisar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["raiz", "tetoSegundos", "simular"])?;
+            let raiz = m
+                .get("raiz")
+                .and_then(Value::as_str)
+                .ok_or_else(|| erro("raiz é obrigatória (texto)"))?;
+            if !caminhos::pasta_absoluta_valida(raiz) {
+                return Err(erro("raiz deve ser um caminho absoluto de pasta (X:\\...)"));
+            }
+            let mut saida = Map::new();
+            saida.insert("raiz".into(), Value::String(raiz.to_string()));
+            if let Some(t) = m.get("tetoSegundos") {
+                match t.as_i64() {
+                    Some(n) if TETO_ESPACO.contains(&n) => {
+                        saida.insert("tetoSegundos".into(), Value::from(n));
+                    }
+                    _ => return Err(erro("tetoSegundos deve ser inteiro entre 5 e 300")),
+                }
+            }
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("programas", "restosAntigos")
+        | ("drivers", "listar")
+        | ("rede", "estado" | "limparDns") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["simular"])?;
+            let mut saida = Map::new();
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("drivers", "backup") | ("rede", "redefinir") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let mut saida = Map::new();
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("drivers", "reparar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["id", "confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let id = m
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| erro("id é obrigatório (texto)"))?;
+            if !re_id_dispositivo().is_match(id) {
+                return Err(erro("id de dispositivo inválido"));
+            }
+            let mut saida = Map::new();
+            saida.insert("id".into(), Value::String(id.to_string()));
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
+        ("rede", "dnsSeguro") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["provedor", "confirmado", "simular"])?;
+            exigir_confirmado(&m)?;
+            let provedor = m
+                .get("provedor")
+                .and_then(Value::as_str)
+                .filter(|p| PROVEDORES_DNS.contains(p))
+                .ok_or_else(|| {
+                    erro("provedor inválido (cloudflare, google, quad9 ou automatico)")
+                })?;
+            let mut saida = Map::new();
+            saida.insert("provedor".into(), Value::String(provedor.to_string()));
+            saida.insert("confirmado".into(), Value::Bool(true));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
         ("modojogo", "estado" | "processos") => {
             let m = como_objeto(params)?;
             so_chaves(&m, &["simular"])?;
@@ -841,7 +932,15 @@ pub fn validar(
             let m = como_objeto(params)?;
             so_chaves(
                 &m,
-                &["preset", "fechar", "jogo", "automatico", "confirmado", "avancado", "simular"],
+                &[
+                    "preset",
+                    "fechar",
+                    "jogo",
+                    "automatico",
+                    "confirmado",
+                    "avancado",
+                    "simular",
+                ],
             )?;
             exigir_confirmado(&m)?;
             let preset = m
@@ -1082,7 +1181,7 @@ mod testes {
 
     #[test]
     fn modulos() {
-        assert_eq!(modulos_permitidos().len(), 13);
+        assert_eq!(modulos_permitidos().len(), 16);
         for m in [
             "host",
             "diagnostico",
@@ -1097,6 +1196,9 @@ mod testes {
             "modojogo",
             "reparo",
             "saude",
+            "espaco",
+            "drivers",
+            "rede",
         ] {
             assert!(modulos_permitidos().contains(&m), "{m}");
         }
@@ -1125,6 +1227,11 @@ mod testes {
             ("modojogo", "ativar"),
             ("modojogo", "desativar"),
             ("saude", "reparar"),
+            ("drivers", "backup"),
+            ("drivers", "reparar"),
+            ("rede", "limparDns"),
+            ("rede", "redefinir"),
+            ("rede", "dnsSeguro"),
         ] {
             assert!(e_escrita(m, a), "{m}/{a} é escrita");
         }
@@ -1146,6 +1253,11 @@ mod testes {
             ("modojogo", "estado"),
             ("modojogo", "processos"),
             ("saude", "verificar"),
+            ("espaco", "analisar"),
+            ("programas", "restosAntigos"),
+            ("drivers", "listar"),
+            ("rede", "estado"),
+            ("rede", "LimparDns"),
             ("limpeza", "Limpar"),
             ("inexistente", "limpar"),
         ] {
@@ -1877,7 +1989,10 @@ mod testes {
         let p = json!({"id": "tarefa:\\Positivo\\Updater", "ativar": false, "confirmado": true, "avancado": true});
         assert_eq!(validar("inicializacao", "alternar", &p, false).unwrap(), p);
         let sim = json!({"id": "run:hkcu:X", "ativar": true, "confirmado": true, "simular": {"tarefas": []}});
-        assert_eq!(validar("inicializacao", "alternar", &sim, true).unwrap(), sim);
+        assert_eq!(
+            validar("inicializacao", "alternar", &sim, true).unwrap(),
+            sim
+        );
         parametro(validar("inicializacao", "alternar", &sim, false));
     }
 
@@ -1887,14 +2002,24 @@ mod testes {
     fn inicializacao_alternar_recusa() {
         let alt = |p: Value| validar("inicializacao", "alternar", &p, false);
         parametro(alt(json!({"id": "run:hkcu:X", "ativar": true})));
-        parametro(alt(json!({"id": "run:hkcu:X", "ativar": true, "confirmado": "true"})));
-        parametro(alt(json!({"id": "run:hkcu:X", "ativar": true, "confirmado": 1})));
+        parametro(alt(
+            json!({"id": "run:hkcu:X", "ativar": true, "confirmado": "true"}),
+        ));
+        parametro(alt(
+            json!({"id": "run:hkcu:X", "ativar": true, "confirmado": 1}),
+        ));
         parametro(alt(json!({"id": "run:hkcu:X", "confirmado": true})));
-        parametro(alt(json!({"id": "run:hkcu:X", "ativar": 1, "confirmado": true})));
-        parametro(alt(json!({"id": "run:hkcu:X", "ativar": "true", "confirmado": true})));
+        parametro(alt(
+            json!({"id": "run:hkcu:X", "ativar": 1, "confirmado": true}),
+        ));
+        parametro(alt(
+            json!({"id": "run:hkcu:X", "ativar": "true", "confirmado": true}),
+        ));
         parametro(alt(json!({"ativar": true, "confirmado": true})));
         parametro(alt(json!({"id": 5, "ativar": true, "confirmado": true})));
-        parametro(alt(json!({"id": "run:hkcu:X", "ativar": true, "confirmado": true, "x": 1})));
+        parametro(alt(
+            json!({"id": "run:hkcu:X", "ativar": true, "confirmado": true, "x": 1}),
+        ));
         let longo = format!("run:hkcu:{}", "a".repeat(256));
         let limite = format!("run:hkcu:{}", "a".repeat(255));
         assert!(alt(json!({"id": limite, "ativar": true, "confirmado": true})).is_ok());
@@ -1917,9 +2042,16 @@ mod testes {
         ] {
             parametro(alt(json!({"id": id, "ativar": true, "confirmado": true})));
         }
-        parametro(alt(json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true})));
-        parametro(alt(json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true, "avancado": false})));
-        assert!(alt(json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true, "avancado": true})).is_ok());
+        parametro(alt(
+            json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true}),
+        ));
+        parametro(alt(
+            json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true, "avancado": false}),
+        ));
+        assert!(
+            alt(json!({"id": "tarefa:\\X", "ativar": false, "confirmado": true, "avancado": true}))
+                .is_ok()
+        );
     }
 
     // ---- ajusteswin ----
@@ -1942,14 +2074,27 @@ mod testes {
             parametro(v(json!({"ids": "x", "confirmado": true})));
             parametro(v(json!({"ids": [1], "confirmado": true})));
             parametro(v(json!({"ids": ["x", "x"], "confirmado": true})));
-            for ruim in ["", "Maiusculo", "com-hifen", "com espaco", "ção", "a\nb", longo41.as_str()] {
+            for ruim in [
+                "",
+                "Maiusculo",
+                "com-hifen",
+                "com espaco",
+                "ção",
+                "a\nb",
+                longo41.as_str(),
+            ] {
                 parametro(v(json!({"ids": [ruim], "confirmado": true})));
             }
             let muitos: Vec<String> = (0..MAX_IDS_AJUSTES).map(|i| format!("a{i}")).collect();
             assert!(v(json!({"ids": muitos, "confirmado": true})).is_ok());
             let demais: Vec<String> = (0..=MAX_IDS_AJUSTES).map(|i| format!("a{i}")).collect();
             parametro(v(json!({"ids": demais, "confirmado": true})));
-            parametro(validar("ajusteswin", a, &json!({"ids": ["x"], "confirmado": true, "simular": {}}), true));
+            parametro(validar(
+                "ajusteswin",
+                a,
+                &json!({"ids": ["x"], "confirmado": true, "simular": {}}),
+                true,
+            ));
         }
     }
 
@@ -1957,12 +2102,26 @@ mod testes {
 
     #[test]
     fn diagnostico_reinicios() {
-        assert_eq!(validar("diagnostico", "reinicios", &json!(null), false).unwrap(), json!({}));
-        assert_eq!(validar("diagnostico", "reinicios", &json!({}), false).unwrap(), json!({}));
+        assert_eq!(
+            validar("diagnostico", "reinicios", &json!(null), false).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            validar("diagnostico", "reinicios", &json!({}), false).unwrap(),
+            json!({})
+        );
         let sim = json!({"simular": {"eventos": []}});
-        assert_eq!(validar("diagnostico", "reinicios", &sim, true).unwrap(), sim);
+        assert_eq!(
+            validar("diagnostico", "reinicios", &sim, true).unwrap(),
+            sim
+        );
         parametro(validar("diagnostico", "reinicios", &sim, false));
-        parametro(validar("diagnostico", "reinicios", &json!({"simular": 1}), true));
+        parametro(validar(
+            "diagnostico",
+            "reinicios",
+            &json!({"simular": 1}),
+            true,
+        ));
         parametro(validar("diagnostico", "reinicios", &json!({"x": 1}), false));
         assert!(!e_escrita("diagnostico", "reinicios"));
     }
@@ -1971,8 +2130,14 @@ mod testes {
 
     #[test]
     fn disco_estado() {
-        assert_eq!(validar("disco", "estado", &json!(null), false).unwrap(), json!({}));
-        assert_eq!(validar("disco", "estado", &json!({}), false).unwrap(), json!({}));
+        assert_eq!(
+            validar("disco", "estado", &json!(null), false).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            validar("disco", "estado", &json!({}), false).unwrap(),
+            json!({})
+        );
         let sim = json!({"simular": {"unidades": []}});
         assert_eq!(validar("disco", "estado", &sim, true).unwrap(), sim);
         parametro(validar("disco", "estado", &sim, false));
@@ -2000,22 +2165,62 @@ mod testes {
     #[test]
     fn disco_letra_recusa() {
         for ruim in ["c:", "C", "C:\\", "CC:", "1:", "", "C:\n", ":C"] {
-            parametro(validar("disco", "verificar", &json!({"letra": ruim}), false));
-            parametro(validar("disco", "corrigir", &json!({"letra": ruim, "confirmado": true}), false));
-            parametro(validar("disco", "otimizar", &json!({"letra": ruim, "confirmado": true}), false));
+            parametro(validar(
+                "disco",
+                "verificar",
+                &json!({"letra": ruim}),
+                false,
+            ));
+            parametro(validar(
+                "disco",
+                "corrigir",
+                &json!({"letra": ruim, "confirmado": true}),
+                false,
+            ));
+            parametro(validar(
+                "disco",
+                "otimizar",
+                &json!({"letra": ruim, "confirmado": true}),
+                false,
+            ));
         }
         parametro(validar("disco", "verificar", &json!({}), false));
         parametro(validar("disco", "verificar", &json!({"letra": 3}), false));
-        parametro(validar("disco", "verificar", &json!({"letra": "C:", "confirmado": true}), false));
+        parametro(validar(
+            "disco",
+            "verificar",
+            &json!({"letra": "C:", "confirmado": true}),
+            false,
+        ));
         for a in ["corrigir", "otimizar"] {
             parametro(validar("disco", a, &json!({"letra": "C:"}), false));
-            parametro(validar("disco", a, &json!({"letra": "C:", "confirmado": "true"}), false));
-            parametro(validar("disco", a, &json!({"letra": "C:", "confirmado": false}), false));
+            parametro(validar(
+                "disco",
+                a,
+                &json!({"letra": "C:", "confirmado": "true"}),
+                false,
+            ));
+            parametro(validar(
+                "disco",
+                a,
+                &json!({"letra": "C:", "confirmado": false}),
+                false,
+            ));
             parametro(validar("disco", a, &json!({"confirmado": true}), false));
         }
         parametro(validar("disco", "reiniciar", &json!({}), false));
-        parametro(validar("disco", "reiniciar", &json!({"confirmado": "true"}), false));
-        parametro(validar("disco", "reiniciar", &json!({"letra": "C:", "confirmado": true}), false));
+        parametro(validar(
+            "disco",
+            "reiniciar",
+            &json!({"confirmado": "true"}),
+            false,
+        ));
+        parametro(validar(
+            "disco",
+            "reiniciar",
+            &json!({"letra": "C:", "confirmado": true}),
+            false,
+        ));
     }
 
     // ---- atualizacoes ----
@@ -2024,10 +2229,18 @@ mod testes {
 
     #[test]
     fn atualizacoes_listar() {
-        assert_eq!(validar("atualizacoes", "listar", &json!(null), false).unwrap(), json!({}));
+        assert_eq!(
+            validar("atualizacoes", "listar", &json!(null), false).unwrap(),
+            json!({})
+        );
         let p = json!({"avancado": true});
         assert_eq!(validar("atualizacoes", "listar", &p, false).unwrap(), p);
-        parametro(validar("atualizacoes", "listar", &json!({"avancado": 1}), false));
+        parametro(validar(
+            "atualizacoes",
+            "listar",
+            &json!({"avancado": 1}),
+            false,
+        ));
         let sim = json!({"simular": {"windows": []}});
         assert_eq!(validar("atualizacoes", "listar", &sim, true).unwrap(), sim);
         parametro(validar("atualizacoes", "listar", &sim, false));
@@ -2054,9 +2267,24 @@ mod testes {
         assert!(e_escrita("reparo", "reparar"));
         let p = json!({"ids": [ID_MSI], "confirmado": true});
         assert_eq!(validar("reparo", "reparar", &p, false).unwrap(), p);
-        parametro(validar("reparo", "reparar", &json!({"ids": [ID_MSI]}), false));
-        parametro(validar("reparo", "reparar", &json!({"ids": [ID_MSI], "confirmado": false}), false));
-        parametro(validar("reparo", "reparar", &json!({"ids": [], "confirmado": true}), false));
+        parametro(validar(
+            "reparo",
+            "reparar",
+            &json!({"ids": [ID_MSI]}),
+            false,
+        ));
+        parametro(validar(
+            "reparo",
+            "reparar",
+            &json!({"ids": [ID_MSI], "confirmado": false}),
+            false,
+        ));
+        parametro(validar(
+            "reparo",
+            "reparar",
+            &json!({"ids": [], "confirmado": true}),
+            false,
+        ));
         // sem chaves, curto demais, com caminho de registro ou texto qualquer: recusado
         for ruim in [
             "37B34C3A-D825-40AF-BB33-A4DA7A6E4782",
@@ -2064,12 +2292,22 @@ mod testes {
             r"{37B34C3A-D825-40AF-BB33-A4DA7A6E4782}\..\x",
             "HKLM\\SOFTWARE",
         ] {
-            parametro(validar("reparo", "reparar", &json!({"ids": [ruim], "confirmado": true}), false));
+            parametro(validar(
+                "reparo",
+                "reparar",
+                &json!({"ids": [ruim], "confirmado": true}),
+                false,
+            ));
         }
         let muitos: Vec<String> = (0..=MAX_IDS_REPARO)
             .map(|i| format!("{{37B34C3A-D825-40AF-BB33-{i:012}}}"))
             .collect();
-        parametro(validar("reparo", "reparar", &json!({"ids": muitos, "confirmado": true}), false));
+        parametro(validar(
+            "reparo",
+            "reparar",
+            &json!({"ids": muitos, "confirmado": true}),
+            false,
+        ));
         assert!(matches!(
             validar("reparo", "apagar", &json!({}), false),
             Err(ErroValidacao::NaoPermitida(_))
@@ -2079,7 +2317,10 @@ mod testes {
     #[test]
     fn saude_verificar_so_aceita_simular_em_teste() {
         assert!(!e_escrita("saude", "verificar"));
-        assert_eq!(validar("saude", "verificar", &json!({}), false).unwrap(), json!({}));
+        assert_eq!(
+            validar("saude", "verificar", &json!({}), false).unwrap(),
+            json!({})
+        );
         let sim = json!({"simular": {"saude": "Repairable"}});
         assert_eq!(validar("saude", "verificar", &sim, true).unwrap(), sim);
         parametro(validar("saude", "verificar", &sim, false));
@@ -2096,9 +2337,24 @@ mod testes {
         assert_eq!(validar("saude", "reparar", &sim, true).unwrap(), sim);
         parametro(validar("saude", "reparar", &sim, false));
         parametro(validar("saude", "reparar", &json!({}), false));
-        parametro(validar("saude", "reparar", &json!({"confirmado": false}), false));
-        parametro(validar("saude", "reparar", &json!({"confirmado": "true"}), false));
-        parametro(validar("saude", "reparar", &json!({"confirmado": true, "x": 1}), false));
+        parametro(validar(
+            "saude",
+            "reparar",
+            &json!({"confirmado": false}),
+            false,
+        ));
+        parametro(validar(
+            "saude",
+            "reparar",
+            &json!({"confirmado": "true"}),
+            false,
+        ));
+        parametro(validar(
+            "saude",
+            "reparar",
+            &json!({"confirmado": true, "x": 1}),
+            false,
+        ));
         assert!(matches!(
             validar("saude", "apagar", &json!({}), false),
             Err(ErroValidacao::NaoPermitida(_))
@@ -2112,25 +2368,54 @@ mod testes {
         let av = json!({"ids": [ID_WU], "confirmado": true, "avancado": true});
         assert_eq!(validar("atualizacoes", "instalar", &av, false).unwrap(), av);
         let sim = json!({"ids": [ID_WU], "confirmado": true, "simular": {"windows": []}});
-        assert_eq!(validar("atualizacoes", "instalar", &sim, true).unwrap(), sim);
+        assert_eq!(
+            validar("atualizacoes", "instalar", &sim, true).unwrap(),
+            sim
+        );
         parametro(validar("atualizacoes", "instalar", &sim, false));
 
         let w = json!({"ids": ["Google.Chrome", "Microsoft.VCRedist.2015+.x64", "7zip.7zip", "VideoLAN.VLC"], "confirmado": true});
-        assert_eq!(validar("atualizacoes", "atualizarProgramas", &w, false).unwrap(), w);
-        parametro(validar("atualizacoes", "atualizarProgramas", &json!({"ids": ["7zip.7zip"], "confirmado": true, "avancado": true}), false));
-        let sim = json!({"ids": ["7zip.7zip"], "confirmado": true, "simular": {"wingetAusente": true}});
-        assert_eq!(validar("atualizacoes", "atualizarProgramas", &sim, true).unwrap(), sim);
+        assert_eq!(
+            validar("atualizacoes", "atualizarProgramas", &w, false).unwrap(),
+            w
+        );
+        parametro(validar(
+            "atualizacoes",
+            "atualizarProgramas",
+            &json!({"ids": ["7zip.7zip"], "confirmado": true, "avancado": true}),
+            false,
+        ));
+        let sim =
+            json!({"ids": ["7zip.7zip"], "confirmado": true, "simular": {"wingetAusente": true}});
+        assert_eq!(
+            validar("atualizacoes", "atualizarProgramas", &sim, true).unwrap(),
+            sim
+        );
     }
 
     #[test]
     fn atualizacoes_instalar_recusa() {
         let inst = |p: Value| validar("atualizacoes", "instalar", &p, false);
         let prog = |p: Value| validar("atualizacoes", "atualizarProgramas", &p, false);
-        for ruim in ["KB5048667", "{7A3F1B2C-0000-4000-8000-000000000001}", "7A3F1B2C000040008000000000000001", "", "Google.Chrome"] {
+        for ruim in [
+            "KB5048667",
+            "{7A3F1B2C-0000-4000-8000-000000000001}",
+            "7A3F1B2C000040008000000000000001",
+            "",
+            "Google.Chrome",
+        ] {
             parametro(inst(json!({"ids": [ruim], "confirmado": true})));
         }
         let longo = "a".repeat(129);
-        for ruim in ["Google Chrome", "\"7zip\"", "a/b", ".comeca.com.ponto", "", "a\nb", longo.as_str()] {
+        for ruim in [
+            "Google Chrome",
+            "\"7zip\"",
+            "a/b",
+            ".comeca.com.ponto",
+            "",
+            "a\nb",
+            longo.as_str(),
+        ] {
             parametro(prog(json!({"ids": [ruim], "confirmado": true})));
         }
         assert!(prog(json!({"ids": ["a".repeat(128)], "confirmado": true})).is_ok());
@@ -2144,9 +2429,13 @@ mod testes {
         parametro(inst(json!({"ids": [ID_WU]})));
         parametro(inst(json!({"ids": [ID_WU], "confirmado": "true"})));
         parametro(prog(json!({"ids": ["7zip.7zip"]})));
-        let muitos: Vec<String> = (0..MAX_IDS_ATUALIZACOES).map(|i| format!("7A3F1B2C-0000-4000-8000-{i:012}")).collect();
+        let muitos: Vec<String> = (0..MAX_IDS_ATUALIZACOES)
+            .map(|i| format!("7A3F1B2C-0000-4000-8000-{i:012}"))
+            .collect();
         assert!(inst(json!({"ids": muitos, "confirmado": true})).is_ok());
-        let demais: Vec<String> = (0..=MAX_IDS_ATUALIZACOES).map(|i| format!("7A3F1B2C-0000-4000-8000-{i:012}")).collect();
+        let demais: Vec<String> = (0..=MAX_IDS_ATUALIZACOES)
+            .map(|i| format!("7A3F1B2C-0000-4000-8000-{i:012}"))
+            .collect();
         parametro(inst(json!({"ids": demais, "confirmado": true})));
     }
 
@@ -2155,8 +2444,14 @@ mod testes {
     #[test]
     fn modojogo_estado_e_processos() {
         for a in ["estado", "processos"] {
-            assert_eq!(validar("modojogo", a, &json!(null), false).unwrap(), json!({}));
-            assert_eq!(validar("modojogo", a, &json!({}), false).unwrap(), json!({}));
+            assert_eq!(
+                validar("modojogo", a, &json!(null), false).unwrap(),
+                json!({})
+            );
+            assert_eq!(
+                validar("modojogo", a, &json!({}), false).unwrap(),
+                json!({})
+            );
             let sim = json!({"simular": {"processos": []}});
             assert_eq!(validar("modojogo", a, &sim, true).unwrap(), sim);
             parametro(validar("modojogo", a, &sim, false));
@@ -2173,7 +2468,8 @@ mod testes {
             let p = json!({"preset": preset, "fechar": [], "confirmado": true});
             assert_eq!(ativar(&p).unwrap(), p);
         }
-        let lista = json!({"preset": "suave", "fechar": ["Chrome.exe", "Spotify.exe"], "confirmado": true});
+        let lista =
+            json!({"preset": "suave", "fechar": ["Chrome.exe", "Spotify.exe"], "confirmado": true});
         assert_eq!(ativar(&lista).unwrap(), lista);
         let completo = json!({
             "preset": "equilibrado", "fechar": [], "jogo": "Jogo Legal.exe",
@@ -2189,30 +2485,66 @@ mod testes {
     fn modojogo_ativar_recusa() {
         let ativar = |p: Value| validar("modojogo", "ativar", &p, false);
         parametro(ativar(json!({"fechar": [], "confirmado": true})));
-        parametro(ativar(json!({"preset": "turbo", "fechar": [], "confirmado": true})));
-        parametro(ativar(json!({"preset": 1, "fechar": [], "confirmado": true})));
+        parametro(ativar(
+            json!({"preset": "turbo", "fechar": [], "confirmado": true}),
+        ));
+        parametro(ativar(
+            json!({"preset": 1, "fechar": [], "confirmado": true}),
+        ));
         parametro(ativar(json!({"preset": "suave", "confirmado": true})));
-        parametro(ativar(json!({"preset": "suave", "fechar": "x", "confirmado": true})));
-        parametro(ativar(json!({"preset": "suave", "fechar": [1], "confirmado": true})));
-        for ruim in ["x", "a/b.exe", "a\\b.exe", "a\nb.exe", ".exe", "a.exe.txt", "a?.exe"] {
-            parametro(ativar(json!({"preset": "suave", "fechar": [ruim], "confirmado": true})));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": "x", "confirmado": true}),
+        ));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": [1], "confirmado": true}),
+        ));
+        for ruim in [
+            "x",
+            "a/b.exe",
+            "a\\b.exe",
+            "a\nb.exe",
+            ".exe",
+            "a.exe.txt",
+            "a?.exe",
+        ] {
+            parametro(ativar(
+                json!({"preset": "suave", "fechar": [ruim], "confirmado": true}),
+            ));
         }
         let longo = format!("{}.exe", "a".repeat(121));
-        parametro(ativar(json!({"preset": "suave", "fechar": [longo], "confirmado": true})));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": [longo], "confirmado": true}),
+        ));
         let limite = format!("{}.exe", "a".repeat(120));
         assert!(ativar(json!({"preset": "suave", "fechar": [limite], "confirmado": true})).is_ok());
-        parametro(ativar(json!({"preset": "suave", "fechar": ["a.exe", "a.exe"], "confirmado": true})));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": ["a.exe", "a.exe"], "confirmado": true}),
+        ));
         let muitos: Vec<String> = (0..MAX_FECHAR).map(|i| format!("p{i}.exe")).collect();
         assert!(ativar(json!({"preset": "suave", "fechar": muitos, "confirmado": true})).is_ok());
         let demais: Vec<String> = (0..=MAX_FECHAR).map(|i| format!("p{i}.exe")).collect();
-        parametro(ativar(json!({"preset": "suave", "fechar": demais, "confirmado": true})));
-        parametro(ativar(json!({"preset": "suave", "fechar": [], "jogo": "x", "confirmado": true})));
-        parametro(ativar(json!({"preset": "suave", "fechar": [], "jogo": 1, "confirmado": true})));
-        parametro(ativar(json!({"preset": "suave", "fechar": [], "automatico": "sim", "confirmado": true})));
-        parametro(ativar(json!({"preset": "suave", "fechar": [], "avancado": 1, "confirmado": true})));
-        parametro(ativar(json!({"preset": "suave", "fechar": [], "x": 1, "confirmado": true})));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": demais, "confirmado": true}),
+        ));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": [], "jogo": "x", "confirmado": true}),
+        ));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": [], "jogo": 1, "confirmado": true}),
+        ));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": [], "automatico": "sim", "confirmado": true}),
+        ));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": [], "avancado": 1, "confirmado": true}),
+        ));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": [], "x": 1, "confirmado": true}),
+        ));
         parametro(ativar(json!({"preset": "suave", "fechar": []})));
-        parametro(ativar(json!({"preset": "suave", "fechar": [], "confirmado": "true"})));
+        parametro(ativar(
+            json!({"preset": "suave", "fechar": [], "confirmado": "true"}),
+        ));
     }
 
     #[test]
@@ -2223,7 +2555,311 @@ mod testes {
         assert_eq!(validar("modojogo", "desativar", &sim, true).unwrap(), sim);
         parametro(validar("modojogo", "desativar", &sim, false));
         parametro(validar("modojogo", "desativar", &json!({}), false));
-        parametro(validar("modojogo", "desativar", &json!({"confirmado": false}), false));
-        parametro(validar("modojogo", "desativar", &json!({"confirmado": true, "x": 1}), false));
+        parametro(validar(
+            "modojogo",
+            "desativar",
+            &json!({"confirmado": false}),
+            false,
+        ));
+        parametro(validar(
+            "modojogo",
+            "desativar",
+            &json!({"confirmado": true, "x": 1}),
+            false,
+        ));
+    }
+
+    // ---- espaco ----
+
+    #[test]
+    fn espaco_analisar_valido() {
+        assert!(!e_escrita("espaco", "analisar"));
+        let analisar = |p: &Value| validar("espaco", "analisar", p, false);
+        for raiz in [
+            r"C:\",
+            r"D:\Jogos",
+            r"C:\Users\joão\Program Files (x86)\a,b\",
+        ] {
+            let p = json!({"raiz": raiz});
+            assert_eq!(analisar(&p).unwrap(), p);
+        }
+        for teto in [5, 60, 300] {
+            let p = json!({"raiz": r"C:\", "tetoSegundos": teto});
+            assert_eq!(analisar(&p).unwrap(), p);
+        }
+        let limite = format!(r"C:\{}", "a".repeat(caminhos::MAX_PASTA - 3));
+        assert!(analisar(&json!({"raiz": limite})).is_ok());
+        let sim = json!({"raiz": r"C:\x", "simular": {"pastas": []}});
+        assert_eq!(validar("espaco", "analisar", &sim, true).unwrap(), sim);
+        parametro(analisar(&sim));
+        parametro(validar(
+            "espaco",
+            "analisar",
+            &json!({"raiz": r"C:\x", "simular": 1}),
+            true,
+        ));
+    }
+
+    #[test]
+    fn espaco_analisar_recusa() {
+        let analisar = |p: Value| validar("espaco", "analisar", &p, false);
+        parametro(analisar(json!({})));
+        parametro(analisar(json!(null)));
+        parametro(analisar(json!({"raiz": 1})));
+        parametro(analisar(json!({"raiz": r"C:\x", "extra": 1})));
+        let longo = format!(r"C:\{}", "a".repeat(caminhos::MAX_PASTA - 2));
+        for ruim in [
+            "",
+            "C:",
+            "C:x",
+            "C:/x",
+            r"relativo\x",
+            r"\\servidor\pasta",
+            r"\\?\C:\x",
+            r"C:\a\..\Windows",
+            r"C:\a\.",
+            r#"C:\a"b"#,
+            "C:\\a\nb",
+            "C:\\a\tb",
+            r"C:\a:fluxo",
+            r"C:\a\*",
+            longo.as_str(),
+        ] {
+            parametro(analisar(json!({"raiz": ruim})));
+        }
+        for teto in [
+            json!(4),
+            json!(301),
+            json!(0),
+            json!(-5),
+            json!(60.0),
+            json!(60.5),
+            json!("60"),
+            json!(null),
+            json!(true),
+        ] {
+            parametro(analisar(json!({"raiz": r"C:\", "tetoSegundos": teto})));
+        }
+    }
+
+    // ---- programas/restosAntigos ----
+
+    #[test]
+    fn programas_restos_antigos_so_aceita_simular_em_teste() {
+        assert!(!e_escrita("programas", "restosAntigos"));
+        let r = |p: &Value, t: bool| validar("programas", "restosAntigos", p, t);
+        assert_eq!(r(&json!({}), false).unwrap(), json!({}));
+        assert_eq!(r(&json!(null), false).unwrap(), json!({}));
+        let sim = json!({"simular": {"instalados": []}});
+        assert_eq!(r(&sim, true).unwrap(), sim);
+        parametro(r(&sim, false));
+        parametro(r(&json!({"simular": []}), true));
+        parametro(r(&json!({"x": 1}), false));
+        parametro(r(&json!({"confirmado": true}), false));
+        parametro(r(&json!([]), false));
+    }
+
+    // ---- drivers ----
+
+    const ID_PNP: &str = r"PCI\VEN_8086&DEV_A370&SUBSYS_00348086&REV_10\3&11583659&0&A3";
+
+    #[test]
+    fn drivers_listar() {
+        assert!(!e_escrita("drivers", "listar"));
+        assert_eq!(
+            validar("drivers", "listar", &json!({}), false).unwrap(),
+            json!({})
+        );
+        let sim = json!({"simular": {"dispositivos": []}});
+        assert_eq!(validar("drivers", "listar", &sim, true).unwrap(), sim);
+        parametro(validar("drivers", "listar", &sim, false));
+        parametro(validar("drivers", "listar", &json!({"x": 1}), false));
+        assert!(matches!(
+            validar("drivers", "remover", &json!({}), false),
+            Err(ErroValidacao::NaoPermitida(_))
+        ));
+    }
+
+    #[test]
+    fn drivers_backup_exige_confirmacao() {
+        assert!(e_escrita("drivers", "backup"));
+        let p = json!({"confirmado": true});
+        assert_eq!(validar("drivers", "backup", &p, false).unwrap(), p);
+        let sim = json!({"confirmado": true, "simular": {"exportados": 3}});
+        assert_eq!(validar("drivers", "backup", &sim, true).unwrap(), sim);
+        parametro(validar("drivers", "backup", &sim, false));
+        parametro(validar("drivers", "backup", &json!({}), false));
+        parametro(validar(
+            "drivers",
+            "backup",
+            &json!({"confirmado": false}),
+            false,
+        ));
+        parametro(validar(
+            "drivers",
+            "backup",
+            &json!({"confirmado": "true"}),
+            false,
+        ));
+        parametro(validar(
+            "drivers",
+            "backup",
+            &json!({"confirmado": 1}),
+            false,
+        ));
+        parametro(validar(
+            "drivers",
+            "backup",
+            &json!({"confirmado": true, "pasta": r"C:\x"}),
+            false,
+        ));
+    }
+
+    #[test]
+    fn drivers_reparar_valido() {
+        assert!(e_escrita("drivers", "reparar"));
+        let reparar = |p: &Value| validar("drivers", "reparar", p, false);
+        for id in [
+            ID_PNP,
+            r"USB\VID_046D&PID_C52B\5&2B8E7F5C&0&2",
+            r"ROOT\SYSTEM\0000",
+            r"SWD\MMDEVAPI\{0.0.0.00000000}.{8f5c3a2e-1b2c-4d5e-8f90-123456789abc}",
+            r"STORAGE\VOLUME\{3f2a1b4c-0000-0000-0000-100000000000}#0000000000100000",
+            // Dispositivo portátil (WPD): o id real traz `?`.
+            r"SWD\WPDBUSENUM\_??_USBSTOR#DISK&VEN_SANDISK&PROD_CRUZER&REV_1.00#4C530001#{53F56307-B6BF-11D0-94F2-00A0C91EFB8B}",
+            "A",
+        ] {
+            let p = json!({"id": id, "confirmado": true});
+            assert_eq!(reparar(&p).unwrap(), p);
+        }
+        assert!(reparar(&json!({"id": "A".repeat(400), "confirmado": true})).is_ok());
+        let sim = json!({"id": ID_PNP, "confirmado": true, "simular": {"dispositivos": []}});
+        assert_eq!(validar("drivers", "reparar", &sim, true).unwrap(), sim);
+        parametro(reparar(&sim));
+    }
+
+    #[test]
+    fn drivers_reparar_recusa() {
+        let reparar = |p: Value| validar("drivers", "reparar", &p, false);
+        parametro(reparar(json!({"id": ID_PNP})));
+        parametro(reparar(json!({"id": ID_PNP, "confirmado": false})));
+        parametro(reparar(json!({"id": ID_PNP, "confirmado": "true"})));
+        parametro(reparar(json!({"confirmado": true})));
+        parametro(reparar(json!({"id": 1, "confirmado": true})));
+        parametro(reparar(json!({"id": [ID_PNP], "confirmado": true})));
+        parametro(reparar(json!({"id": ID_PNP, "confirmado": true, "x": 1})));
+        let longo = "A".repeat(401);
+        for ruim in [
+            "",
+            "PCI VEN",
+            "PCI\\VEN\n",
+            "PCI\\VEN\u{0}",
+            "PCI/VEN",
+            "a\"b",
+            "a'b",
+            "a;b",
+            "a|b",
+            "a$b",
+            "a`b",
+            "a*b",
+            "a:b",
+            "ação",
+            longo.as_str(),
+        ] {
+            parametro(reparar(json!({"id": ruim, "confirmado": true})));
+        }
+    }
+
+    // ---- rede ----
+
+    #[test]
+    fn rede_estado_e_limpar_dns() {
+        assert!(!e_escrita("rede", "estado"));
+        assert!(e_escrita("rede", "limparDns"));
+        for a in ["estado", "limparDns"] {
+            assert_eq!(validar("rede", a, &json!({}), false).unwrap(), json!({}));
+            assert_eq!(validar("rede", a, &json!(null), false).unwrap(), json!({}));
+            let sim = json!({"simular": {"adaptadores": []}});
+            assert_eq!(validar("rede", a, &sim, true).unwrap(), sim);
+            parametro(validar("rede", a, &sim, false));
+            parametro(validar("rede", a, &json!({"x": 1}), false));
+        }
+        // limparDns não pede confirmação; nem aceita a chave
+        parametro(validar(
+            "rede",
+            "limparDns",
+            &json!({"confirmado": true}),
+            false,
+        ));
+    }
+
+    #[test]
+    fn rede_redefinir_exige_confirmacao() {
+        assert!(e_escrita("rede", "redefinir"));
+        let p = json!({"confirmado": true});
+        assert_eq!(validar("rede", "redefinir", &p, false).unwrap(), p);
+        let sim = json!({"confirmado": true, "simular": {"x": 1}});
+        assert_eq!(validar("rede", "redefinir", &sim, true).unwrap(), sim);
+        parametro(validar("rede", "redefinir", &sim, false));
+        parametro(validar("rede", "redefinir", &json!({}), false));
+        parametro(validar(
+            "rede",
+            "redefinir",
+            &json!({"confirmado": false}),
+            false,
+        ));
+        parametro(validar(
+            "rede",
+            "redefinir",
+            &json!({"confirmado": "true"}),
+            false,
+        ));
+        parametro(validar(
+            "rede",
+            "redefinir",
+            &json!({"confirmado": true, "x": 1}),
+            false,
+        ));
+    }
+
+    #[test]
+    fn rede_dns_seguro_valido() {
+        assert!(e_escrita("rede", "dnsSeguro"));
+        for provedor in PROVEDORES_DNS {
+            let p = json!({"provedor": provedor, "confirmado": true});
+            assert_eq!(validar("rede", "dnsSeguro", &p, false).unwrap(), p);
+        }
+        let sim = json!({"provedor": "quad9", "confirmado": true, "simular": {"build": 19045}});
+        assert_eq!(validar("rede", "dnsSeguro", &sim, true).unwrap(), sim);
+        parametro(validar("rede", "dnsSeguro", &sim, false));
+    }
+
+    #[test]
+    fn rede_dns_seguro_recusa() {
+        let dns = |p: Value| validar("rede", "dnsSeguro", &p, false);
+        parametro(dns(json!({"provedor": "cloudflare"})));
+        parametro(dns(json!({"provedor": "cloudflare", "confirmado": false})));
+        parametro(dns(json!({"provedor": "cloudflare", "confirmado": "true"})));
+        parametro(dns(json!({"confirmado": true})));
+        parametro(dns(json!({"provedor": 1, "confirmado": true})));
+        parametro(dns(
+            json!({"provedor": "cloudflare", "confirmado": true, "servidores": ["1.1.1.1"]}),
+        ));
+        for ruim in [
+            "Cloudflare",
+            "GOOGLE",
+            "opendns",
+            "outro",
+            "",
+            " quad9",
+            "automático",
+            "1.1.1.1",
+        ] {
+            parametro(dns(json!({"provedor": ruim, "confirmado": true})));
+        }
+        assert!(matches!(
+            validar("rede", "apagar", &json!({}), false),
+            Err(ErroValidacao::NaoPermitida(_))
+        ));
     }
 }

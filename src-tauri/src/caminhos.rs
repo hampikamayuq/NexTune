@@ -286,10 +286,102 @@ pub fn caminho_protegido(p: &Path) -> bool {
     segmentos_protegidos().is_match(&n)
 }
 
+/// Tamanho máximo (em caracteres) de um caminho de pasta vindo da interface (`MAX_PATH`).
+pub const MAX_PASTA: usize = 260;
+
+/// Caminho absoluto de pasta vindo da interface (`espaco/analisar` e `abrir_pasta`), só pelo texto:
+/// `X:\` e segmentos, 3 a `MAX_PASTA` caracteres, sem caracteres de controle nem os que o Windows
+/// proíbe em nomes (`"`, `<`, `>`, `|`, `?`, `*`, `/`, e `:` fora da unidade, que abriria um fluxo
+/// alternativo), sem segmento vazio (`\\`) e sem segmento feito só de pontos e espaços (`.`, `..`,
+/// `. .`: o Windows descarta pontos e espaços no fim do segmento, então todos viram `.` ou `..`).
+/// A raiz da unidade (`C:\`) e a barra final são aceitas.
+pub fn pasta_absoluta_valida(s: &str) -> bool {
+    if !(3..=MAX_PASTA).contains(&s.chars().count()) {
+        return false;
+    }
+    let b = s.as_bytes();
+    if !(b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\') {
+        return false;
+    }
+    let resto = &s[3..];
+    if resto
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '"' | '<' | '>' | '|' | '?' | '*' | '/' | ':'))
+    {
+        return false;
+    }
+    if resto.is_empty() {
+        return true;
+    }
+    resto
+        .strip_suffix('\\')
+        .unwrap_or(resto)
+        .split('\\')
+        .all(|seg| !seg.trim_end_matches(['.', ' ']).is_empty())
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn pasta_absoluta_valida_aceita() {
+        for bom in [
+            r"C:\",
+            r"c:\",
+            r"D:\Jogos",
+            r"D:\Jogos\",
+            r"C:\Program Files (x86)\Steam, Inc\a.b",
+            r"C:\Users\joão\AppData\Local\Temp",
+            r"C:\a..\.b\x.",
+        ] {
+            assert!(pasta_absoluta_valida(bom), "{bom:?}");
+        }
+        let limite = format!(r"C:\{}", "a".repeat(MAX_PASTA - 3));
+        assert_eq!(limite.chars().count(), MAX_PASTA);
+        assert!(pasta_absoluta_valida(&limite));
+        let acentos = format!(r"C:\{}", "é".repeat(MAX_PASTA - 3));
+        assert!(pasta_absoluta_valida(&acentos));
+    }
+
+    #[test]
+    fn pasta_absoluta_valida_recusa() {
+        for ruim in [
+            "",
+            "C:",
+            "C:x",
+            "C:/x",
+            r"C:\a/b",
+            r"1:\x",
+            r"\\servidor\pasta",
+            r"\\?\C:\x",
+            r"\\.\C:\x",
+            r"C:\a\..\Windows",
+            r"C:\a\..",
+            r"C:\..",
+            r"C:\a\.\b",
+            r"C:\a\...\b",
+            r"C:\a\. .\b",
+            r"C:\a\ \b",
+            r"C:\a\\b",
+            r"C:\\",
+            r#"C:\a"b"#,
+            "C:\\a\nb",
+            "C:\\a\u{0}b",
+            "C:\\a\u{7f}",
+            r"C:\a:fluxo",
+            r"C:\a*",
+            r"C:\a?",
+            r"C:\a<b>",
+            r"C:\a|b",
+            " C:\\a",
+        ] {
+            assert!(!pasta_absoluta_valida(ruim), "{ruim:?}");
+        }
+        let longo = format!(r"C:\{}", "a".repeat(MAX_PASTA - 2));
+        assert!(!pasta_absoluta_valida(&longo));
+    }
 
     #[test]
     fn protegidos() {
@@ -348,7 +440,10 @@ mod testes {
             assert!(p.is_absolute(), "{k}: {}", p.display());
         }
         assert!(
-            s.windir.to_string_lossy().to_lowercase().ends_with("windows"),
+            s.windir
+                .to_string_lossy()
+                .to_lowercase()
+                .ends_with("windows"),
             "{}",
             s.windir.display()
         );
