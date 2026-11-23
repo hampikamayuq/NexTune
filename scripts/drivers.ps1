@@ -4,22 +4,30 @@
 # Acoes: listar {simular?} -> {dispositivos: [{id, nome, classe, codigo, explicacao, critico}]};
 #        backup {confirmado, simular?} -> {pasta, quantidade, codigo};
 #        reparar {id, confirmado, simular?} -> {resolvido, passos: [{passo, ok, codigoDepois}], precisaReiniciar}.
-# reparar: o id so vale se estiver na lista atual de listar. Passos, do mais leve ao mais forte, parando no primeiro
-# depois do qual o ConfigManagerErrorCode vira 0 (ou vira 14/21, que so um reinicio resolve): reiniciar
-# (Disable/Enable-PnpDevice), reinstalar (pnputil /remove-device + /scan-devices) e procurar (pnputil /scan-devices).
-# Dispositivo critico so procura hardware: desligar um disco, controladora, video ou o hub da entrada pode travar o
-# Windows ou deixar o usuario sem teclado e mouse. Passo pulado nao aparece em passos (vai para o log).
-# Nada da saida do pnputil e lido (localizada): so o codigo de saida. Nunca encerra processos.
-# Em modo teste nada roda: simular {dispositivos: [{id, nome, descricao?, classe, codigo, resolveNo?}],
-# adaptadoresAtivos?: [id], codigoPnputil?, exportados?, pastasSemInf?, codigo?, quando?}; os passos de reparar
-# gravam marcadores em %TEMP%\NexTuneTeste\drivers\<passo>.txt e o backup cria pastas .inf falsas em
+# listar so mostra dispositivos presentes (fantasmas de aparelhos desconectados ficam fora).
+# reparar: o id so vale se estiver na lista atual de listar e tiver so ASCII visivel, sem aspas. Passos, do mais leve
+# ao mais forte, parando no primeiro depois do qual o ConfigManagerErrorCode vira 0 (ou vira 14/21, que so um
+# reinicio resolve; quem ja esta em 14/21 nem e tocado): reiniciar (Disable/Enable-PnpDevice com -InputObject do
+# dispositivo achado pelo id exato, nunca -InstanceId, que aceita curingas; religar fica num finally), reinstalar
+# (pnputil /remove-device + /scan-devices) e procurar (pnputil /scan-devices).
+# Dispositivo critico so procura hardware: desligar um disco, controladora, video, firmware, TPM ou o hub da entrada
+# pode travar o Windows, pedir a chave do BitLocker ou deixar o usuario sem teclado e mouse. Passo pulado nao aparece
+# em passos (vai para o log). Nada da saida do pnputil e lido (localizada): so o codigo de saida. Nunca encerra
+# processos.
+# Em modo teste nada roda: simular {dispositivos: [{id, nome, descricao?, classe, codigo, presente?, resolveNo?}],
+# adaptadoresAtivos?: [id], codigoPnputil?, falharDesligar?, falharReligar?, exportados?, pastasSemInf?, codigo?,
+# quando?}; os passos de reparar gravam marcadores em %TEMP%\NexTuneTeste\drivers-passos\<passo>.txt (reiniciar
+# grava tambem desligar.txt e religar.txt) e o backup cria pastas .inf falsas em
 # %TEMP%\NexTuneTeste\Drivers\<AAAAMMDD-HHMMSS>.
 . "$PSScriptRoot\common.ps1"
 
-# Classes que nunca sao reinstaladas (disco, controladoras, video, sistema, entrada). Net entra quando e o unico
-# adaptador fisico ativo (Test-DispositivoCritico).
+# Classes que so passam por "procurar hardware" (disco, controladoras, video, sistema, entrada, firmware, TPM,
+# leitor eMMC de boot e bateria). Firmware: reinstalar uma capsula UEFI que falhou reagenda a atualizacao e pode
+# pedir a chave do BitLocker. Net entra quando e o unico adaptador fisico ativo (Test-DispositivoCritico).
 $Script:ClassesCriticas = @('DiskDrive', 'HDC', 'SCSIAdapter', 'Display', 'System', 'Processor', 'Computer', 'Volume',
-    'VolumeSnapshot', 'Keyboard', 'Mouse', 'HIDClass', 'USB')
+    'VolumeSnapshot', 'Keyboard', 'Mouse', 'HIDClass', 'USB', 'Firmware', 'SecurityDevices', 'SDHost', 'Battery')
+# Espera maxima, depois de reinstalar/procurar, pelo dispositivo voltar a aparecer (codigo -1 = ainda nao voltou).
+$Script:EsperaVoltaSegundos = 20
 # 3010 = ERROR_SUCCESS_REBOOT_REQUIRED; 14 = precisa reiniciar; 21 = o Windows esta removendo o dispositivo.
 $Script:ReinicioPedido = 3010
 $Script:CodigosReiniciar = @(14, 21)
@@ -111,10 +119,17 @@ function ConvertTo-FiltroWql {
     return ("PNPDeviceID = '" + $literal + "'")
 }
 
+function Test-IdSeguro {
+    # Puro: id so com ASCII visivel (sem espaco nem controle) e sem aspas, antes de ir para a linha do pnputil.
+    param([string]$Id)
+    # -cmatch: sem diferenciar maiusculas o .NET aceitaria o sinal de Kelvin (U+212A) como 'k'.
+    return ($Id -cmatch '^[\x21-\x7E]+$' -and $Id.IndexOf('"') -lt 0)
+}
+
 # ---------- leitura ----------
 
 function Get-PastaDriversTeste {
-    $p = Join-Path (Get-AppPastas $true).Base 'drivers'
+    $p = Join-Path (Get-AppPastas $true).Base 'drivers-passos'
     if (-not (Test-Path -LiteralPath $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
     return $p
 }
@@ -134,7 +149,7 @@ function Get-DispositivoBruto {
         $fonte = @()
         if ($null -ne $Sim -and $null -ne $Sim.dispositivos) { $fonte = @($Sim.dispositivos) }
         foreach ($d in $fonte) {
-            if ($null -eq $d) { continue }
+            if ($null -eq $d -or $d.presente -eq $false) { continue }
             $id = [string]$d.id
             $saida.Add(@{
                     id        = $id
@@ -145,8 +160,10 @@ function Get-DispositivoBruto {
                 })
         }
     } else {
-        $filtro = 'ConfigManagerErrorCode <> 0 AND ConfigManagerErrorCode <> 22'
+        # Present = TRUE: fantasmas (aparelhos que ja foram desconectados) nao sao "dispositivos com problema".
+        $filtro = 'Present = TRUE AND ConfigManagerErrorCode <> 0 AND ConfigManagerErrorCode <> 22'
         foreach ($d in @(Get-CimInstance Win32_PnPEntity -Filter $filtro -ErrorAction Stop)) {
+            if ($d.Present -eq $false) { continue }
             $id = [string]$d.PNPDeviceID
             $saida.Add(@{
                     id        = $id
@@ -222,27 +239,57 @@ function Test-CodigoPnpUtilOk {
     return ($Codigo -eq 0 -or $Codigo -eq $Script:ReinicioPedido)
 }
 
+function Get-DispositivoExato {
+    # A instancia CIM do dispositivo pelo id exato (WQL escapado, sem curingas), conferida de novo sem diferenciar
+    # maiusculas. Qualquer coisa diferente de exatamente um resultado lanca.
+    param([string]$IdDisp)
+    $achados = @(Get-CimInstance Win32_PnPEntity -Filter (ConvertTo-FiltroWql $IdDisp) -ErrorAction Stop |
+            Where-Object { Test-MesmoId ([string]$_.PNPDeviceID) $IdDisp })
+    if ($achados.Count -ne 1) { throw ('o dispositivo não foi achado pelo id exato (' + $achados.Count + ' resultado(s))') }
+    return $achados[0]
+}
+
+function Invoke-PassoReiniciar {
+    # Desligar e ligar. Religar fica no finally: roda mesmo que o desligar lance (com ou sem efeito) ou que a acao seja
+    # interrompida durante a espera, para nunca deixar o dispositivo desativado. Religar um dispositivo ligado nao faz
+    # nada. Em teste: marcadores desligar.txt/religar.txt e falhas por simular.falharDesligar/falharReligar.
+    param($Dispositivo, [string]$IdDisp, $Ctx)
+    $r = @{ ok = $false; reiniciar = $false; erro = '' }
+    try {
+        if ($Ctx.teste) {
+            Write-MarcadorDriver 'desligar' "Disable-PnpDevice -InputObject $IdDisp"
+            if ($Ctx.falharDesligar) { throw 'Disable-PnpDevice simulado falhou' }
+        } else {
+            Disable-PnpDevice -InputObject $Dispositivo -Confirm:$false -ErrorAction Stop
+            Start-Sleep -Seconds 2
+        }
+    } catch {
+        $r.erro = $_.Exception.Message
+    } finally {
+        try {
+            if ($Ctx.teste) {
+                Write-MarcadorDriver 'religar' "Enable-PnpDevice -InputObject $IdDisp"
+                if ($Ctx.falharReligar) { throw 'Enable-PnpDevice simulado falhou' }
+            } else {
+                Enable-PnpDevice -InputObject $Dispositivo -Confirm:$false -ErrorAction Stop
+            }
+            $r.ok = [string]::IsNullOrEmpty($r.erro)
+        } catch {
+            $r.ok = $false
+            $r.erro += ' / ao religar: ' + $_.Exception.Message
+        }
+    }
+    return $r
+}
+
 function Invoke-PassoReal {
     # Um passo do reparo de verdade. Devolve @{ ok; reiniciar; erro }.
-    param([string]$Passo, [string]$IdDisp)
+    param([string]$Passo, [string]$IdDisp, $Ctx)
+    if (-not (Test-IdSeguro $IdDisp)) { throw 'id de dispositivo com caracteres inválidos: recusado' }
     $r = @{ ok = $false; reiniciar = $false; erro = '' }
     switch ($Passo) {
         'reiniciar' {
-            $desligou = $false
-            try {
-                Disable-PnpDevice -InstanceId $IdDisp -Confirm:$false -ErrorAction Stop
-                $desligou = $true
-                Start-Sleep -Seconds 2
-                Enable-PnpDevice -InstanceId $IdDisp -Confirm:$false -ErrorAction Stop
-                $r.ok = $true
-            } catch {
-                $r.erro = $_.Exception.Message
-                # Desligou e nao religou: tenta religar de novo para nunca deixar o dispositivo desativado.
-                if ($desligou) {
-                    try { Enable-PnpDevice -InstanceId $IdDisp -Confirm:$false -ErrorAction Stop }
-                    catch { $r.erro += ' / ao religar: ' + $_.Exception.Message }
-                }
-            }
+            $r = Invoke-PassoReiniciar (Get-DispositivoExato $IdDisp) $IdDisp $Ctx
         }
         'reinstalar' {
             $c1 = Invoke-PnpUtil @('/remove-device', $IdDisp)
@@ -269,13 +316,15 @@ function Invoke-PassoSimulado {
     param([string]$Passo, [string]$IdDisp, $Ctx)
     $exe = Join-Path $env:windir 'System32\pnputil.exe'
     $texto = switch ($Passo) {
-        'reiniciar' { "Disable-PnpDevice/Enable-PnpDevice -InstanceId $IdDisp" }
+        'reiniciar' { "Disable-PnpDevice/Enable-PnpDevice -InputObject $IdDisp" }
         'reinstalar' { "$exe /remove-device $IdDisp; $exe /scan-devices" }
         default { "$exe /scan-devices" }
     }
     Write-MarcadorDriver $Passo $texto
     $r = @{ ok = $true; reiniciar = $false; erro = '' }
-    if ($Passo -ne 'reiniciar') {
+    if ($Passo -eq 'reiniciar') {
+        $r = Invoke-PassoReiniciar $null $IdDisp $Ctx
+    } else {
         $c = [int]$Ctx.codigoPnputil
         $r.ok = (Test-CodigoPnpUtilOk $c)
         $r.reiniciar = ($c -eq $Script:ReinicioPedido)
@@ -376,12 +425,28 @@ function Invoke-Reparar {
     }
     if ($null -eq $alvo) { Send-Result $Id $null $false 'dispositivo não encontrado ou já sem problema'; return }
     $idDisp = $alvo.id
+    # O id vai para a linha de comando do pnputil: so ASCII visivel, sem aspas.
+    if (-not (Test-IdSeguro $idDisp)) {
+        Write-AppLog ('drivers: reparar recusado, id com caracteres inválidos: ' + $idDisp) $Teste
+        Send-Result $Id $null $false 'id de dispositivo com caracteres inválidos: recusado'
+        return
+    }
     $ctx = @{
-        teste         = $Teste
-        estado        = @{ codigo = $alvo.codigo; resolveNo = $alvo.resolveNo }
-        codigoPnputil = $(if ($Teste -and $null -ne $sim -and $null -ne $sim.codigoPnputil) { [int]$sim.codigoPnputil } else { 0 })
+        teste          = $Teste
+        estado         = @{ codigo = $alvo.codigo; resolveNo = $alvo.resolveNo }
+        codigoPnputil  = $(if ($Teste -and $null -ne $sim -and $null -ne $sim.codigoPnputil) { [int]$sim.codigoPnputil } else { 0 })
+        falharDesligar = ($Teste -and $null -ne $sim -and $sim.falharDesligar -eq $true)
+        falharReligar  = ($Teste -and $null -ne $sim -and $sim.falharReligar -eq $true)
     }
     Write-AppLog ("drivers: reparar {0} ({1}, classe {2}, código {3}, crítico {4})" -f $alvo.nome, $idDisp, $alvo.classe, $alvo.codigo, $alvo.critico) $Teste
+    # 14/21 antes de qualquer passo: so um reinicio resolve, e o dispositivo nao e tocado.
+    if ($Script:CodigosReiniciar -contains [int]$alvo.codigo) {
+        Send-Log $Id 'info' ($alvo.nome + ' só volta a funcionar depois de reiniciar o PC; nada foi alterado.')
+        Write-AppLog ('drivers: reparar ' + $idDisp + ' não tocou o dispositivo (código ' + $alvo.codigo + ', precisa reiniciar)') $Teste
+        Send-Progress $Id 100 'Concluído'
+        Send-Result $Id ([ordered]@{ resolvido = $false; passos = @(); precisaReiniciar = $true })
+        return
+    }
 
     $etapas = @(
         @{ passo = 'reiniciar'; pct = 10; msg = 'Desligando e ligando ' + $alvo.nome },
@@ -400,11 +465,19 @@ function Invoke-Reparar {
         }
         Send-Progress $Id $e.pct $e.msg
         try {
-            $r = if ($Teste) { Invoke-PassoSimulado $e.passo $idDisp $ctx } else { Invoke-PassoReal $e.passo $idDisp }
+            $r = if ($Teste) { Invoke-PassoSimulado $e.passo $idDisp $ctx } else { Invoke-PassoReal $e.passo $idDisp $ctx }
         } catch {
             $r = @{ ok = $false; reiniciar = $false; erro = $_.Exception.Message }
         }
         $codigo = Get-CodigoAtual $idDisp $ctx
+        if (-not $Teste -and $e.passo -ne 'reiniciar') {
+            # Depois de remover/procurar o dispositivo pode levar alguns segundos para reaparecer (-1 ate la).
+            $limite = [DateTime]::UtcNow.AddSeconds($Script:EsperaVoltaSegundos)
+            while ($codigo -eq -1 -and [DateTime]::UtcNow -lt $limite) {
+                Start-Sleep -Seconds 2
+                $codigo = Get-CodigoAtual $idDisp $ctx
+            }
+        }
         if ($r.reiniciar -or $Script:CodigosReiniciar -contains $codigo) { $reiniciar = $true }
         $passos.Add([ordered]@{ passo = $e.passo; ok = [bool]$r.ok; codigoDepois = $codigo })
         $detalhe = if ([string]::IsNullOrEmpty($r.erro)) { '' } else { ' (' + $r.erro + ')' }

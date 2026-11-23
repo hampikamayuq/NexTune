@@ -1,7 +1,7 @@
 ﻿BeforeAll {
     . "$PSScriptRoot\..\common.ps1"
     . "$PSScriptRoot\..\drivers.ps1"
-    $Script:PastaT = Join-Path (Join-Path $env:TEMP 'NexTuneTeste') 'drivers'
+    $Script:PastaT = Join-Path (Join-Path $env:TEMP 'NexTuneTeste') 'drivers-passos'
     $Script:RaizBackup = Join-Path (Join-Path $env:TEMP 'NexTuneTeste') 'Drivers'
 
     function Invoke-Drv {
@@ -33,7 +33,7 @@
         @{ id = 'BTH\MS_BTHPAN\7&1B2C'; nome = ''; descricao = 'Rede pessoal Bluetooth'; classe = 'Bluetooth'; codigo = 99 },
         @{ id = 'SWD\SEM\NOME'; classe = 'SoftwareDevice'; codigo = 31 }
     )
-    $Script:Conhecidos = @(1, 3, 10, 12, 14, 18, 19, 21, 24, 28, 29, 31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44,
+    $Script:Conhecidos = @(1, 3, 10, 12, 14, 16, 18, 19, 21, 24, 28, 29, 31, 32, 33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44,
         45, 46, 47, 48, 49, 50, 51, 52, 53, 54)
 }
 
@@ -49,6 +49,20 @@ Describe 'drivers.ps1: funcoes puras' {
         }
         It 'barra antes de apostrofo nao abre o texto: a barra e dobrada antes de escapar o apostrofo' {
             ConvertTo-FiltroWql 'A\'' OR 1=1' | Should -BeExactly 'PNPDeviceID = ''A\\\'' OR 1=1'''
+        }
+    }
+
+    Context 'Test-IdSeguro' {
+        It 'aceita ids reais, inclusive com & e ? (WPD)' {
+            Test-IdSeguro $Script:IdWebcam | Should -BeTrue
+            Test-IdSeguro 'SWD\WPDBUSENUM\_??_USBSTOR#DISK&VEN_SANDISK#4C53&0#{53F56307-B6BF-11D0-94F2-00A0C91EFB8B}' | Should -BeTrue
+        }
+        It 'recusa espaco, aspas, controle, nao-ASCII e vazio' {
+            Test-IdSeguro 'ROOT\COM ESPACO\0000' | Should -BeFalse
+            Test-IdSeguro 'ROOT\X"Y\0000' | Should -BeFalse
+            Test-IdSeguro ('ROOT\X' + [char]9 + 'Y') | Should -BeFalse
+            Test-IdSeguro 'ROOT\AÇÃO\0000' | Should -BeFalse
+            Test-IdSeguro '' | Should -BeFalse
         }
     }
 
@@ -73,7 +87,7 @@ Describe 'drivers.ps1: funcoes puras' {
 
     Context 'Test-DispositivoCritico' {
         It 'classes criticas nunca sao reinstaladas' {
-            foreach ($c in @('DiskDrive', 'HDC', 'SCSIAdapter', 'Display', 'System', 'Processor', 'Computer', 'Volume', 'VolumeSnapshot', 'Keyboard', 'Mouse', 'HIDClass', 'USB')) {
+            foreach ($c in @('DiskDrive', 'HDC', 'SCSIAdapter', 'Display', 'System', 'Processor', 'Computer', 'Volume', 'VolumeSnapshot', 'Keyboard', 'Mouse', 'HIDClass', 'USB', 'Firmware', 'SecurityDevices', 'SDHost', 'Battery')) {
                 Test-DispositivoCritico $c 'X\1' @() | Should -BeTrue -Because $c
             }
         }
@@ -130,6 +144,15 @@ Describe 'drivers.ps1: listar' {
         $r = Invoke-Drv 'listar' @{ simular = @{ dispositivos = $rede; adaptadoresAtivos = @($Script:IdRede, $Script:IdRede2) } }
         @($r.dados.dispositivos)[0].critico | Should -BeFalse
     }
+    It 'dispositivo nao presente (fantasma) fica fora da lista' {
+        $lista = @(
+            @{ id = $Script:IdWebcam; nome = 'Webcam C270'; classe = 'Image'; codigo = 28; presente = $false },
+            @{ id = $Script:IdDisco; nome = 'Samsung SSD'; classe = 'DiskDrive'; codigo = 10; presente = $true }
+        )
+        $d = @((Invoke-Drv 'listar' @{ simular = @{ dispositivos = $lista } }).dados.dispositivos)
+        $d.Count | Should -Be 1
+        $d[0].id | Should -Be $Script:IdDisco
+    }
     It 'sem simulacao em teste nao le o sistema e devolve lista vazia' {
         Mock Get-CimInstance { throw 'nao deveria rodar' }
         $r = Invoke-Drv 'listar'
@@ -161,6 +184,40 @@ Describe 'drivers.ps1: reparar' {
         Test-Marcador 'reiniciar' | Should -BeFalse
         Test-Marcador 'procurar' | Should -BeFalse
     }
+    It 'dispositivo nao presente (fantasma) nao e reparado' {
+        $sim = @{ dispositivos = @(@{ id = $Script:IdWebcam; nome = 'Webcam'; classe = 'Image'; codigo = 28; presente = $false; resolveNo = 'reiniciar' }) }
+        $r = Invoke-Drv 'reparar' @{ id = $Script:IdWebcam; confirmado = $true; simular = $sim }
+        $r.ok | Should -BeFalse
+        $r.erro | Should -Be 'dispositivo não encontrado ou já sem problema'
+        Test-Marcador 'reiniciar' | Should -BeFalse
+    }
+    It 'id com espaco ou aspas e recusado antes de qualquer passo' {
+        foreach ($id in @('ROOT\COM ESPACO\0000', 'ROOT\COM"ASPAS\0000')) {
+            $sim = @{ dispositivos = @(@{ id = $id; nome = 'Estranho'; classe = 'Image'; codigo = 28; resolveNo = 'reiniciar' }) }
+            $r = Invoke-Drv 'reparar' @{ id = $id; confirmado = $true; simular = $sim }
+            $r.ok | Should -BeFalse
+            $r.erro | Should -Match 'inválidos'
+        }
+        Test-Marcador 'reiniciar' | Should -BeFalse
+        Test-Marcador 'desligar' | Should -BeFalse
+        Test-Marcador 'procurar' | Should -BeFalse
+    }
+    It 'desligar que falha ainda religa o dispositivo (finally)' {
+        $sim = @{ dispositivos = @(@{ id = $Script:IdWebcam; nome = 'Webcam'; classe = 'Image'; codigo = 43 }); falharDesligar = $true }
+        $r = Invoke-Drv 'reparar' @{ id = $Script:IdWebcam; confirmado = $true; simular = $sim }
+        $r.ok | Should -BeTrue
+        $r.dados.passos[0].passo | Should -Be 'reiniciar'
+        $r.dados.passos[0].ok | Should -BeFalse
+        Test-Marcador 'desligar' | Should -BeTrue
+        Test-Marcador 'religar' | Should -BeTrue
+    }
+    It 'religar que falha marca o passo como falho e segue para o proximo' {
+        $sim = @{ dispositivos = @(@{ id = $Script:IdWebcam; nome = 'Webcam'; classe = 'Image'; codigo = 43; resolveNo = 'reinstalar' }); falharReligar = $true }
+        $r = Invoke-Drv 'reparar' @{ id = $Script:IdWebcam; confirmado = $true; simular = $sim }
+        $r.dados.passos[0].ok | Should -BeFalse
+        @($r.dados.passos).passo | Should -Be @('reiniciar', 'reinstalar')
+        $r.dados.resolvido | Should -BeTrue
+    }
     It 'dispositivo desativado (22) ou funcionando (0) nao e reparado' {
         foreach ($id in @('ROOT\DESATIVADO\0000', 'HDAUDIO\FUNC_01\0001')) {
             (Invoke-Drv 'reparar' @{ id = $id; confirmado = $true; simular = @{ dispositivos = $Script:Lista } }).ok | Should -BeFalse
@@ -178,6 +235,8 @@ Describe 'drivers.ps1: reparar' {
         $r.dados.passos[0].ok | Should -BeTrue
         $r.dados.passos[0].codigoDepois | Should -Be 0
         Test-Marcador 'reiniciar' | Should -BeTrue
+        Test-Marcador 'desligar' | Should -BeTrue
+        Test-Marcador 'religar' | Should -BeTrue
         Test-Marcador 'reinstalar' | Should -BeFalse
         Test-Marcador 'procurar' | Should -BeFalse
     }
@@ -217,6 +276,7 @@ Describe 'drivers.ps1: reparar' {
             @($r.dados.passos).Count | Should -Be 1
             $r.dados.passos[0].passo | Should -Be 'procurar'
             Test-Marcador 'reiniciar' | Should -BeFalse
+            Test-Marcador 'desligar' | Should -BeFalse
             Test-Marcador 'reinstalar' | Should -BeFalse
             Test-Marcador 'procurar' | Should -BeTrue
         }
@@ -246,15 +306,20 @@ Describe 'drivers.ps1: reparar' {
         $r = Invoke-Drv 'reparar' @{ id = $Script:IdWebcam.ToLowerInvariant(); confirmado = $true; simular = $sim }
         $r.ok | Should -BeTrue
         $r.dados.resolvido | Should -BeTrue
-        (Get-Content -LiteralPath (Join-Path $Script:PastaT 'reiniciar.txt') -Raw) | Should -Match ([regex]::Escape($Script:IdWebcam))
+        (Get-Content -LiteralPath (Join-Path $Script:PastaT 'reiniciar.txt') -Raw) | Should -MatchExactly ([regex]::Escape($Script:IdWebcam))
     }
-    It 'codigo 14 depois de um passo para ali e pede reinicio' {
-        $sim = @{ dispositivos = @(@{ id = $Script:IdWebcam; nome = 'Webcam'; classe = 'Image'; codigo = 14 }) }
-        $r = Invoke-Drv 'reparar' @{ id = $Script:IdWebcam; confirmado = $true; simular = $sim }
-        $r.dados.resolvido | Should -BeFalse
-        $r.dados.precisaReiniciar | Should -BeTrue
-        @($r.dados.passos).Count | Should -Be 1
-        Test-Marcador 'reinstalar' | Should -BeFalse
+    It 'codigo 14 ou 21 antes de qualquer passo: nao toca o dispositivo e pede reinicio' {
+        foreach ($c in @(14, 21)) {
+            $sim = @{ dispositivos = @(@{ id = $Script:IdWebcam; nome = 'Webcam'; classe = 'Image'; codigo = $c; resolveNo = 'reiniciar' }) }
+            $r = Invoke-Drv 'reparar' @{ id = $Script:IdWebcam; confirmado = $true; simular = $sim }
+            $r.ok | Should -BeTrue
+            $r.dados.resolvido | Should -BeFalse
+            $r.dados.precisaReiniciar | Should -BeTrue
+            @($r.dados.passos).Count | Should -Be 0
+        }
+        Test-Marcador 'reiniciar' | Should -BeFalse
+        Test-Marcador 'desligar' | Should -BeFalse
+        Test-Marcador 'procurar' | Should -BeFalse
     }
     It 'pnputil com 3010 pede reinicio' {
         $sim = @{ dispositivos = @(@{ id = $Script:IdWebcam; nome = 'Webcam'; classe = 'Image'; codigo = 28; resolveNo = 'reinstalar' }); codigoPnputil = 3010 }
