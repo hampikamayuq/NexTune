@@ -577,6 +577,8 @@ window.I18N['pt-BR'] = {
   "modojogo.fechar": "Fechar ao ativar",
   "modojogo.semProcessos": "Nenhum programa aberto que possa ser fechado.",
   "modojogo.selo.protegido": "protegido",
+  "modojogo.selo.som": "tocando som",
+  "modojogo.somAjuda": "Programas tocando som (música, vídeo, chamada) não são fechados enquanto tocam. Pause o som e clique em Atualizar se quiser fechar um deles.",
   "modojogo.ram": "{ram} de RAM",
   "modojogo.jogos": "Meus jogos (automático)",
   "modojogo.jogosAjuda": "Nome do executável do jogo, como aparece no Gerenciador de Tarefas (ex.: eldenring.exe). O NexTune liga o Modo Jogo quando ele abrir e desliga 30 s depois de fechar.",

@@ -98,6 +98,21 @@ Describe 'modojogo.ps1' {
             Get-ProcessoProtegido 'chrome.exe' $Script:Tab | Should -BeNullOrEmpty
             Get-ProcessoProtegido 'Discord.exe.bak' $Script:Tab | Should -BeNullOrEmpty
         }
+        It 'Test-TocandoSom compara o exe sem diferenciar caixa e aceita lista vazia ou nula' {
+            Test-TocandoSom 'spotify.EXE' @('Spotify.exe') | Should -BeTrue
+            Test-TocandoSom 'chrome.exe' @('Spotify.exe') | Should -BeFalse
+            Test-TocandoSom 'chrome.exe' @() | Should -BeFalse
+            Test-TocandoSom 'chrome.exe' $null | Should -BeFalse
+        }
+        It 'Resolve-PedidoFechar: aberto e tocando som vai para naoFechados; sem a lista de som fecha normalmente' {
+            $procs = @(Get-ProcessosSimulados $Script:Sim)
+            $r = Resolve-PedidoFechar @('Spotify.exe', 'chrome.exe') $procs $Script:Tab $null @('spotify.exe')
+            @($r.fechar | ForEach-Object { $_.exe }) | Should -Be @('chrome.exe')
+            $r.naoFechados[0].exe | Should -Be 'Spotify.exe'
+            $r.naoFechados[0].motivo | Should -Match 'tocando som'
+            $r2 = Resolve-PedidoFechar @('Spotify.exe') $procs $Script:Tab
+            @($r2.fechar | ForEach-Object { $_.exe }) | Should -Be @('Spotify.exe')
+        }
         It 'Get-ServicosDoPreset: suave nenhum, equilibrado a sua lista, a fundo as duas' {
             $dados = Read-ArquivoJson (Join-Path (Get-PastaDeDados) 'modojogo.json')
             @(Get-ServicosDoPreset 'suave' $dados).Count | Should -Be 0
@@ -130,6 +145,20 @@ Describe 'modojogo.ps1' {
             ($lista | Where-Object { $_.exe -eq 'obs64.exe' }).protegido | Should -BeTrue
             ($lista | Where-Object { $_.exe -eq 'chrome.exe' }).protegido | Should -BeFalse
             ($lista | Where-Object { $_.exe -eq 'chrome.exe' }).nome | Should -Be 'Google Chrome'
+            ($lista | Where-Object { $_.exe -eq 'chrome.exe' }).tocandoSom | Should -BeFalse
+        }
+        It 'processos: quem toca som fica protegido enquanto toca; o motivo da lista de protegidos tem precedencia' {
+            ($Script:Sim.processos | Where-Object { $_.exe -eq 'Spotify.exe' }).som = $true
+            ($Script:Sim.processos | Where-Object { $_.exe -eq 'Discord.exe' }).som = $true
+            $lista = @((Invoke-Jogo 'processos' @{ simular = $Script:Sim }).dados.processos)
+            $sp = $lista | Where-Object { $_.exe -eq 'Spotify.exe' }
+            $sp.tocandoSom | Should -BeTrue
+            $sp.protegido | Should -BeTrue
+            $sp.motivoProtegido | Should -Match 'tocando som'
+            $dc = $lista | Where-Object { $_.exe -eq 'Discord.exe' }
+            $dc.tocandoSom | Should -BeTrue
+            $dc.motivoProtegido | Should -Not -Match 'tocando som'
+            ($lista | Where-Object { $_.exe -eq 'chrome.exe' }).protegido | Should -BeFalse
         }
     }
 
@@ -166,6 +195,19 @@ Describe 'modojogo.ps1' {
             ($nf | Where-Object { $_.exe -eq 'naoexiste.exe' }).motivo | Should -Match 'não está aberto'
             Test-Marcador 'fechar-Discord.exe.txt' | Should -BeFalse
             Test-Marcador 'fechar-obs64.exe.txt' | Should -BeFalse
+        }
+        It 'programa que comecou a tocar som depois de marcado nao e fechado; o desativar nao o reabre' {
+            ($Script:Sim.processos | Where-Object { $_.exe -eq 'Spotify.exe' }).som = $true
+            $r = Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @('Spotify.exe', 'chrome.exe'); confirmado = $true; simular = $Script:Sim }
+            $r.ok | Should -BeTrue
+            @($r.dados.fechados | ForEach-Object { $_.exe }) | Should -Be @('chrome.exe')
+            $r.dados.naoFechados[0].exe | Should -Be 'Spotify.exe'
+            $r.dados.naoFechados[0].motivo | Should -Match 'tocando som'
+            Test-Marcador 'fechar-Spotify.exe.txt' | Should -BeFalse
+            Test-Marcador 'fechar-chrome.exe.txt' | Should -BeTrue
+            (Invoke-Jogo 'desativar' @{ confirmado = $true }).ok | Should -BeTrue
+            Test-Marcador 'reabrir-Spotify.exe.txt' | Should -BeFalse
+            Test-Marcador 'reabrir-chrome.exe.txt' | Should -BeTrue
         }
         It 'RF5: janela que nao fecha vai para naoFechados, sai do estado e nao e reaberta no desativar' {
             $r = Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @('soffice.exe'); confirmado = $true; simular = $Script:Sim }
