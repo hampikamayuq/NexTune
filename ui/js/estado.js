@@ -14,7 +14,9 @@ const S = {
   limpeza: { sel: new Set(), log: [], pct: 0, msg: '', rodando: false, resultado: null, avancadoAnalisado: null, falhou: null },
   // Programas: lista de programas/listar, filtros da barra, progresso da ação em curso e o resultado
   // da última desinstalação (cartão com restos) até o usuário fechar.
-  programas: { lista: null, filtro: '', aba: 'todos', ordem: 'nome', carregando: false, erro: null, ultimo: null, prog: null },
+  programas: { lista: null, filtro: '', aba: 'todos', ordem: 'nome', carregando: false, erro: null, ultimo: null, prog: null,
+    // Restos de programas já desinstalados (programas/restosAntigos): seção recolhida; sel = caminhos marcados.
+    antigos: { aberto: false, itens: null, incompleto: false, sel: new Set(), erro: null, prog: null, falhas: [] } },
   quarentena: { entradas: null, sel: new Set(), erro: null, carregando: false, ultimo: null },
   inicio: { itens: null, carregando: false, erro: null, filtro: 'todos', avancadoListado: null },
   ajustesWin: { lista: null, carregando: false, erro: null, avancadoListado: null },
@@ -26,6 +28,14 @@ const S = {
   atualiz: { lista: null, carregando: false, erro: null, selWin: new Set(), selProg: new Set(), avancadoListado: null },
   // Modo Jogo: estado/processos do módulo, marcados para fechar e preset escolhido (null = o dos ajustes).
   modoJogo: { estado: null, processos: null, sel: new Set(), preset: null, carregando: false, erro: null },
+  // Espaço: unidade escolhida, trilha de pastas abertas (da raiz da unidade até a atual) e o resultado
+  // de espaco/analisar por raiz, para voltar sem analisar de novo.
+  espaco: { letra: null, trilha: [], cache: {}, prog: null, erro: null },
+  // Dispositivos: lista de drivers/listar, resultado do último reparo ({disp, r}) e do último backup.
+  drivers: { lista: null, carregando: false, erro: null, prog: null, reparo: null, backup: null },
+  // Rede: rede/estado, provedor marcado nos botões de rádio e os resultados das últimas ações.
+  rede: { estado: null, carregando: false, erro: null, prog: null, escolha: null, dns: null, redefinido: null },
+  semCancelar: false,  // true enquanto roda uma ação que não pode ser cancelada no meio
   sessaoOk: null,      // null = ainda não verificado; false = usuário elevado difere do usuário do console
 };
 
@@ -56,6 +66,44 @@ function fmtData(iso) {
   const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso + 'T00:00:00' : iso);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+// Barra de progresso dentro da tela (além da barra de ocupado no rodapé). `alvo.prog` = {pct, msg};
+// devolve o callback de progresso para api.executar, que atualiza a barra sem redesenhar a tela.
+function progressoInline(alvo, idBarra, idMsg) {
+  return (p) => {
+    if (!alvo.prog || p.tipo !== 'progresso') return;
+    if (typeof p.pct === 'number') alvo.prog.pct = Math.max(0, Math.min(100, p.pct));
+    if (p.msg) alvo.prog.msg = p.msg;
+    const barra = document.getElementById(idBarra);
+    if (barra) barra.style.setProperty('--pct', alvo.prog.pct);
+    const msg = document.getElementById(idMsg);
+    if (msg) msg.textContent = alvo.prog.msg;
+  };
+}
+
+function cartaoProgresso(prog, idBarra, idMsg) {
+  return h('div', { class: 'progresso cartao' },
+    h('div', { class: 'trilho' }, h('i', { id: idBarra, vars: { '--pct': prog.pct } })),
+    h('p', { class: 'pequeno suave', id: idMsg, text: prog.msg }));
+}
+
+// Pasta que contém um arquivo (C:\pagefile.sys -> C:\).
+function pastaDoArquivo(caminho) {
+  const s = String(caminho || '');
+  const i = s.lastIndexOf('\\');
+  if (i <= 2) return s.slice(0, 2) + '\\';
+  return s.slice(0, i);
+}
+
+// Abre uma pasta no Explorer (no demo, só avisa).
+async function abrirPastaExplorer(caminho) {
+  try {
+    await api.abrirPasta(caminho);
+    if (S.info && S.info.demo) toast(t('comum.pastaDemo'), 'aviso');
+  } catch (e) {
+    mostrarErro(e);
+  }
 }
 
 function simNao(v) {
@@ -102,6 +150,8 @@ function setOcupado(b) {
   barra.hidden = !b;
   document.getElementById('ocupado-barra').style.setProperty('--pct', 0);
   document.getElementById('ocupado-msg').textContent = t('ocupado.trabalhando');
+  // Ação que não pode parar no meio (S.semCancelar, ex.: drivers/reparar): sem o botão Cancelar.
+  document.getElementById('btn-cancelar').hidden = b && S.semCancelar;
   document.body.classList.toggle('ocupado', b);
   aplicarOcupado();
 }

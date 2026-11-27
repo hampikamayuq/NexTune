@@ -57,6 +57,12 @@ const api = {
     return _invoke('abrir_url', { url });
   },
 
+  // Abre uma pasta no Explorer (caminho absoluto de pasta; para um arquivo, passe a pasta que o contém).
+  async abrirPasta(caminho) {
+    if (!TAURI) return null;
+    return _invoke('abrir_pasta', { caminho });
+  },
+
   async autostart(ligar) {
     if (!TAURI) return demo.autostart(ligar);
     return _invoke('autostart', { ligar });

@@ -407,6 +407,14 @@ function Get-InicioRapido {
     } catch { return $false }
 }
 
+function Get-BuildWindows {
+    # Build do Windows (CurrentBuildNumber); em teste, simular.build quando informado. Usado por ajusteswin e rede.
+    param([bool]$Teste, $Sim)
+    if ($Teste -and $null -ne $Sim -and $null -ne $Sim.build) { return [int]$Sim.build }
+    try { return [int](Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber }
+    catch { return [int][Environment]::OSVersion.Version.Build }
+}
+
 function Write-JsonAtomico {
     # Grava JSON em UTF-8 sem BOM via .tmp + Move-Item -Force (quem le nunca ve arquivo pela metade).
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]

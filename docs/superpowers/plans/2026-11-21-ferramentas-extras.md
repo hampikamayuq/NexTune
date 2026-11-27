@@ -1,6 +1,6 @@
 # NexTune — Plano 8: Privacidade ampliada, saúde do Windows e ferramentas que faltam
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Cobrir o que as melhores ferramentas da área têm e o NexTune ainda não: privacidade além do registro (serviços e tarefas de telemetria), reparo do Windows (DISM + SFC), "por que meu PC reiniciou", restos de programas já desinstalados, dispositivos com problema e backup de drivers, analisador de espaço e ferramentas de rede, sempre reaproveitando código MIT quando existe.
 
@@ -25,7 +25,7 @@ Todo arquivo que reaproveitar código ganha no cabeçalho a linha `Baseado em <p
 
 ## Global Constraints
 
-- pt-BR em todo texto visível; `.ps1` em UTF-8 com BOM e CRLF; PSScriptAnalyzer sem avisos; sem rede a partir da interface (exceção explícita: DISM `/RestoreHealth` baixa do Windows Update, e a tela avisa).
+- pt-BR em todo texto visível; `.ps1` em UTF-8 com BOM e CRLF; PSScriptAnalyzer sem avisos; sem rede a partir da interface (exceções explícitas, avisadas na tela: DISM `/RestoreHealth` baixa do Windows Update; o DNS seguro consulta `dns.msftncsi.com` uma vez para conferir que o DNS novo responde).
 - Escrita: ponto de restauração antes (`garantirPonto`), backup do estado anterior, log em `%ProgramData%\NexTune\Logs`, confirmação, desfazer.
 - Binários do sistema por caminho absoluto (`$env:windir\System32\...`, que o host já recebe da API).
 - Nunca `Stop-Process`/kill; nunca apagar fora da quarentena; nunca mexer em ACLs.
@@ -37,6 +37,44 @@ Todo arquivo que reaproveitar código ganha no cabeçalho a linha `Baseado em <p
 3. SFC/DISM em idioma diferente de pt-BR e en-US: o resultado vem dos códigos de saída e do `CBS.log`/`dism.log`, nunca do texto da tela.
 4. Pasta de restos com nome parecido mas de programa ainda instalado ("Adobe" × "Adobe Acrobat"): não é marcada como segura.
 5. Analisador de espaço em pasta com junction ou sem permissão: não segue o link, não trava (teto de tempo) e mostra "sem acesso" em vez de tamanho zero.
+
+## Contratos das Tarefas 5 a 8 (fixados em 2026-11-23, antes de implementar)
+
+Valem para PowerShell, Rust (`acoes.rs`), interface e `demo.js`. Nomes em camelCase; `-1` em bytes = desconhecido; datas ISO 8601. `simular` (objeto) só é aceito em modo teste, como nos módulos anteriores. `confirmado` é sempre o booleano `true`. Os módulos novos entram na allowlist de `host.ps1` e em `MODULOS`.
+
+### espaco (só leitura)
+- `espaco/analisar { raiz, tetoSegundos? }` → `{ raiz, totalBytes, incompleto, pastas: [{ caminho, nome, bytes, semAcesso, parcial, link }], arquivos: [{ caminho, nome, bytes }] }`.
+  - `raiz`: caminho absoluto de pasta (`^[A-Za-z]:\\`), até 260 caracteres, existente e sem link na cadeia (`Test-CadeiaSemLink`); a raiz de unidade (`C:\`) é aceita. `tetoSegundos` inteiro 5..300 (padrão 60), teto da análise inteira.
+  - `pastas`: as 20 maiores do primeiro nível, da maior para a menor; `bytes:-1` quando não deu para medir. `semAcesso:true` quando a própria pasta não pode ser listada; `parcial:true` quando alguma subpasta não pôde ser lida ou o teto estourou no meio dela. Links e junções nunca são seguidos nem somados (Review Focus 5); um link no primeiro nível aparece com `link:true, bytes:0` e não entra na soma. `semAcesso` só para acesso negado; pasta que sumiu no meio ou caminho longo demais vem como `bytes:-1, parcial:true`. Uma pasta onde o teto estourou no meio traz o que foi somado até ali com `parcial:true` (a tela mostra "pelo menos X").
+  - `arquivos`: os 20 maiores arquivos de toda a árvore percorrida, do maior para o menor.
+  - `incompleto:true` quando o teto estourou; as pastas não alcançadas vêm com `bytes:-1, parcial:true`.
+  - "Um nível abaixo ao clicar" = nova chamada com `raiz` = a pasta clicada.
+- Rust: comando novo `abrir_pasta(caminho)` em `bandeja.rs`: só caminho absoluto `^[A-Za-z]:\\`, sem aspas nem caracteres de controle, que existe, é pasta e não tem link/junção em nenhum ancestral; abre com `<Windows>\explorer.exe "<caminho>"` como `abrir_url`. No demo devolve `Ok`. Para um arquivo a interface abre a pasta que o contém.
+
+### programas/restosAntigos (só leitura; limpar usa `limparRestos`)
+- `programas/restosAntigos {}` → `{ itens: [{ tipo: 'pasta'|'atalho', caminho, nome, bytes, seguro, motivo }], incompleto? }`. A interface manda `limparRestos` em lotes de até 500 itens.
+  - Pastas do primeiro nível de `%ProgramFiles%`, `%ProgramFiles(x86)%`, `%ProgramData%`, `%APPDATA%`, `%LOCALAPPDATA%` (e o segundo nível quando o primeiro é a pasta de um editor de programa instalado) que não pertencem a nenhum programa instalado; atalhos `.lnk` quebrados do Menu Iniciar (usuário e todos).
+  - Nunca aparece: caminho protegido (`Test-ProtectedPath`), link/junção (na pasta, na cadeia ou na árvore), pasta com executável (`.exe/.dll/.sys`) alterado há menos de 30 dias, nome de `protegidos.json`, pastas do Windows/Microsoft conhecidas (lista no script).
+  - `seguro:true` só sob `%ProgramFiles%`, `%ProgramFiles(x86)%` e `%ProgramData%`; em `%APPDATA%`/`%LOCALAPPDATA%` tudo vem `seguro:false` (configurações, chaves e jogos salvos de programas em uso não deixam rastro no Uninstall). Também `seguro:false`: pasta com jogo salvo, chave ou licença (`Saved`, `*.sav`, `*.key`, `*.lic`…), Store ilegível, atalho fora de disco fixo. "Instalado" inclui nomes de executáveis e subpastas da pasta de instalação, serviços e alvos de atalhos válidos. Raízes redirecionadas para a rede nunca são percorridas; teto global de 120 s (`incompleto:true`). A regra global de "seguro" é do NexTune (o RetroLimpia só pontua casamentos por programa).
+  - Além disso, `seguro:true` só quando o nome limpo (sem versão, arquitetura, parênteses, sufixos como `x64`, `Inc`) não casa com nenhum programa instalado (nome ou editor, nos dois sentidos de "contém") nem com `protegidos.json` (Review Focus 4: "Adobe" × "Adobe Acrobat" → `seguro:false`). `motivo` explica em pt-BR.
+  - `bytes` pelo `Get-TamanhoComTeto` (teto 10 s por pasta). Em modo teste as raízes ficam em `%TEMP%\NexTuneTeste\restosAntigos\{ProgramFiles,ProgramFilesX86,ProgramData,AppData,LocalAppData,Menu}` e os instalados vêm do Uninstall falso já usado pelos testes de `programas`.
+- Interface: seção "Restos de programas antigos" em Programas; os itens marcados vão por `programas/limparRestos { itens:[{tipo, caminho}], confirmado:true, nome:'programas antigos' }` (a entrada da quarentena fica "Restos de programas antigos"); só os `seguro:true` vêm marcados.
+
+### drivers
+- `drivers/listar {}` → `{ dispositivos: [{ id, nome, classe, codigo, explicacao, critico }] }`: dispositivos presentes (`Present = TRUE`, sem os fantasmas desconectados) com `ConfigManagerErrorCode` diferente de 0 e de 22; `id` = `PNPDeviceID`; `explicacao` em pt-BR por código (tabela no script; código desconhecido tem texto genérico com o número); `critico` = classe que nunca é reinstalada (`DiskDrive`, `HDC`, `SCSIAdapter`, `Display`, `System`, `Processor`, `Computer`, `Volume`, `VolumeSnapshot`, `Keyboard`, `Mouse`, `HIDClass`, `USB`, `Firmware`, `SecurityDevices`, `SDHost`, `Battery`, e `Net` quando é o único adaptador ativo).
+- `drivers/backup { confirmado }` → `{ pasta, quantidade, codigo }`: `<System32>\pnputil.exe /export-driver * <ProgramData\NexTune\Drivers\AAAAMMDD-HHMMSS>`; `quantidade` = pastas com `.inf` exportadas.
+- `drivers/reparar { id, confirmado }` → `{ resolvido, passos: [{ passo: 'reiniciar'|'reinstalar'|'procurar', ok, codigoDepois }], precisaReiniciar }`. O `id` é resolvido contra a lista de `listar` (nunca usado sem estar nela). Ordem: desligar e ligar (`Disable-PnpDevice`/`Enable-PnpDevice`) e reinstalar (`pnputil /remove-device` + `/scan-devices`) só quando `critico:false`; procurar hardware (`pnputil /scan-devices`) sempre. Dispositivo crítico só procura hardware: desligar uma controladora de disco, o vídeo ou o hub USB do teclado pode derrubar o Windows ou deixar a pessoa sem teclado. Também para quando o código vira 14 ou 21 (só o reinício resolve); dispositivo que já está em 14 ou 21 não é tocado. Religar roda sempre num `finally`, e o dispositivo é pego pelo id exato (filtro WQL e `-InputObject`, nunca `-InstanceId` com curingas). Para no primeiro passo após o qual `ConfigManagerErrorCode` vira 0.
+- Escrita: `backup` e `reparar` (sessão verificada; a interface roda `garantirPonto()` antes de `reparar`).
+
+### rede
+- `rede/estado {}` → `{ adaptadores: [{ indice, nome, descricao, dns: [ip], automatico }], provedor: 'cloudflare'|'google'|'quad9'|'automatico'|'outro', dohDisponivel, bloqueadoPorPolitica, temBackup }`. `bloqueadoPorPolitica` = política `DoHPolicy` = 1 (proibido); o NexTune nunca apaga valores de política. Adaptadores físicos ativos; `dohDisponivel` = Windows 11 (build ≥ 22000).
+- `rede/limparDns {}` → `{ ok }` (`<System32>\ipconfig.exe /flushdns`).
+- `rede/redefinir { confirmado }` → `{ precisaReiniciar: true, detalhe }` (`netsh winsock reset` e `netsh int ip reset`, por caminho absoluto).
+- `rede/dnsSeguro { provedor, confirmado }` → `{ adaptadores: [{ indice, nome, ok, erro, mantido, revertido }], provedor, aviso? }` (`revertido` = o adaptador voltou ao DNS anterior porque a conferência falhou ou o DoH não pôde ser gravado). `provedor` ∈ `cloudflare|google|quad9|automatico`. Antes da primeira troca grava `%ProgramData%\NexTune\Backups\dns.json` com os servidores de cada adaptador (e se vinham do DHCP); trocas seguintes não sobrescrevem esse backup. `automatico` restaura exatamente o backup (servidores fixos ou DHCP, por família) e remove os modelos DoH que o NexTune adicionou; sem backup, volta ao DHCP só os adaptadores cujos servidores fixos são de um dos três provedores (os outros ficam `mantido:true`). IPv4 e IPv6 são fixados (dual-stack é comum no Brasil; IPv6 do roteador vazaria as consultas): servidores IPv4 e modelos DoH do Sophia Script (MIT, farag2), IPv6 da documentação de cada provedor. Depois de aplicar, uma consulta a `dns.msftncsi.com` (a mesma que o Windows faz para saber se há internet) confere que o nome ainda resolve; se resolvia antes e parou, aquele adaptador volta ao anterior. É o único uso de rede do módulo. Backup com formato inesperado faz a ação recusar sem tocar no arquivo. Windows 10 recusa os três provedores com mensagem clara ("DNS seguro precisa do Windows 11"); `automatico` funciona nos dois.
+- Escrita: `limparDns`, `redefinir`, `dnsSeguro` (sessão verificada). A interface roda `garantirPonto()` antes de `redefinir` e `dnsSeguro`, não antes de `limparDns`.
+
+### Interface
+Três telas novas no menu, depois de Reparo: **Espaço**, **Dispositivos** (drivers) e **Rede**; restos antigos dentro de Programas. Toda escrita com `.acao .escrita` e confirmação dizendo (exceção: limpar o cache de DNS, que não tem o que desfazer e o texto diz isso) o que vai acontecer e como desfazer, erros por `mostrarErroEscrita`, textos em `pt-BR.js`, demo completo.
 
 ---
 
@@ -50,8 +88,8 @@ Ajustes novos no grupo de privacidade (formato do catálogo atual: `chaves [{cha
 - `novidades_windows`: `HKCU\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement` `ScoobeSystemSettingEnabled` DWord 0.
 - `sugestoes_pesquisa_web`: `HKCU\Software\Policies\Microsoft\Windows\Explorer` `DisableSearchBoxSuggestions` DWord 1, `politica: true`.
 
-- [ ] **Passo 1:** teste: os 4 ids aparecem em `listar`; aplicar e restaurar cada um em modo teste devolve o valor anterior exato (inclusive "não existia").
-- [ ] **Passo 2:** ver falhar; **Passo 3:** acrescentar ao catálogo; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** teste: os 4 ids aparecem em `listar`; aplicar e restaurar cada um em modo teste devolve o valor anterior exato (inclusive "não existia").
+- [x] **Passo 2:** ver falhar; **Passo 3:** acrescentar ao catálogo; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 2: serviços e tarefas de telemetria (ajusteswin)
 
@@ -64,8 +102,8 @@ Ajustes novos:
 - `relatorio_erros`: serviço `WerSvc` desligado e tarefa `\Microsoft\Windows\Windows Error Reporting\QueueReporting` desativada.
 - `tarefas_telemetria`: as tarefas da lista do Sophia (`MareBackup`, `Microsoft Compatibility Appraiser`, `Microsoft Compatibility Appraiser Exp`, `StartupAppTask`, `Proxy`, `Consolidator`, `UsbCeip`, `Microsoft-Windows-DiskDiagnosticDataCollector`, `MapsToastTask`, `MapsUpdateTask`), resolvidas por nome sob `\Microsoft\Windows\`.
 
-- [ ] **Passo 1:** testes: `restaurar devolve o tipo de inicio anterior` (serviço que já era `Manual` volta `Manual`); tarefa inexistente vira `naoAplica` e o resto segue; `listar` mostra o estado atual de cada serviço/tarefa.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes: `restaurar devolve o tipo de inicio anterior` (serviço que já era `Manual` volta `Manual`); tarefa inexistente vira `naoAplica` e o resto segue; `listar` mostra o estado atual de cada serviço/tarefa.
+- [x] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 3: por que o PC reiniciou (porta de `reinicios.ps1`)
 
@@ -73,8 +111,8 @@ Ajustes novos:
 
 **Produces:** `diagnostico/reinicios -> { eventos: [{ data, tipo: 'desligamento'|'reinicio'|'queda'|'telaAzul', quem, motivo, codigo? }] }`, últimos 30 dias, no máximo 50. Tabela de telas azuis traduzida (os 14 códigos do RetroLimpia). Só leitura.
 
-- [ ] **Passo 1:** testes com `simular.eventos` (41, 1074 com usuário e motivo, 6008, 1001 com código `0x00000116`): cada um vira o tipo certo e a frase certa; código desconhecido vira "Tela azul (código X)".
-- [ ] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes com `simular.eventos` (41, 1074 com usuário e motivo, 6008, 1001 com código `0x00000116`): cada um vira o tipo certo e a frase certa; código desconhecido vira "Tela azul (código X)".
+- [x] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 4: saúde do Windows (DISM + SFC)
 
@@ -82,17 +120,17 @@ Ajustes novos:
 
 **Produces:** `saude/verificar -> { estado: 'ok'|'reparavel'|'irreparavel', detalhe }` (`DISM /Online /Cleanup-Image /CheckHealth`, rápido, só leitura); `saude/reparar {confirmado}` (`DISM /RestoreHealth` e depois `sfc /scannow`, com progresso, cancelável). Resultado pelos códigos de saída e pela última sessão do `CBS.log` (`[SR] Repairing` / `cannot repair`), nunca pelo texto da tela (Review Focus 3).
 
-- [ ] **Passo 1:** testes com saídas gravadas (códigos e trechos de `CBS.log` em inglês e português): `ok`, `reparado`, `nao reparado`; cancelar no meio devolve "cancelado".
-- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes com saídas gravadas (códigos e trechos de `CBS.log` em inglês e português): `ok`, `reparado`, `nao reparado`; cancelar no meio devolve "cancelado".
+- [x] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 5: analisador de espaço
 
 **Files:** Create `scripts/espaco.ps1`, testes; Modify `acoes.rs`, `host.ps1`, `src-tauri/src/bandeja.rs` (comando `abrir_pasta`: só pasta existente, absoluta, sem link, aberta pelo `explorer.exe`), UI (tela "Espaço").
 
-**Produces:** `espaco/analisar {raiz}` → `{ pastas: [{caminho, bytes, semAcesso}], arquivos: [{caminho, bytes}] }`: as 20 maiores pastas do primeiro nível (e um nível abaixo ao clicar) e os 20 maiores arquivos, usando o `Get-TamanhoComTeto` que já existe (sem seguir links, com teto de tempo). Só leitura; apagar continua sendo pela Limpeza ou pela quarentena.
+**Produces:** `espaco/analisar {raiz}` → `{ pastas: [{caminho, bytes, semAcesso}], arquivos: [{caminho, bytes}] }`: as 20 maiores pastas do primeiro nível (e um nível abaixo ao clicar) e os 20 maiores arquivos, com uma caminhada própria que não segue links e respeita um teto de tempo global (o `Get-TamanhoComTeto` de `programas.ps1` tem teto por chamada e não junta os maiores arquivos). Só leitura; apagar continua sendo pela Limpeza ou pela quarentena.
 
-- [ ] **Passo 1:** testes com pasta falsa (junction para fora, pasta sem permissão, arquivos grandes): ordem certa, junction não somada, `semAcesso` marcado (Review Focus 5).
-- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes com pasta falsa (junction para fora, pasta sem permissão, arquivos grandes): ordem certa, junction não somada, `semAcesso` marcado (Review Focus 5).
+- [x] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 6: restos de programas já desinstalados (porta de `residuos.ps1`)
 
@@ -100,8 +138,8 @@ Ajustes novos:
 
 **Produces:** `programas/restosAntigos -> { itens: [{tipo, caminho, nome, bytes, seguro}] }` em `%ProgramFiles%`, `%ProgramFiles(x86)%`, `%ProgramData%`, `%APPDATA%`, `%LOCALAPPDATA%` e atalhos do menu Iniciar. Regra do RetroLimpia: "seguro" só quando o nome limpo (sem versão, arquitetura e parênteses) não casa com nenhum programa instalado nem com `protegidos.json`. A limpeza reaproveita `limparRestos` (vai para a quarentena).
 
-- [ ] **Passo 1:** testes: pasta de programa removido é achada; pasta de programa ainda instalado com nome parecido não é "segura" (Review Focus 4); pasta protegida nunca aparece.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes: pasta de programa removido é achada; pasta de programa ainda instalado com nome parecido não é "segura" (Review Focus 4); pasta protegida nunca aparece.
+- [x] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 7: dispositivos com problema e backup de drivers (porta de `drivers.ps1`)
 
@@ -109,8 +147,8 @@ Ajustes novos:
 
 **Produces:** `drivers/listar` (dispositivos com `ConfigManagerErrorCode` diferente de 0 e 22, com o código explicado em pt-BR); `drivers/backup {confirmado}` (`pnputil /export-driver * <ProgramData\NexTune\Drivers\AAAAMMDD-HHMMSS>`); `drivers/reparar {id, confirmado}` escalonado como no RetroLimpia (desligar e ligar; reinstalar o driver só para classes não críticas; procurar hardware de novo), parando no primeiro passo que resolve.
 
-- [ ] **Passo 1:** testes com `simular.dispositivos`: lista e textos; `reparar` para no passo que resolve; classe crítica (disco, display do sistema) nunca é reinstalada.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes com `simular.dispositivos`: lista e textos; `reparar` para no passo que resolve; classe crítica (disco, display do sistema) nunca é reinstalada.
+- [x] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 8: rede
 
@@ -118,13 +156,13 @@ Ajustes novos:
 
 **Produces:** `rede/limparDns` (`ipconfig /flushdns`); `rede/redefinir {confirmado}` (`netsh winsock reset` e `netsh int ip reset`, avisa que precisa reiniciar); `rede/dnsSeguro {provedor: 'cloudflare'|'google'|'quad9'|'automatico', confirmado}` (servidores e DoH por adaptador, com backup dos servidores anteriores e restauração; só no Windows 11, como no Sophia).
 
-- [ ] **Passo 1:** testes com `simular.adaptadores`: backup e restauração exatos dos servidores; Windows 10 recusa DoH com mensagem clara.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes com `simular.adaptadores`: backup e restauração exatos dos servidores; Windows 10 recusa DoH com mensagem clara.
+- [x] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Fechamento
 
 - [ ] `tools/ci-local.ps1 -SoTestes` local; push; Actions verde (Rust).
-- [ ] Revisão independente (segurança: serviços, drivers, rede).
-- [ ] README (ferramentas novas e créditos do Sophia Script), memória do projeto.
+- [x] Revisão independente (segurança: serviços, drivers, rede).
+- [x] README (ferramentas novas e créditos do Sophia Script), memória do projeto.
 
 **Ordem sugerida:** 1 e 2 (privacidade, mais baratos e com código pronto), 3 (só leitura), 4, 5, 6, 7, 8. Cada tarefa pode virar uma versão (0.1.x) sozinha.

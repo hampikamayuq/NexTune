@@ -751,6 +751,513 @@ Describe 'programas.ps1' {
         }
     }
 
+    Context 'restosAntigos' {
+        # Decisao (documentada no plano): pasta que e de um programa instalado (mesmo nome limpo ou cru, local de
+        # instalacao, pasta do desinstalador/icone/servico/destino de atalho) ou de um editor instalado NAO aparece;
+        # "contem" (nos dois sentidos) e igualdade com exe/subpasta do InstallLocation, icone, servico ou destino de
+        # atalho aparecem com seguro:false e o motivo. Subpasta da pasta de um editor instalado aparece, nunca segura.
+        # AppData/LocalAppData nunca sao 'seguro'.
+        BeforeAll {
+            $Script:RA = Join-Path $Script:Base 'restosAntigos'
+            function Set-IdadeArvore {
+                # LastWriteTime e CreationTime de toda a arvore (e da propria pasta) para $Dias atras. Chamar antes de criar juncoes.
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+                [CmdletBinding()]
+                param([string]$Pasta, [int]$Dias)
+                $data = (Get-Date).AddDays(-$Dias)
+                foreach ($i in @(@(Get-ChildItem -LiteralPath $Pasta -Recurse -Force) + @(Get-Item -LiteralPath $Pasta -Force))) {
+                    $i.LastWriteTime = $data
+                    $i.CreationTime = $data
+                }
+            }
+            function New-PastaVelha {
+                # Pasta com um arquivo de $Bytes bytes, toda envelhecida $Dias dias (padrao 40: passa da regra dos 30 dias).
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+                [CmdletBinding()]
+                param([string]$Pasta, [string]$Arquivo = 'dados.txt', [int]$Bytes = 10, [int]$Dias = 40)
+                New-ArquivoTeste (Join-Path $Pasta $Arquivo) $Bytes
+                Set-IdadeArvore $Pasta $Dias
+            }
+            function Get-ItemRA {
+                # Itens do resultado com esse caminho (comparando a forma longa dos dois lados).
+                param($R, [string]$Caminho)
+                $alvo = Get-CaminhoLongo $Caminho
+                return @(@($R.dados.itens) | Where-Object { $null -ne $_ -and (Get-CaminhoLongo $_.caminho) -eq $alvo })
+            }
+        }
+        BeforeEach {
+            if (Test-Path -LiteralPath $Script:RA) { Remove-Item -LiteralPath $Script:RA -Recurse -Force -ErrorAction SilentlyContinue }
+            foreach ($n in @('ProgramFiles', 'ProgramFilesX86', 'ProgramData', 'AppData', 'LocalAppData', 'Menu')) {
+                New-Item -ItemType Directory -Path (Join-Path $Script:RA $n) -Force | Out-Null
+            }
+        }
+
+        It 'sem nada para mostrar devolve itens vazio e incompleto:false' {
+            $r = Invoke-P 'restosAntigos'
+            $r.ok | Should -BeTrue
+            @($r.dados.itens).Count | Should -Be 0
+            $r.dados.incompleto | Should -BeFalse
+            $Script:UltimaSaida | Should -Match '"itens":\[\],"incompleto":false'
+        }
+        It 'pasta de programa removido em Program Files ou ProgramData aparece com seguro:true, motivo e bytes corretos' {
+            $pasta = Join-Path $Script:RA 'ProgramFiles\Programa Removido'
+            New-ArquivoTeste (Join-Path $pasta 'sub\b.txt') 66
+            New-PastaVelha $pasta 'dados.txt' 1234
+            $r = Invoke-P 'restosAntigos' @{}
+            $r.ok | Should -BeTrue
+            $it = @(Get-ItemRA $r $pasta)
+            $it.Count | Should -Be 1
+            @($it[0].PSObject.Properties.Name) | Should -Be @('tipo', 'caminho', 'nome', 'bytes', 'seguro', 'motivo')
+            $it[0].tipo | Should -Be 'pasta'
+            $it[0].nome | Should -Be 'Programa Removido'
+            $it[0].bytes | Should -Be 1300
+            $it[0].seguro | Should -BeTrue
+            $it[0].motivo | Should -Not -BeNullOrEmpty
+            foreach ($raiz in @('ProgramFilesX86', 'ProgramData')) {
+                New-PastaVelha (Join-Path $Script:RA "$raiz\Outro Removido")
+            }
+            $r = Invoke-P 'restosAntigos'
+            foreach ($raiz in @('ProgramFilesX86', 'ProgramData')) {
+                $x = @(Get-ItemRA $r (Join-Path $Script:RA "$raiz\Outro Removido"))
+                $x.Count | Should -Be 1
+                $x[0].seguro | Should -BeTrue
+            }
+        }
+        It 'item em AppData ou LocalAppData aparece, mas nunca e seguro' {
+            foreach ($raiz in @('AppData', 'LocalAppData')) { New-PastaVelha (Join-Path $Script:RA "$raiz\Outro Removido") }
+            $r = Invoke-P 'restosAntigos'
+            foreach ($raiz in @('AppData', 'LocalAppData')) {
+                $x = @(Get-ItemRA $r (Join-Path $Script:RA "$raiz\Outro Removido"))
+                $x.Count | Should -Be 1
+                $x[0].seguro | Should -BeFalse
+                $x[0].motivo | Should -Be 'Dados do usuário (configurações, chaves, jogos salvos): confira antes de mover.'
+            }
+        }
+        It 'pasta com jogos salvos, chaves ou licencas aparece sem ser segura' {
+            $jogo = Join-Path $Script:RA 'ProgramData\Jogo Antigo'
+            New-PastaVelha (Join-Path $jogo 'Saved\SaveGames')
+            Set-IdadeArvore $jogo 40
+            $chaves = Join-Path $Script:RA 'ProgramFiles\Chaveiro'
+            New-PastaVelha $chaves 'pubring.kbx'
+            $lic = Join-Path $Script:RA 'ProgramFilesX86\Licenciado'
+            New-PastaVelha $lic 'produto.lic'
+            $r = Invoke-P 'restosAntigos'
+            foreach ($p in @($jogo, $chaves, $lic)) {
+                $x = @(Get-ItemRA $r $p)
+                $x.Count | Should -Be 1
+                $x[0].seguro | Should -BeFalse
+                $x[0].motivo | Should -Match 'jogos salvos, chaves ou licenças'
+            }
+            (@(Get-ItemRA $r $jogo))[0].motivo | Should -Match 'Saved$'
+            (@(Get-ItemRA $r $chaves))[0].motivo | Should -Match 'pubring\.kbx$'
+        }
+        It 'Review Focus 4: pasta "Adobe" com "Adobe Acrobat" instalado aparece com seguro:false e o motivo' {
+            New-ProgramaFalso 'Acrobat' @{ DisplayName = 'Adobe Acrobat'; DisplayVersion = '24.1' }
+            $adobe = Join-Path $Script:RA 'AppData\Adobe'
+            New-PastaVelha $adobe
+            $r = Invoke-P 'restosAntigos'
+            $it = @(Get-ItemRA $r $adobe)
+            $it.Count | Should -Be 1
+            $it[0].seguro | Should -BeFalse
+            $it[0].motivo | Should -Be 'Nome parecido com um programa instalado: Adobe Acrobat'
+            # no outro sentido: a pasta contem o nome do instalado
+            $servico = Join-Path $Script:RA 'ProgramData\Lenovo Vantage Service'
+            New-PastaVelha $servico
+            # e pelo editor
+            New-ProgramaFalso 'Ferramenta' @{ DisplayName = 'Ferramenta Xyz'; Publisher = 'Distribuidora Grande Ltda' }
+            $dist = Join-Path $Script:RA 'ProgramFiles\Distribuidora'
+            New-PastaVelha $dist
+            $r = Invoke-P 'restosAntigos'
+            $x = @(Get-ItemRA $r $servico)
+            $x.Count | Should -Be 1
+            $x[0].seguro | Should -BeFalse
+            $x[0].motivo | Should -Be 'Nome parecido com um programa instalado: Lenovo Vantage'
+            $x = @(Get-ItemRA $r $dist)
+            $x.Count | Should -Be 1
+            $x[0].seguro | Should -BeFalse
+            $x[0].motivo | Should -Be 'Nome parecido com o editor de um programa instalado: Distribuidora Grande Ltda'
+            @($r.dados.itens | Where-Object { $_.seguro }).Count | Should -Be 0
+        }
+        It 'Review Focus 4: com o editor "Adobe Inc." a pasta Adobe vira pasta do editor: nao aparece e a subpasta antiga aparece sem ser segura' {
+            New-ProgramaFalso 'Acrobat' @{ DisplayName = 'Adobe Acrobat DC (64-bit)'; Publisher = 'Adobe Inc.' }
+            $adobe = Join-Path $Script:RA 'ProgramFilesX86\Adobe'
+            New-PastaVelha (Join-Path $adobe 'Photoshop CS6')
+            New-PastaVelha (Join-Path $adobe 'Acrobat DC')
+            Set-IdadeArvore $adobe 40
+            $r = Invoke-P 'restosAntigos'
+            @(Get-ItemRA $r $adobe).Count | Should -Be 0
+            $ps = @(Get-ItemRA $r (Join-Path $adobe 'Photoshop CS6'))
+            $ps.Count | Should -Be 1
+            $ps[0].seguro | Should -BeFalse
+            $ps[0].motivo | Should -Match 'Adobe Inc\.'
+            $ac = @(Get-ItemRA $r (Join-Path $adobe 'Acrobat DC'))
+            $ac.Count | Should -Be 1
+            $ac[0].seguro | Should -BeFalse
+            $ac[0].motivo | Should -Be 'Nome parecido com um programa instalado: Adobe Acrobat DC (64-bit)'
+        }
+        It 'pasta de programa instalado (nome limpo igual, local, pasta do desinstalador, SystemComponent ou editor) nao aparece' {
+            New-PastaVelha (Join-Path $Script:RA 'AppData\Programa Qualquer')
+            New-PastaVelha (Join-Path $Script:RA 'ProgramFiles\Lenovo Vantage 10.2 (x64)')
+            New-PastaVelha (Join-Path $Script:RA 'LocalAppData\Oculto')
+            New-PastaVelha (Join-Path $Script:RA 'ProgramData\Positivo Tecnologia')
+            $semNome = Join-Path $Script:RA 'ProgramFiles\Pasta Sem Nome'
+            New-PastaVelha $semNome
+            New-ProgramaFalso 'PorLocal' @{ DisplayName = 'Coisa Diferente'; InstallLocation = $semNome }
+            $xyz = Join-Path $Script:RA 'ProgramFilesX86\XyzApp'
+            New-PastaVelha $xyz
+            New-ProgramaFalso 'PorDesinstalador' @{ DisplayName = 'Outro Nome'; UninstallString = ('"' + (Join-Path $xyz 'unins000.exe') + '" /x') }
+            $icone = Join-Path $Script:RA 'ProgramData\IconeApp'
+            New-PastaVelha $icone
+            New-ProgramaFalso 'PorIcone' @{ DisplayName = 'Terceiro Nome'; DisplayIcon = ('"' + (Join-Path $icone 'app.exe') + '",0') }
+            # pasta do editor 'Editor Teste' (de Programa Qualquer): ela nao aparece; dentro dela a do programa tambem nao
+            $editor = Join-Path $Script:RA 'ProgramData\Editor Teste'
+            New-PastaVelha (Join-Path $editor 'Programa Qualquer')
+            New-PastaVelha (Join-Path $editor 'Plugin Velho')
+            Set-IdadeArvore $editor 40
+            $r = Invoke-P 'restosAntigos'
+            $r.ok | Should -BeTrue
+            $nomes = @($r.dados.itens | ForEach-Object { $_.nome })
+            foreach ($n in @('Programa Qualquer', 'Lenovo Vantage 10.2 (x64)', 'Oculto', 'Positivo Tecnologia', 'Pasta Sem Nome', 'XyzApp', 'IconeApp', 'Editor Teste')) {
+                $nomes | Should -Not -Contain $n
+            }
+            $plugin = @(Get-ItemRA $r (Join-Path $editor 'Plugin Velho'))
+            $plugin.Count | Should -Be 1
+            $plugin[0].seguro | Should -BeFalse
+            $plugin[0].motivo | Should -Match 'Editor Teste'
+            @($r.dados.itens).Count | Should -Be 1
+        }
+        It 'local de instalacao mais fundo (Editor\App): a pasta de cima so serve para descer e o terceiro nivel nunca e visitado' {
+            $vendor = Join-Path $Script:RA 'ProgramFiles\Vendor'
+            New-PastaVelha (Join-Path $vendor 'App')
+            New-PastaVelha (Join-Path $vendor 'Outro')
+            Set-IdadeArvore $vendor 40
+            New-ProgramaFalso 'Fundo' @{ DisplayName = 'Aplicativo Fundo'; InstallLocation = (Join-Path $vendor 'App') }
+            $suite = Join-Path $Script:RA 'ProgramFilesX86\Suite'
+            New-PastaVelha (Join-Path $suite 'Pacote\App')
+            New-PastaVelha (Join-Path $suite 'Pacote\Velho')
+            New-PastaVelha (Join-Path $suite 'Pacote2')
+            Set-IdadeArvore $suite 40
+            New-ProgramaFalso 'MaisFundo' @{ DisplayName = 'Suite Profunda'; InstallLocation = (Join-Path $suite 'Pacote\App') }
+            $r = Invoke-P 'restosAntigos'
+            @(Get-ItemRA $r $vendor).Count | Should -Be 0
+            @(Get-ItemRA $r (Join-Path $vendor 'App')).Count | Should -Be 0
+            $outro = @(Get-ItemRA $r (Join-Path $vendor 'Outro'))
+            $outro.Count | Should -Be 1
+            $outro[0].seguro | Should -BeFalse
+            $outro[0].motivo | Should -Match 'Aplicativo Fundo'
+            @(Get-ItemRA $r $suite).Count | Should -Be 0
+            @(Get-ItemRA $r (Join-Path $suite 'Pacote')).Count | Should -Be 0
+            @(Get-ItemRA $r (Join-Path $suite 'Pacote\Velho')).Count | Should -Be 0
+            $p2 = @(Get-ItemRA $r (Join-Path $suite 'Pacote2'))
+            $p2.Count | Should -Be 1
+            $p2[0].seguro | Should -BeFalse
+            $Script:UltimaSaida | Should -Not -Match 'Pacote\\\\Velho'
+        }
+        It 'nome de exe ou subpasta sob o InstallLocation (FactoryGame.exe) faz a pasta de mesmo nome nao ser segura' {
+            $sat = Join-Path $Script:Apps 'Satisfactory'
+            New-ArquivoTeste (Join-Path $sat 'FactoryGame.exe') 5
+            New-ArquivoTeste (Join-Path $sat 'Engine\x.txt') 5
+            New-ProgramaFalso 'Satisfactory' @{ DisplayName = 'Satisfactory'; Publisher = 'Coffee Stain Studios'; InstallLocation = $sat }
+            $fg = Join-Path $Script:RA 'LocalAppData\FactoryGame'
+            New-PastaVelha $fg
+            $fgPd = Join-Path $Script:RA 'ProgramData\FactoryGame'
+            New-PastaVelha $fgPd
+            $eng = Join-Path $Script:RA 'ProgramFiles\Engine'
+            New-PastaVelha $eng
+            $r = Invoke-P 'restosAntigos'
+            foreach ($p in @($fg, $fgPd, $eng)) {
+                foreach ($x in @(Get-ItemRA $r $p)) { $x.seguro | Should -BeFalse }
+            }
+            (@(Get-ItemRA $r $fgPd))[0].motivo | Should -Be 'Mesmo nome de algo que ainda está instalado: FactoryGame.exe de Satisfactory'
+            (@(Get-ItemRA $r $eng))[0].motivo | Should -Match 'Mesmo nome de algo que ainda está instalado'
+            @($r.dados.itens | Where-Object { $_.seguro }).Count | Should -Be 0
+        }
+        It 'VS Code instalado: %APPDATA%\Code nao e seguro' {
+            $vs = Join-Path $Script:Apps 'Microsoft VS Code'
+            New-ArquivoTeste (Join-Path $vs 'Code.exe') 5
+            New-ProgramaFalso 'VSCode' @{ DisplayName = 'Microsoft Visual Studio Code'; Publisher = 'Microsoft Corporation'; InstallLocation = $vs }
+            $code = Join-Path $Script:RA 'AppData\Code'
+            New-PastaVelha (Join-Path $code 'User')
+            Set-IdadeArvore $code 40
+            $r = Invoke-P 'restosAntigos'
+            foreach ($x in @(Get-ItemRA $r $code)) { $x.seguro | Should -BeFalse }
+            @($r.dados.itens | Where-Object { $_.seguro }).Count | Should -Be 0
+        }
+        It 'servicos (simular.servicos): nome, nome de exibicao e pasta do executavel contam como instalado' {
+            $pastaSvc = Join-Path $Script:RA 'ProgramFiles\PastaServico'
+            New-PastaVelha $pastaSvc
+            $svcVelho = Join-Path $Script:RA 'ProgramData\SvcVelho'
+            New-PastaVelha $svcVelho
+            $agente = Join-Path $Script:RA 'ProgramFilesX86\Agente Antigo'
+            New-PastaVelha $agente
+            $servicos = @(
+                @{ nome = 'SvcVelho'; exibicao = 'Agente Antigo'; imagem = ('"' + (Join-Path $pastaSvc 'svc.exe') + '" -k rede') },
+                @{ nome = 'OutroSvc'; exibicao = '@%SystemRoot%\system32\x.dll,-100'; imagem = '\SystemRoot\System32\drivers\x.sys' }
+            )
+            $r = Invoke-P 'restosAntigos' @{ simular = @{ servicos = $servicos } }
+            $r.ok | Should -BeTrue
+            @(Get-ItemRA $r $pastaSvc).Count | Should -Be 0
+            foreach ($p in @($svcVelho, $agente)) {
+                $x = @(Get-ItemRA $r $p)
+                $x.Count | Should -Be 1
+                $x[0].seguro | Should -BeFalse
+                $x[0].motivo | Should -Match 'serviço SvcVelho'
+            }
+            Get-ImagemServico '\SystemRoot\System32\drivers\x.sys' | Should -Be (Join-Path $env:windir 'System32\drivers\x.sys')
+            Get-ImagemServico 'system32\DRIVERS\y.sys' | Should -Be (Join-Path $env:windir 'system32\DRIVERS\y.sys')
+            Get-ImagemServico '\??\C:\Programa\z.sys' | Should -Be 'C:\Programa\z.sys'
+            Get-ImagemServico '' | Should -Be ''
+        }
+        It 'Store (simular.store): pasta com o editor de um app da Store nao aparece' {
+            $fab = Join-Path $Script:RA 'ProgramData\Fabricante'
+            New-PastaVelha $fab
+            $sem = @(Get-ItemRA (Invoke-P 'restosAntigos') $fab)
+            $sem.Count | Should -Be 1
+            $sem[0].seguro | Should -BeTrue
+            Mock Get-AppxPackage { throw 'Get-AppxPackage não deve ser chamado em modo teste' }
+            $r = Invoke-P 'restosAntigos' @{ simular = @{ store = (New-StoreFalsa) } }
+            $r.ok | Should -BeTrue
+            Should -Invoke Get-AppxPackage -Times 0 -Exactly
+            @(Get-ItemRA $r $fab).Count | Should -Be 0
+        }
+        It 'Store ilegivel (simular.erroStore): nenhuma pasta sai segura e o motivo diz por que' {
+            $pasta = Join-Path $Script:RA 'ProgramFiles\Programa Removido'
+            New-PastaVelha $pasta
+            $r = Invoke-P 'restosAntigos' @{ simular = @{ erroStore = 'falha simulada' } }
+            $r.ok | Should -BeTrue
+            $x = @(Get-ItemRA $r $pasta)
+            $x.Count | Should -Be 1
+            $x[0].seguro | Should -BeFalse
+            $x[0].motivo | Should -Match 'apps da Store'
+            @($r.dados.itens | Where-Object { $_.tipo -eq 'pasta' -and $_.seguro }).Count | Should -Be 0
+            $Script:UltimaSaida | Should -Match 'falha simulada'
+        }
+        It 'caminho protegido, nome de protegidos.json e pastas do Windows/Microsoft nunca aparecem' {
+            $pastas = @(
+                'ProgramFiles\Common Files', 'ProgramFiles\Microsoft Shared', 'ProgramFiles\Windows Defender', 'ProgramFiles\WindowsApps',
+                'ProgramFiles\ModifiableWindowsApps', 'ProgramFiles\Internet Explorer', 'ProgramFiles\Reference Assemblies', 'ProgramFiles\dotnet',
+                'ProgramFilesX86\Microsoft Office', 'ProgramFilesX86\MSBuild', 'ProgramData\Package Cache', 'ProgramData\Packages',
+                'ProgramData\regid.1991-06.com.microsoft', 'ProgramData\Intel', 'ProgramData\NVIDIA Corporation', 'ProgramFiles\AMD',
+                'ProgramFiles\Realtek', 'LocalAppData\Temp', 'LocalAppData\Programs', 'LocalAppData\Packages', 'AppData\.config',
+                'ProgramData\NexTune Antigo', 'ProgramData\Dados do NexTune', 'ProgramFiles\Jogos DirectX', 'ProgramFiles\edgecore',
+                'ProgramFiles\GameInput Extra', 'ProgramData\FLEXnet', 'ProgramData\Flexera Software', 'ProgramFiles\CodeMeter',
+                'ProgramData\SafeNet Sentinel', 'ProgramData\Sentinel', 'AppData\gnupg', 'AppData\gcloud', 'LocalAppData\Apps',
+                'LocalAppData\Deployment', 'ProgramData\Macrovision'
+            )
+            foreach ($p in $pastas) { New-PastaVelha (Join-Path $Script:RA $p) }
+            New-PastaVelha (Join-Path $Script:RA 'ProgramFiles\Programa Removido')
+            # 'edgecore' so e barrada por Test-ProtectedPath (nao esta na lista nem em protegidos.json)
+            Test-ProtectedPath (Join-Path $Script:RA 'ProgramFiles\edgecore') | Should -BeTrue
+            Test-NomeNuncaResto 'edgecore' | Should -BeFalse
+            $r = Invoke-P 'restosAntigos'
+            $r.ok | Should -BeTrue
+            $itens = @($r.dados.itens)
+            $itens.Count | Should -Be 1
+            $itens[0].nome | Should -Be 'Programa Removido'
+            foreach ($x in $itens) { Test-ProtectedPath $x.caminho | Should -BeFalse }
+            foreach ($n in @('Microsoft Shared', 'Common Files', 'Windows Defender', 'WindowsApps', 'Package Cache', 'regid.1991-06.com.microsoft', 'NVIDIA Corporation', 'Temp', 'Programs', '.config', 'Dados do NexTune', 'gnupg', 'FLEXnet')) {
+                Test-NomeNuncaResto $n | Should -BeTrue
+            }
+            Test-NomeNuncaResto 'Programa Removido' | Should -BeFalse
+            Test-NomeNuncaResto 'Adobe' | Should -BeFalse
+            Test-NomeNuncaResto 'IntelliJ' | Should -BeFalse
+        }
+        It 'juncao: a pasta que e juncao, a que tem juncao dentro e as que ficam abaixo de juncao nunca aparecem' {
+            $jPasta = Join-Path $Script:RA 'ProgramFiles\Juncao Velha'
+            $com = Join-Path $Script:RA 'ProgramData\Com Juncao'
+            New-PastaVelha $com
+            $jDentro = Join-Path $com 'jn'
+            $alvo = Join-Path $Script:Base 'alvoJuncao'
+            New-PastaVelha (Join-Path $alvo 'Programa Atras')
+            $local = Join-Path $Script:RA 'LocalAppData'
+            Remove-Item -LiteralPath $local -Force
+            New-Juncao $jPasta $Script:Apps
+            New-Juncao $jDentro $Script:Apps
+            New-Juncao $local $alvo
+            try {
+                $r = Invoke-P 'restosAntigos'
+                $r.ok | Should -BeTrue
+                @(Get-ItemRA $r $jPasta).Count | Should -Be 0
+                @(Get-ItemRA $r $com).Count | Should -Be 0
+                @($r.dados.itens | Where-Object { $_.caminho -match 'Programa Atras' }).Count | Should -Be 0
+                @($r.dados.itens).Count | Should -Be 0
+            } finally {
+                Remove-Juncao $jPasta
+                Remove-Juncao $jDentro
+                Remove-Juncao $local
+            }
+            # sem a juncao dentro, a pasta volta a aparecer (a juncao era o motivo)
+            @(Get-ItemRA (Invoke-P 'restosAntigos') $com).Count | Should -Be 1
+        }
+        It 'pasta com programa ou script alterado ou criado ha menos de 30 dias nunca aparece; com executavel antigo aparece sem ser segura' {
+            $dll = Join-Path $Script:RA 'ProgramFiles\Programa Dll'
+            New-PastaVelha $dll
+            New-ArquivoTeste (Join-Path $dll 'lib\x.dll') 5
+            $sys = Join-Path $Script:RA 'ProgramData\Driver Velho'
+            New-PastaVelha $sys
+            New-ArquivoTeste (Join-Path $sys 'd.sys') 5
+            $bat = Join-Path $Script:RA 'ProgramData\Script Novo'
+            New-PastaVelha $bat
+            New-ArquivoTeste (Join-Path $bat 'rodar.bat') 5
+            # alterado ha 40 dias, mas copiado (criado) agora: tambem fica de fora
+            $copiado = Join-Path $Script:RA 'ProgramFilesX86\Programa Copiado'
+            New-ArquivoTeste (Join-Path $copiado 'app.exe') 5 40
+            $velho = Join-Path $Script:RA 'ProgramFiles\Programa Exe Velho'
+            New-PastaVelha $velho 'app.exe' 7
+            $jar = Join-Path $Script:RA 'ProgramFiles\Programa Jar Velho'
+            New-PastaVelha $jar 'app.jar' 9
+            $r = Invoke-P 'restosAntigos'
+            foreach ($p in @($dll, $sys, $bat, $copiado)) { @(Get-ItemRA $r $p).Count | Should -Be 0 }
+            $x = @(Get-ItemRA $r $velho)
+            $x.Count | Should -Be 1
+            $x[0].seguro | Should -BeFalse
+            $x[0].motivo | Should -Match 'programas ou scripts'
+            $x[0].bytes | Should -Be 7
+            $x = @(Get-ItemRA $r $jar)
+            $x.Count | Should -Be 1
+            $x[0].seguro | Should -BeFalse
+        }
+        It 'pasta alterada ou criada nos ultimos 30 dias ou com nome curto aparece sem ser segura' {
+            $recente = Join-Path $Script:RA 'ProgramFiles\Pasta Recente'
+            New-ArquivoTeste (Join-Path $recente 'dados.txt') 10
+            $criada = Join-Path $Script:RA 'ProgramFilesX86\Pasta Copiada'
+            New-ArquivoTeste (Join-Path $criada 'dados.txt') 10 40   # LastWriteTime antigo, CreationTime de agora
+            $curta = Join-Path $Script:RA 'ProgramData\Xy'
+            New-PastaVelha $curta
+            $r = Invoke-P 'restosAntigos'
+            foreach ($p in @($recente, $criada)) {
+                $x = @(Get-ItemRA $r $p)
+                $x.Count | Should -Be 1
+                $x[0].seguro | Should -BeFalse
+                $x[0].motivo | Should -Match 'últimos 30 dias'
+            }
+            $x = @(Get-ItemRA $r $curta)
+            $x.Count | Should -Be 1
+            $x[0].seguro | Should -BeFalse
+            $x[0].motivo | Should -Match 'curto'
+        }
+        It 'pasta que estoura o teto de tempo por pasta fica de fora' {
+            $pasta = Join-Path $Script:RA 'ProgramFiles\Programa Grande'
+            New-PastaVelha $pasta
+            $r = Invoke-P 'restosAntigos' @{ simular = @{ tetoPastaMs = 0 } }
+            $r.ok | Should -BeTrue
+            @(Get-ItemRA $r $pasta).Count | Should -Be 0
+            $Script:UltimaSaida | Should -Match 'grande demais'
+            @(Get-ItemRA (Invoke-P 'restosAntigos') $pasta).Count | Should -Be 1
+        }
+        It 'teto total: para, avisa e devolve incompleto:true' {
+            New-PastaVelha (Join-Path $Script:RA 'ProgramFiles\Programa Removido')
+            New-AtalhoTeste (Join-Path $Script:RA 'Menu\Removido.lnk') 'C:\nao-existe-nextune\pr.exe'
+            $r = Invoke-P 'restosAntigos' @{ simular = @{ tetoTotalMs = 0 } }
+            $r.ok | Should -BeTrue
+            $r.dados.incompleto | Should -BeTrue
+            @($r.dados.itens | Where-Object { $_.tipo -eq 'pasta' }).Count | Should -Be 0
+            @($r.dados.itens | Where-Object { $_.tipo -eq 'atalho' }).Count | Should -Be 1
+            $Script:UltimaSaida | Should -Match 'tempo máximo'
+        }
+        It 'atalho quebrado do Menu Iniciar aparece com tipo atalho; atalho valido nao, e a pasta do destino valido conta como instalada' {
+            $quebrado = Join-Path $Script:RA 'Menu\Programa Removido\Programa Removido.lnk'
+            New-AtalhoTeste $quebrado 'C:\nao-existe-nextune\pr.exe'
+            New-AtalhoTeste (Join-Path $Script:RA 'Menu\Bloco de Notas.lnk') (Join-Path $env:windir 'System32\notepad.exe')
+            $destino = Join-Path $Script:RA 'ProgramFilesX86\AtalhoApp'
+            New-PastaVelha $destino 'leia.txt'
+            New-AtalhoTeste (Join-Path $Script:RA 'Menu\Leia.lnk') (Join-Path $destino 'leia.txt')
+            $r = Invoke-P 'restosAntigos'
+            $r.ok | Should -BeTrue
+            $itens = @($r.dados.itens)
+            $itens.Count | Should -Be 1
+            $itens[0].tipo | Should -Be 'atalho'
+            Get-CaminhoLongo $itens[0].caminho | Should -Be (Get-CaminhoLongo $quebrado)
+            $itens[0].nome | Should -Be 'Programa Removido'
+            $itens[0].seguro | Should -BeTrue
+            $itens[0].motivo | Should -Match 'não existe mais'
+            $itens[0].bytes | Should -Be (Get-Item -LiteralPath $quebrado).Length
+            $itens[0].bytes | Should -BeGreaterThan 0
+        }
+        It 'atalho quebrado com a pasta do destino ainda existindo ou destino em pasta protegida aparece sem ser seguro' {
+            New-AtalhoTeste (Join-Path $Script:RA 'Menu\Atualizado.lnk') (Join-Path $Script:Apps 'Qualquer\sumiu.exe')
+            New-AtalhoTeste (Join-Path $Script:RA 'Menu\Do Windows.lnk') (Join-Path $env:windir 'nao-existe-nextune.exe')
+            $r = Invoke-P 'restosAntigos'
+            $a = @(Get-ItemRA $r (Join-Path $Script:RA 'Menu\Atualizado.lnk'))
+            $a.Count | Should -Be 1
+            $a[0].seguro | Should -BeFalse
+            $a[0].motivo | Should -Match 'ainda existe'
+            $w = @(Get-ItemRA $r (Join-Path $Script:RA 'Menu\Do Windows.lnk'))
+            $w.Count | Should -Be 1
+            $w[0].seguro | Should -BeFalse
+            $w[0].motivo | Should -Match 'pasta do Windows'
+        }
+        It 'atalho com destino em disco ausente aparece sem ser seguro' {
+            $usadas = @([IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1).ToUpperInvariant() })
+            $livre = @('Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'S', 'R', 'Q') | Where-Object { $usadas -notcontains $_ } | Select-Object -First 1
+            if ($null -eq $livre) { Set-ItResult -Skipped -Because 'nenhuma letra de unidade livre'; return }
+            $lnk = Join-Path $Script:RA 'Menu\Jogo no USB.lnk'
+            $destino = $livre + ':\Jogos\jogo.exe'
+            New-AtalhoTeste $lnk $destino
+            if ((Get-AlvoAtalho $lnk) -notlike ($livre + ':\*')) { Set-ItResult -Skipped -Because 'o WScript nao guardou destino em unidade inexistente'; return }
+            $r = Invoke-P 'restosAntigos'
+            $x = @(Get-ItemRA $r $lnk)
+            $x.Count | Should -Be 1
+            $x[0].tipo | Should -Be 'atalho'
+            $x[0].seguro | Should -BeFalse
+            $x[0].motivo | Should -Match 'não está conectado'
+        }
+        It 'Get-NomeLimpo tira versao, arquitetura, parenteses e sufixos de empresa (funcao pura)' {
+            Get-NomeLimpo 'Adobe Acrobat DC (64-bit)' | Should -Be 'Adobe Acrobat DC'
+            Get-NomeLimpo '7-Zip 23.01 (x64)' | Should -Be '7-Zip'
+            Get-NomeLimpo 'Mozilla Firefox (x64 pt-BR)' | Should -Be 'Mozilla Firefox'
+            Get-NomeLimpo 'Positivo Tecnologia S.A.' | Should -Be 'Positivo Tecnologia'
+            Get-NomeLimpo 'Notepad++ 8.6.2 x64' | Should -Be 'Notepad++'
+            Get-NomeLimpo 'Python 3.12.1 (64-bit)' | Should -Be 'Python'
+            Get-NomeLimpo 'Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.38.33135' | Should -Be 'Microsoft Visual C++ 2015-2022 Redistributable'
+            Get-NomeLimpo 'Adobe Systems, Inc.' | Should -Be 'Adobe Systems'
+            Get-NomeLimpo 'Google LLC' | Should -Be 'Google'
+            Get-NomeLimpo 'Adobe Systems Incorporated' | Should -Be 'Adobe Systems'
+            Get-NomeLimpo 'Spotify AB' | Should -Be 'Spotify'
+            Get-NomeLimpo 'VLC media player v3.0.20' | Should -Be 'VLC media player'
+            Get-NomeLimpo 'Inc' | Should -Be 'Inc'
+            Get-NomeLimpo '' | Should -Be ''
+            Get-NomeLimpo $null | Should -Be ''
+            ConvertTo-NomeCompacto 'OBS Studio 30.0 (64-bit)' | Should -Be (ConvertTo-NomeCompacto 'obs-studio')
+            ConvertTo-NomeCompacto 'Ferramentas Avançadas' | Should -Be 'ferramentasavancadas'
+            ConvertTo-NomeCompacto 'Notepad++' | Should -Be 'notepad'
+            @(Get-CompactoNome '7-Zip 23.01 (x64)') | Should -Be @('7zip', '7zip2301x64')
+            @(Get-CompactoNome 'Steam') | Should -Be @('steam')
+            @(Get-CompactoNome '').Count | Should -Be 0
+            Test-NomeParecido 'adobe' 'adobeacrobat' | Should -BeTrue
+            Test-NomeParecido 'lenovovantageservice' 'lenovovantage' | Should -BeTrue
+            Test-NomeParecido 'rufus' 'r' | Should -BeFalse
+            Test-NomeParecido 'programaremovido' 'programaqualquer' | Should -BeFalse
+            Test-NomeParecido '' 'x' | Should -BeFalse
+        }
+        It 'texto com surrogate solto vira nome compacto vazio (nunca seguro) em vez de lancar' {
+            $ruim = 'Programa' + [char]0xD800
+            Test-TextoUnicode $ruim | Should -BeFalse
+            Test-TextoUnicode ('a' + [char]0xDC00 + 'b') | Should -BeFalse
+            Test-TextoUnicode ('Jogo ' + [char]0xD83D + [char]0xDE00) | Should -BeTrue
+            Test-TextoUnicode 'Ferramentas Avançadas' | Should -BeTrue
+            { ConvertTo-NomeCompacto $ruim } | Should -Not -Throw
+            ConvertTo-NomeCompacto $ruim | Should -Be ''
+            ConvertTo-Compacto ('a' + [char]0xDC00) | Should -Be ''
+            @(Get-CompactoNome $ruim).Count | Should -Be 0
+        }
+        It 'raiz fora de disco local nao e percorrida e caminhos do Uninstall sao expandidos' {
+            $sw = New-Object System.IO.StringWriter
+            Set-Saida $sw
+            try {
+                Get-RaizValida 'p1' '\\servidor\perfis\AppData' | Should -Be ''
+                Get-RaizValida 'p1' 'relativo\x' | Should -Be ''
+            } finally { Set-Saida $null }
+            $sw.ToString() | Should -Match 'não é percorrida'
+            Get-CaminhoLongoResto '%windir%\System32' | Should -Be (Join-Path $env:windir 'System32')
+            Get-CaminhoLongoResto '"%windir%\nao-existe-nextune\x"' | Should -Be (Join-Path $env:windir 'nao-existe-nextune\x')
+            Get-CaminhoLongoResto '\\servidor\x' | Should -Be ''
+            Get-CaminhoLongoResto '' | Should -Be ''
+            Get-TipoUnidade $env:windir | Should -Be 'fixa'
+            Get-TipoUnidade '\\servidor\x' | Should -Be 'ausente'
+        }
+    }
+
     Context 'acao desconhecida' {
         It 'devolve ok:false' {
             $r = Invoke-P 'formatar'

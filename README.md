@@ -11,11 +11,15 @@ Status: em desenvolvimento; a primeira versão (0.1.0) está em teste.
 O NexTune olha o seu PC primeiro (processador, memória, tipo de disco) e só então sugere o que vale a pena. Nada é feito sem você clicar, e tudo que ele muda pode ser desfeito.
 
 - **Limpeza** por categorias, ciente do perfil da máquina; o que não se recria pede confirmação dupla.
-- **Programas**: lista pré-instalados de fábrica e apps da Store, desinstala em silêncio quando dá, leva os restos para a quarentena.
+- **Programas**: lista pré-instalados de fábrica e apps da Store, desinstala em silêncio quando dá, leva os restos para a quarentena. Também acha restos de programas que já foram desinstalados; só marca sozinho o que é seguro, e nunca dados do usuário.
 - **Inicialização**: o que abre com o Windows, com impacto medido, e liga/desliga reversível.
 - **Ajustes do Windows** com backup antes da escrita e restauração exata do valor anterior.
 - **Disco**: verificação só de leitura, correção agendada para o próximo reinício, desfragmentar HDD ou TRIM em SSD, nunca o contrário.
 - **Atualizações** do Windows e dos programas (winget), só o que você marcar. Quando uma falha, o NexTune explica o motivo em português em vez de mostrar só o código.
+- **Saúde do Windows**: verifica a imagem do Windows e repara com DISM e SFC. **Por que o PC reiniciou**: explica desligamentos inesperados e telas azuis em português.
+- **Espaço**: mostra as pastas e os arquivos que mais ocupam cada unidade, sem apagar nada.
+- **Dispositivos**: lista o que está com problema no Gerenciador de Dispositivos, explica o código e tenta reparar por etapas; faz backup dos drivers.
+- **Rede**: limpa o cache de DNS, redefine a rede e liga o DNS seguro (Cloudflare, Google ou Quad9, com DoH no Windows 11), guardando os servidores anteriores para voltar exatamente como estava.
 - **Reparo do instalador**: acha programas cujo arquivo de instalação sumiu do Windows (erros 1603 e 1612 ao atualizar ou desinstalar) e, se você marcar, remove só o registro quebrado, com backup na quarentena.
 - **Modo Jogo**: pede para fechar programas, pausa serviços, troca o plano de energia e desfaz tudo ao sair.
 - **Bandeja, lembretes e atualizador** próprio (assinatura minisign, GitHub Releases).
@@ -24,7 +28,7 @@ O NexTune olha o seu PC primeiro (processador, memória, tipo de disco) e só en
 
 - Não apaga nada seu sem quarentena (7 dias para restaurar), backup e ponto de restauração.
 - Não mata programas: pede para fechar e respeita o "salvar alterações?". Nunca fecha o Windows, drivers, áudio ou o seu jogo.
-- Não usa a rede a partir da interface; a única conexão é HTTPS com o GitHub para verificar atualizações do próprio NexTune.
+- Não usa a rede a partir da interface; a única conexão própria é HTTPS com o GitHub para verificar atualizações do NexTune. Duas exceções, avisadas na tela: reparar o Windows baixa arquivos do Windows Update, e ligar o DNS seguro faz uma consulta de teste a `dns.msftncsi.com` (a mesma que o Windows usa para saber se há internet) para voltar ao anterior se o DNS novo não responder.
 - Não envia dados, não tem telemetria, não mostra anúncios.
 - Não mexe em permissões (ACLs) de pastas do Windows, nem no instalador nem no desinstalador.
 
@@ -54,7 +58,7 @@ O NexTune ainda não tem assinatura digital paga, então o SmartScreen mostra "O
 
 ## Para desenvolvedores
 
-Planos de implementação: [1 fundação, diagnóstico, limpeza](docs/superpowers/plans/2026-11-20-fundacao-diagnostico-limpeza.md) · [2 programas, quarentena](docs/superpowers/plans/2026-11-20-programas-quarentena.md) · [3 inicialização, ajustes](docs/superpowers/plans/2026-11-20-inicializacao-ajustes-windows.md) · [4 disco, atualizações](docs/superpowers/plans/2026-11-20-disco-atualizacoes.md) · [5 modo jogo, bandeja, lembretes, atualizador](docs/superpowers/plans/2026-11-21-modo-jogo-bandeja-lembretes.md) · [6 release, site, desinstalador](docs/superpowers/plans/2026-11-21-release-site-desinstalador.md) · [7 reparo do instalador](docs/superpowers/plans/2026-11-21-reparo-instalador.md)
+Planos de implementação: [1 fundação, diagnóstico, limpeza](docs/superpowers/plans/2026-11-20-fundacao-diagnostico-limpeza.md) · [2 programas, quarentena](docs/superpowers/plans/2026-11-20-programas-quarentena.md) · [3 inicialização, ajustes](docs/superpowers/plans/2026-11-20-inicializacao-ajustes-windows.md) · [4 disco, atualizações](docs/superpowers/plans/2026-11-20-disco-atualizacoes.md) · [5 modo jogo, bandeja, lembretes, atualizador](docs/superpowers/plans/2026-11-21-modo-jogo-bandeja-lembretes.md) · [6 release, site, desinstalador](docs/superpowers/plans/2026-11-21-release-site-desinstalador.md) · [7 reparo do instalador](docs/superpowers/plans/2026-11-21-reparo-instalador.md) · [8 privacidade, saúde, espaço, restos antigos, dispositivos, rede](docs/superpowers/plans/2026-11-21-ferramentas-extras.md)
 
 ### Verificação
 
@@ -88,11 +92,20 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. O p
 
 `scripts/saude.ps1` (seção na tela Disco): `verificar` lê o `ImageHealthState` do `Repair-WindowsImage -Online -CheckHealth` (só leitura; o `Dism.exe /CheckHealth` sai com 0 tanto saudável quanto reparável); `reparar` roda `Dism.exe /Online /Cleanup-Image /RestoreHealth` e depois `sfc.exe /scannow`, com o progresso tirado da porcentagem da saída. O resultado vem dos códigos de saída e das linhas `[SR]` do `CBS.log` desde o início do sfc (o CBS grava em inglês em qualquer idioma), nunca do texto da tela. Cancelar mata os dois processos pelo host.
 
+### Espaço, restos antigos, dispositivos e rede
+
+- `scripts/espaco.ps1`: só leitura; uma caminhada por pasta do primeiro nível que nunca segue links ou junções, com teto de tempo global (`incompleto`), `semAcesso` só para acesso negado e as 20 maiores pastas e arquivos. O comando Rust `abrir_pasta` abre a pasta no Explorer depois de conferir que é absoluta, existe e não passa por link.
+- `programas/restosAntigos`: pastas do primeiro nível de Program Files, ProgramData e AppData que não pertencem a nada instalado (Uninstall, Store, executáveis e subpastas da pasta de instalação, serviços, atalhos válidos) e atalhos quebrados do Menu Iniciar. "Seguro" só fora do AppData, sem executável, sem jogo salvo, chave ou licença, e sem nome parecido com algo instalado. A limpeza vai para a quarentena.
+- `scripts/drivers.ps1`: dispositivos presentes com problema (sem os fantasmas), código explicado; reparo desliga e liga, reinstala e procura hardware, parando no passo que resolve; classes essenciais (disco, controladoras, vídeo, teclado, mouse, USB, firmware, TPM, bateria, o único adaptador de rede) só procuram hardware. Religar roda sempre num `finally`. Backup com `pnputil /export-driver` em `%ProgramData%\NexTune\Drivers`.
+- `scripts/rede.ps1`: DNS seguro em IPv4 e IPv6 com chaves DoH por interface; `%ProgramData%\NexTune\Backups\dns.json` é gravado uma vez antes da primeira troca e "Automático" volta exatamente a ele, removendo só as chaves que o NexTune criou. Respeita a política `DoHPolicy` e nunca apaga valores de política.
+
 ### Pendências
 
-- Verificação manual na máquina real: bandeja, autostart na bateria, Modo Jogo, Windows Update, winget, desinstalador com Modo Jogo pendente e o Reparo num PC com produtos órfãos. Tudo isso foi testado só em modo teste/demo.
+- Verificação manual na máquina real: bandeja, autostart na bateria, Modo Jogo, Windows Update, winget, desinstalador com Modo Jogo pendente, o Reparo num PC com produtos órfãos, e do Plano 8 o reparo de dispositivos, o DNS seguro (IPv6, VPN, rede com DoH bloqueado), o analisador de espaço num disco grande e os restos antigos num PC usado. Tudo isso foi testado só em modo teste/demo.
 - Lembretes: o plugin não expõe o clique na notificação no Windows; clicar nela não leva à tela específica (o Início mostra os mesmos cartões).
 - RAM medida em 370–383 MB com a janela aberta (meta da spec: 120 MB), soma do WorkingSet dos 6 processos do WebView2, um teto e não memória privada; na bandeja a janela é destruída (meta ≤ 30 MB). Medir de novo com `tools/medir.ps1` depois do instalador.
+- Pastas e arquivos do OneDrive em nuvem são pontos de nova análise (reparse points): o Espaço e os restos antigos os tratam como link (não somam nem entram) e `abrir_pasta` recusa caminhos dentro deles. É o lado seguro; conferir num PC com a Área de Trabalho no OneDrive se vale distinguir só links e junções.
+- Dispositivos com id contendo `:` ou `*` (UPnP/WSD, `ROOT\*ISATAP`) aparecem na lista, mas não podem ser reparados pela tela.
 - `protegidos.json` cobre NVIDIA, AMD, Intel e Realtek; Synaptics, ELAN, Qualcomm, Conexant e MediaTek ainda aparecem "sem classificação".
 - A lista de ajustes partiu de chaves que a tela de Configurações grava; o pacote gpedit/autounattend do usuário entra depois.
 - Atualizações: drivers via Windows Update ficam fora (`Type='Software'`); o COM do Windows Update e o `winget` não rodam nos testes.
@@ -101,4 +114,4 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. O p
 
 ## Créditos
 
-As listas iniciais de bloatware e de programas protegidos e a lógica de detecção do tipo de desinstalador partiram do [RetroLimpia](https://github.com/Retropunk94/RetroLimpia) (Retropunk94, licença MIT), reescritas em português com fabricantes brasileiros e com testes próprios. A detecção de produtos órfãos do Windows Installer parte do Unregister-MissingMSIs.ps1 (MIT, heaths e BrentHumphreys). Os valores de registro dos ajustes de privacidade de feedback, idioma para sites, novidades do Windows e sugestões da web vêm do [Sophia Script for Windows](https://github.com/farag2/Sophia-Script-for-Windows) (farag2, licença MIT); o NexTune acrescenta o backup e a restauração exata.
+As listas iniciais de bloatware e de programas protegidos e a lógica de detecção do tipo de desinstalador partiram do [RetroLimpia](https://github.com/Retropunk94/RetroLimpia) (Retropunk94, licença MIT), reescritas em português com fabricantes brasileiros e com testes próprios. A detecção de produtos órfãos do Windows Installer parte do Unregister-MissingMSIs.ps1 (MIT, heaths e BrentHumphreys). A explicação de reinícios e telas azuis, a busca de restos de programas desinstalados e o reparo escalonado de dispositivos partem do `reinicios.ps1`, `residuos.ps1` e `drivers.ps1` do RetroLimpia, com regras de segurança mais estritas. Os valores de registro dos ajustes de privacidade de feedback, idioma para sites, novidades do Windows e sugestões da web, e os servidores IPv4 e modelos DoH do DNS seguro (`DNSoverHTTPS`), vêm do [Sophia Script for Windows](https://github.com/farag2/Sophia-Script-for-Windows) (farag2, licença MIT); os servidores IPv6 vêm da documentação de cada provedor. O NexTune acrescenta o backup e a restauração exata.
