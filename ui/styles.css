@@ -364,7 +364,3 @@ fieldset.cartao legend { font-weight: 600; padding: 0 0.4rem; }
 .linha-link input[type="text"] { flex: 1; min-width: 0; background: var(--painel2); border: 1px solid var(--linha); border-radius: 8px; padding: 0.45rem 0.7rem; }
 .linha-link .link-store { margin-top: 0; }
 .notas-atu { white-space: pre-wrap; }
-/* Tela Espaco */
-.btn.pequeno { padding: 0.25rem 0.7rem; font-size: 0.875rem; }
-.barra-prog .caminho { font-family: "Cascadia Mono", Consolas, monospace; font-size: 0.875rem; overflow-wrap: anywhere; min-width: 0; }
-.linha-resto .link { text-align: left; overflow-wrap: anywhere; }

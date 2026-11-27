@@ -91,10 +91,8 @@ Ajustes novos:
 
 **Produces:** `espaco/analisar {raiz}` → `{ pastas: [{caminho, bytes, semAcesso}], arquivos: [{caminho, bytes}] }`: as 20 maiores pastas do primeiro nível (e um nível abaixo ao clicar) e os 20 maiores arquivos, usando o `Get-TamanhoComTeto` que já existe (sem seguir links, com teto de tempo). Só leitura; apagar continua sendo pela Limpeza ou pela quarentena.
 
-- [x] **Passo 1:** testes com pasta falsa (junction para fora, pasta sem permissão, arquivos grandes): ordem certa, junction não somada, `semAcesso` marcado (Review Focus 5).
-- [x] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
-
-Feito com um percurso próprio em `espaco.ps1` em vez do `Get-TamanhoComTeto`: ele devolve -1 tanto para "sem acesso" quanto para "estourou o teto" e não junta os maiores arquivos. Cada pasta tem teto de 20 s e a análise inteira 180 s; o que estoura vem com `parcial` (o tamanho é um mínimo). A tela usa as unidades da tela Disco.
+- [ ] **Passo 1:** testes com pasta falsa (junction para fora, pasta sem permissão, arquivos grandes): ordem certa, junction não somada, `semAcesso` marcado (Review Focus 5).
+- [ ] **Passo 2:** ver falhar; **Passo 3:** implementar; **Passo 4:** ver passar; **Passo 5:** commit.
 
 ### Tarefa 6: restos de programas já desinstalados (porta de `residuos.ps1`)
 

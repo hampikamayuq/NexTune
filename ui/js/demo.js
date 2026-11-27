@@ -207,7 +207,6 @@ const demo = {
     if (modulo === 'modojogo') return this._executarModoJogo(acao, params || {});
     if (modulo === 'reparo') return this._executarReparo(acao, params || {});
     if (modulo === 'saude') return this._executarSaude(acao, params || {}, onProgresso);
-    if (modulo === 'espaco') return this._executarEspaco(acao, params || {}, onProgresso);
     if (modulo === 'quarentena') return this._executarQuarentena(acao, params, onProgresso);
     if (modulo === 'sistema') return this._executarSistema(acao, params, onProgresso);
     throw new Error('Ação não disponível na demonstração: ' + modulo + '/' + acao);
@@ -378,40 +377,6 @@ const demo = {
       };
     }
     throw new Error('Ação não disponível na demonstração: saude/' + acao);
-  },
-
-  // Demonstração: uma árvore fixa de C:\ (Users > Usuario > Downloads...); pasta fora dela vem vazia.
-  async _executarEspaco(acao, params, onProgresso) {
-    if (acao !== 'analisar') throw new Error('Ação não disponível na demonstração: espaco/' + acao);
-    const raiz = String(params.raiz || '').replace(/\\+$/, '') || 'C:';
-    const chave = raiz.length <= 2 ? raiz.toUpperCase() + '\\' : raiz;
-    await this._simular(onProgresso, 'espaco', ['Lendo a pasta…', 'Medindo as pastas…']);
-    const p = (nome, gb, extra) => Object.assign({ caminho: (chave.endsWith('\\') ? chave : chave + '\\') + nome, bytes: gb == null ? null : Math.round(gb * GB), semAcesso: gb == null, parcial: false }, extra || {});
-    const a = (caminho, gb) => ({ caminho, bytes: Math.round(gb * GB) });
-    const arvore = {
-      'C:\\': {
-        pastas: [p('Users', 132.4), p('Windows', 28.7), p('Program Files', 22.1), p('Program Files (x86)', 9.3), p('ProgramData', 6.2), p('$Recycle.Bin', 0.5), p('System Volume Information', null)],
-        soltos: 22.4,
-        arquivos: [a('C:\\pagefile.sys', 16), a('C:\\Users\\Usuario\\Downloads\\ubuntu-26.04-desktop-amd64.iso', 6.1), a('C:\\hiberfil.sys', 6.4), a('C:\\Users\\Usuario\\Videos\\Férias 2026.mp4', 4.8), a('C:\\Users\\Usuario\\AppData\\Local\\Packages\\Jogo\\save.pak', 3.2)],
-      },
-      'C:\\Users': {
-        pastas: [p('Usuario', 130.9), p('Public', 1.4), p('Default', 0.1)],
-        soltos: 0,
-        arquivos: [a('C:\\Users\\Usuario\\Downloads\\ubuntu-26.04-desktop-amd64.iso', 6.1), a('C:\\Users\\Usuario\\Videos\\Férias 2026.mp4', 4.8)],
-      },
-      'C:\\Users\\Usuario': {
-        pastas: [p('Downloads', 51.2), p('AppData', 38.6, { parcial: true }), p('Videos', 24.3), p('Documents', 9.8), p('Pictures', 6.6), p('OneDrive', 0.4)],
-        soltos: 0.01,
-        arquivos: [a('C:\\Users\\Usuario\\Downloads\\ubuntu-26.04-desktop-amd64.iso', 6.1), a('C:\\Users\\Usuario\\Videos\\Férias 2026.mp4', 4.8), a('C:\\Users\\Usuario\\Downloads\\instalador-jogo.exe', 2.9)],
-      },
-    };
-    const n = arvore[chave] || { pastas: [], soltos: 0, arquivos: [] };
-    const pastas = n.pastas.map((x) => Object.assign({}, x)).sort((x, y) => (y.bytes == null ? -1 : y.bytes) - (x.bytes == null ? -1 : x.bytes));
-    const total = pastas.reduce((s, x) => s + (x.bytes || 0), 0) + Math.round(n.soltos * GB);
-    return {
-      raiz: chave, totalBytes: total, soltosBytes: Math.round(n.soltos * GB),
-      parcial: pastas.some((x) => x.parcial || x.semAcesso), pastas, arquivos: n.arquivos.slice().sort((x, y) => y.bytes - x.bytes),
-    };
   },
 
   async _executarDisco(acao, params, onProgresso) {
