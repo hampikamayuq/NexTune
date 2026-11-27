@@ -217,7 +217,7 @@ function Test-CadeiaSemLink {
 
 function Get-PathSize {
     # Soma o tamanho dos arquivos sem seguir junctions/links (nem a propria raiz, se for um).
-    # -AntesDe: conta so arquivos com LastWriteTime anterior a essa data.
+    # -AntesDe: conta so arquivos com LastWriteTime e CreationTime anteriores a essa data.
     param([string]$Path, [DateTime]$AntesDe = [DateTime]::MaxValue)
     if ([string]::IsNullOrEmpty($Path) -or -not (Test-Path -LiteralPath $Path)) { return [int64]0 }
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
@@ -233,7 +233,7 @@ function Get-PathSize {
         foreach ($f in @(Get-ChildItem -LiteralPath $pilha.Pop() -Force -ErrorAction SilentlyContinue)) {
             if (Test-Reparse $f) { continue }
             if ($f.PSIsContainer) { $pilha.Push($f.FullName) }
-            elseif ($f.LastWriteTime -lt $AntesDe) { $total += $f.Length }
+            elseif ($f.LastWriteTime -lt $AntesDe -and $f.CreationTime -lt $AntesDe) { $total += $f.Length }
         }
     }
     return [int64]$total

@@ -118,13 +118,6 @@ function ConvertTo-DataUtc {
     return $dt.ToUniversalTime()
 }
 
-function Write-Manifesto {
-    # Grava manifesto.json em UTF-8 sem BOM.
-    param([string]$Pasta, $Manifesto)
-    $json = $Manifesto | ConvertTo-Json -Depth 8
-    [IO.File]::WriteAllText((Join-Path $Pasta 'manifesto.json'), $json, (New-Object System.Text.UTF8Encoding $false))
-}
-
 function Get-Manifesto {
     # Le e valida manifesto.json da pasta da entrada; $null se ausente, ilegivel ou sem os campos minimos.
     param([string]$Pasta)
@@ -235,6 +228,10 @@ function Add-ItemQuarentena {
         if (-not (Test-CadeiaSemLink $origem)) { throw "caminho dentro de link ou junção recusado, não vai para a quarentena: $origem" }
         # Move-Item entre volumes vira copia + apagamento e SEGUIRIA junctions dentro da arvore.
         if ($item.PSIsContainer -and -not (Test-ArvoreSemLink $origem)) { throw "pasta com link ou junção dentro recusada, não vai para a quarentena: $origem" }
+        # O Move-Item do PS 5.1 recusa pasta entre unidades: avisa antes, em portugues, em vez do erro em ingles.
+        if ($item.PSIsContainer -and [IO.Path]::GetPathRoot($origem) -ne [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($destino))) {
+            throw "pasta em outra unidade não vai para a quarentena (só a unidade do Windows): $origem"
+        }
         $nome = $item.Name
         if ($item.PSIsContainer) { $tipoFinal = 'pasta' } else { $tipoFinal = 'arquivo' }
     }
@@ -285,7 +282,7 @@ function Complete-EntradaQuarentena {
         descricao = $Entrada.descricao
         itens     = @($Entrada.itens.ToArray())
     }
-    Write-Manifesto $Entrada.pasta $m
+    Write-JsonAtomico (Join-Path $Entrada.pasta 'manifesto.json') $m 8
     Write-AppLog ("quarentena {0}: entrada de '{1}' fechada com {2} item(ns): {3}" -f $Entrada.id, $Entrada.modulo, $Entrada.itens.Count, $Entrada.descricao) $teste
     return $Entrada
 }
@@ -481,7 +478,7 @@ function Invoke-Restaurar {
                     descricao = [string]$m.descricao
                     itens     = @($itens[$k..($itens.Count - 1)])
                 }
-                Write-Manifesto $pasta $novo
+                Write-JsonAtomico (Join-Path $pasta 'manifesto.json') $novo 8
             }
             $falhas.Add([ordered]@{ id = $eid; erro = $erro })
             Send-Log $Id 'aviso' ("Falha ao restaurar ${eid}: " + $erro)

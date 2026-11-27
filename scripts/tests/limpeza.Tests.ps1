@@ -25,7 +25,9 @@
         [CmdletBinding()]
         param([string]$Caminho, [int]$Bytes, [DateTime]$Data)
         [IO.File]::WriteAllBytes($Caminho, (New-Object byte[] $Bytes))
-        (Get-Item -LiteralPath $Caminho).LastWriteTime = $Data
+        $i = Get-Item -LiteralPath $Caminho
+        $i.LastWriteTime = $Data
+        $i.CreationTime = $Data
     }
     # New-Juncao / Remove-Juncao vem de _helpers.ps1.
 }
@@ -198,6 +200,14 @@ Describe 'limpeza.ps1' {
             $r.dados.liberadoBytes | Should -Be 300
             Test-Path -LiteralPath $novo | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $Script:Raiz 'temp_usuario\f1.tmp') | Should -BeFalse
+        }
+        It 'temp_usuario nao apaga arquivo recem-extraido com data antiga (instalador aberto de um zip)' {
+            $zip = Join-Path $Script:Raiz 'temp_usuario\setup.dat'
+            [IO.File]::WriteAllBytes($zip, (New-Object byte[] 1000))
+            (Get-Item -LiteralPath $zip).LastWriteTime = (Get-Date).AddYears(-3)
+            (Get-Cat (Invoke-Limp 'analisar') 'temp_usuario').tamanhoBytes | Should -Be 300
+            Invoke-Limp 'limpar' @{ categorias = @('temp_usuario') } | Out-Null
+            Test-Path -LiteralPath $zip | Should -BeTrue
         }
         It 'temp_windows so apaga itens com mais de 7 dias' {
             $recente = Join-Path $Script:Raiz 'temp_windows\recente.tmp'

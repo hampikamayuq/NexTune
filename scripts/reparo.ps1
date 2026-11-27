@@ -182,30 +182,34 @@ function Invoke-Reparar {
     $reparados = New-Object System.Collections.Generic.List[string]
     $falhas = New-Object System.Collections.Generic.List[object]
     $i = 0
-    foreach ($guid in $ids) {
-        Send-Progress $Id ([int](100 * $i / $ids.Count)) "Reparando $guid"
-        $i++
-        try {
-            $null = ConvertTo-GuidCompactado $guid   # recusa texto que nao seja GUID antes de montar qualquer chave
-            $p = $atuais[([string]$guid).ToUpperInvariant()]
-            if ($null -eq $p) { throw 'já não está quebrado (ou não existe): nada a fazer' }
-            if (-not $p.reparavel) { throw ([string]$p.motivo) }
-            $existentes = @(Get-ChaveProduto $guid $Teste | Where-Object { Test-Path -LiteralPath (ConvertTo-CaminhoRegistro $_) })
-            # Fase 1: todos os backups. Se qualquer um falhar, nada deste produto e removido.
-            $antes = $entrada.itens.Count
-            try { foreach ($k in $existentes) { Save-ChaveQuarentena $entrada $k $sim } }
-            catch { while ($entrada.itens.Count -gt $antes) { $entrada.itens.RemoveAt($entrada.itens.Count - 1) }; throw }
-            # Fase 2: remove o registro (o backup ja esta na quarentena e restaura tudo).
-            foreach ($k in $existentes) { Remove-Item -LiteralPath (ConvertTo-CaminhoRegistro $k) -Recurse -Force -ErrorAction Stop }
-            $reparados.Add($guid)
-            Write-AppLog ("reparo: registro de {0} ({1}) removido; backup na quarentena {2}" -f $guid, $p.nome, $entrada.id) $Teste
-        } catch {
-            $falhas.Add([ordered]@{ id = [string]$guid; erro = $_.Exception.Message })
-            Send-Log $Id 'aviso' ("Falha em ${guid}: " + $_.Exception.Message)
-            Write-AppLog ("reparo: {0} falhou: {1}" -f $guid, $_.Exception.Message) $Teste
+    try {
+        foreach ($guid in $ids) {
+            Send-Progress $Id ([int](100 * $i / $ids.Count)) "Reparando $guid"
+            $i++
+            try {
+                $null = ConvertTo-GuidCompactado $guid   # recusa texto que nao seja GUID antes de montar qualquer chave
+                $p = $atuais[([string]$guid).ToUpperInvariant()]
+                if ($null -eq $p) { throw 'já não está quebrado (ou não existe): nada a fazer' }
+                if (-not $p.reparavel) { throw ([string]$p.motivo) }
+                $existentes = @(Get-ChaveProduto $guid $Teste | Where-Object { Test-Path -LiteralPath (ConvertTo-CaminhoRegistro $_) })
+                # Fase 1: todos os backups. Se qualquer um falhar, nada deste produto e removido.
+                $antes = $entrada.itens.Count
+                try { foreach ($k in $existentes) { Save-ChaveQuarentena $entrada $k $sim } }
+                catch { while ($entrada.itens.Count -gt $antes) { $entrada.itens.RemoveAt($entrada.itens.Count - 1) }; throw }
+                # Fase 2: remove o registro (o backup ja esta na quarentena e restaura tudo).
+                foreach ($k in $existentes) { Remove-Item -LiteralPath (ConvertTo-CaminhoRegistro $k) -Recurse -Force -ErrorAction Stop }
+                $reparados.Add($guid)
+                Write-AppLog ("reparo: registro de {0} ({1}) removido; backup na quarentena {2}" -f $guid, $p.nome, $entrada.id) $Teste
+            } catch {
+                $falhas.Add([ordered]@{ id = [string]$guid; erro = $_.Exception.Message })
+                Send-Log $Id 'aviso' ("Falha em ${guid}: " + $_.Exception.Message)
+                Write-AppLog ("reparo: {0} falhou: {1}" -f $guid, $_.Exception.Message) $Teste
+            }
         }
+    } finally {
+        # Cancelado no meio, o que ja saiu do lugar ganha manifesto (sem ele a entrada nao restaura e vence no prazo).
+        $fechada = Complete-EntradaQuarentena $entrada
     }
-    $fechada = Complete-EntradaQuarentena $entrada
     Send-Progress $Id 100 'Concluído'
     Send-Result $Id ([ordered]@{ reparados = $reparados.ToArray(); falhas = $falhas.ToArray(); entrada = $(if ($null -ne $fechada) { $fechada.id } else { $null }) })
 }

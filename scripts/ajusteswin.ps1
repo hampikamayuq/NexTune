@@ -364,11 +364,6 @@ function Read-Backups {
     return $saida
 }
 
-function Test-TemBackup {
-    param([string]$IdAjuste, [bool]$Teste)
-    try { return (Read-Backups $Teste).ContainsKey($IdAjuste) } catch { return $false }
-}
-
 function Write-Backups {
     # Escrita atomica: .tmp + Move-Item -Force.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]

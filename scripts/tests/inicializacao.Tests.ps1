@@ -156,6 +156,11 @@ Describe 'inicializacao.ps1' {
             $m.cor | Should -BeNullOrEmpty
             $m.protegido | Should -BeFalse
         }
+        It 'powershell.exe/explorer.exe no Run nao viram processo essencial; ctfmon.exe continua protegido' {
+            (Get-ClassificacaoInicio 'Updater' 'powershell.exe' 'powershell.exe -w hidden -File C:\x\a.ps1' '' 'run').protegido | Should -BeFalse
+            (Get-ClassificacaoInicio 'Promo' 'explorer.exe' 'explorer.exe "http://exemplo.invalid"' '' 'run').protegido | Should -BeFalse
+            (Get-ClassificacaoInicio 'ctf' 'ctfmon.exe' 'ctfmon.exe' '' 'run').protegido | Should -BeTrue
+        }
         It 'Review Focus 7: nome com acento, espaco e parenteses chega inteiro' {
             $r = Invoke-Ini 'listar'
             $m = Get-Item1 $r 'run:hkcu:Meu App (x64) ção'

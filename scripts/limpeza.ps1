@@ -153,7 +153,7 @@ function Get-TamanhoRaiz {
     if (-not (Test-Path -LiteralPath $Raiz -PathType Container)) { return [int64]0 }
     $t = [int64]0
     foreach ($f in @(Get-ChildItem -LiteralPath $Raiz -Filter $Filtro -File -Force -ErrorAction SilentlyContinue)) {
-        if (-not (Test-Reparse $f) -and $f.LastWriteTime -lt $AntesDe) { $t += $f.Length }
+        if (-not (Test-Reparse $f) -and $f.LastWriteTime -lt $AntesDe -and $f.CreationTime -lt $AntesDe) { $t += $f.Length }
     }
     return $t
 }
@@ -226,14 +226,14 @@ function Write-AvisoPulado {
 
 function Clear-Conteudo {
     # Apaga o conteudo de uma pasta (nao a propria pasta). Junctions/links nao sao seguidos nem apagados.
-    # Itens com LastWriteTime >= $AntesDe ficam. Devolve a quantidade de itens pulados.
+    # Itens com LastWriteTime ou CreationTime >= $AntesDe ficam. Devolve a quantidade de itens pulados.
     param([string]$Id, [string]$Pasta, [string]$Filtro = '', [DateTime]$AntesDe = [DateTime]::MaxValue)
     $pulados = 0
     $filhos = @()
     try {
         if ([string]::IsNullOrEmpty($Filtro)) { $filhos = @(Get-ChildItem -LiteralPath $Pasta -Force -ErrorAction Stop) }
         else { $filhos = @(Get-ChildItem -LiteralPath $Pasta -Filter $Filtro -File -Force -ErrorAction Stop) }
-    } catch { return 0 }
+    } catch { Write-AvisoPulado $Id $Pasta; return 1 }
     foreach ($f in $filhos) {
         if (Test-Reparse $f) { continue }
         if ($f.PSIsContainer) {
@@ -247,7 +247,7 @@ function Clear-Conteudo {
                 try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } catch { $null = $_ }
             }
         } else {
-            if ($f.LastWriteTime -ge $AntesDe) { continue }
+            if ($f.LastWriteTime -ge $AntesDe -or $f.CreationTime -ge $AntesDe) { continue }   # zip aberto no Explorer extrai com datas antigas
             try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop }
             catch { $pulados++; Write-AvisoPulado $Id $f.FullName }
         }

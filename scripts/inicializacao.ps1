@@ -129,7 +129,8 @@ function Get-ClassificacaoInicio {
     $textos = @($Nome, $Editor, $Comando)
     if (-not [string]::IsNullOrEmpty($Exe)) {
         $base = [IO.Path]::GetFileName($Exe).ToLowerInvariant()
-        if ($t.processos -contains $base) {
+        # powershell/explorer/conhost so abrem outra coisa (script, URL): protege-los travaria justo o que se quer desligar.
+        if ($t.processos -contains $base -and @('powershell.exe', 'explorer.exe', 'conhost.exe') -notcontains $base) {
             $m = 'Processo essencial do Windows ou deste programa.'
             return @{ cor = 'vermelho'; motivoCor = $m; protegido = $true; motivoProtegido = $m }
         }

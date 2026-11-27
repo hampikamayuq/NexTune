@@ -382,6 +382,20 @@ Describe 'modojogo.ps1' {
             Test-Path -LiteralPath $Script:Arquivo | Should -BeFalse
             Test-Marcador "powercfg-$Script:GuidEquilibrado.txt" | Should -BeTrue
         }
+        It 'plano que nao volta fica no estado (so ele) para outro desativar tentar de novo' {
+            (Invoke-Jogo 'ativar' @{ preset = 'suave'; fechar = @('chrome.exe'); confirmado = $true; simular = (Get-SimPadrao) }).ok | Should -BeTrue
+            $e = Get-EstadoGravado
+            $e.planoAnterior = 'nao-e-guid'
+            [IO.File]::WriteAllText($Script:Arquivo, ($e | ConvertTo-Json -Depth 6), (New-Object System.Text.UTF8Encoding $false))
+            $d = Invoke-Jogo 'desativar' @{ confirmado = $true }
+            $d.ok | Should -BeTrue
+            $d.dados.ativo | Should -BeTrue
+            @($d.dados.falhas | ForEach-Object { $_.item }) | Should -Contain 'plano de energia'
+            $resto = Get-EstadoGravado
+            $resto.planoAplicado | Should -BeTrue
+            @($resto.fechados).Count | Should -Be 0
+            Remove-Item -LiteralPath $Script:Arquivo -Force
+        }
         It 'caminho que nao e .exe nao e reaberto: vai para falhas' {
             $sim = Get-SimPadrao
             $sim.processos[1].caminho = 'C:\x\documento.txt'

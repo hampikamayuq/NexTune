@@ -750,10 +750,25 @@ function Invoke-Desativar {
     }
     Send-Progress $Id 10 'Voltando tudo como estava'
     $r = Restore-EstadoAnterior $lido.estado $Teste
-    Remove-Item -LiteralPath (Get-ArquivoEstado $Teste) -Force -ErrorAction SilentlyContinue
+    $e = $lido.estado
+    $itens = @(@($r.falhas) | ForEach-Object { [string]$_.item })
+    $plano = $itens -contains 'plano de energia'
+    $noc = $itens -contains 'notificações'
+    $servicos = @(@($e.servicosPausados) | Where-Object { $itens -contains [string]$_ })
+    $pendente = $plano -or $noc -or $servicos.Count -gt 0
+    if ($pendente) {
+        # Plano, notificacoes e servicos nao voltam sozinhos: o estado fica so com eles para outro desativar tentar
+        # de novo (sem 'automatico', o vigia nao repete sozinho; programas ja reabertos nao reabrem de novo).
+        Write-EstadoJogo ([ordered]@{ ativo = $true; preset = $e.preset; desde = $e.desde
+                planoAplicado = $plano; planoAnterior = $e.planoAnterior
+                notificacoesAplicadas = $noc; notificacoesAnterior = $e.notificacoesAnterior
+                servicosPausados = $servicos }) $Teste
+    } else {
+        Remove-Item -LiteralPath (Get-ArquivoEstado $Teste) -Force -ErrorAction SilentlyContinue
+    }
     Write-AppLog ('modojogo: desativado (falhas: ' + @($r.falhas).Count + ')') $Teste
     Send-Progress $Id 100 'Concluído'
-    Send-Result $Id ([ordered]@{ ativo = $false; reabertos = @($r.reabertos); religados = @($r.religados); falhas = @($r.falhas) })
+    Send-Result $Id ([ordered]@{ ativo = $pendente; reabertos = @($r.reabertos); religados = @($r.religados); falhas = @($r.falhas) })
 }
 
 # ---------- estado e processos ----------

@@ -158,7 +158,11 @@ Context 'Get-PathSize' {
         $d = New-PastaTeste 'sizeIdade'
         [IO.File]::WriteAllBytes("$d\velho.bin", (New-Object byte[] 10))
         [IO.File]::WriteAllBytes("$d\novo.bin", (New-Object byte[] 20))
-        (Get-Item -LiteralPath "$d\velho.bin").LastWriteTime = (Get-Date).AddDays(-3)
+        $v = Get-Item -LiteralPath "$d\velho.bin"
+        $v.LastWriteTime = (Get-Date).AddDays(-3)
+        $v.CreationTime = (Get-Date).AddDays(-3)
+        [IO.File]::WriteAllBytes("$d\zip.bin", (New-Object byte[] 40))
+        (Get-Item -LiteralPath "$d\zip.bin").LastWriteTime = (Get-Date).AddDays(-3)   # extraido agora com data antiga
         Get-PathSize $d (Get-Date).AddDays(-1) | Should -Be 10
     }
 }

@@ -1479,36 +1479,40 @@ function Invoke-LimparResto {
     $movidos = 0
     $falhas = New-Object System.Collections.Generic.List[object]
     $i = 0
-    foreach ($it in $itens) {
-        Send-Progress $Id ([int](100 * $i / $itens.Count)) 'Movendo para a quarentena'
-        $i++
-        $tipo = ''
-        $caminho = ''
-        if ($null -ne $it) {
-            if ($null -ne $it.tipo) { $tipo = [string]$it.tipo }
-            if ($null -ne $it.caminho) { $caminho = [string]$it.caminho }
-        }
-        try {
-            if ($Script:TiposResto -cnotcontains $tipo) { throw "tipo de item inválido: $tipo" }
-            if ([string]::IsNullOrWhiteSpace($caminho)) { throw 'caminho não informado' }
-            if ($tipo -eq 'chave') {
-                if (-not (Test-ChaveRegistro $caminho)) { throw "chave de registro inválida: $caminho" }
-                if (-not (Test-ChaveRestoPermitida $caminho)) { throw "chave não permitida como resto (só HKCU\Software e HKLM\SOFTWARE, fora das áreas do Windows): $caminho" }
-                if ($Teste -and -not (Test-ChaveTeste $caminho)) { throw "em modo teste só chaves sob HKCU\Software\NexTuneTeste são aceitas: $caminho" }
-                Add-ItemQuarentena -Entrada $entrada -Caminho $caminho -Tipo 'chave' | Out-Null
-            } else {
-                if ($caminho -notmatch '^[A-Za-z]:\\.') { throw "caminho inválido: $caminho" }
-                if (Test-ProtectedPath $caminho) { throw "caminho protegido, não vai para a quarentena: $caminho" }
-                if ($tipo -eq 'atalho' -and [IO.Path]::GetExtension($caminho) -ne '.lnk') { throw "atalho inválido (não é .lnk): $caminho" }
-                Add-ItemQuarentena -Entrada $entrada -Caminho $caminho -Tipo $tipo | Out-Null
+    try {
+        foreach ($it in $itens) {
+            Send-Progress $Id ([int](100 * $i / $itens.Count)) 'Movendo para a quarentena'
+            $i++
+            $tipo = ''
+            $caminho = ''
+            if ($null -ne $it) {
+                if ($null -ne $it.tipo) { $tipo = [string]$it.tipo }
+                if ($null -ne $it.caminho) { $caminho = [string]$it.caminho }
             }
-            $movidos++
-        } catch {
-            $falhas.Add([ordered]@{ caminho = $caminho; erro = $_.Exception.Message })
-            Send-Log $Id 'aviso' ('Item não movido: ' + $_.Exception.Message) $caminho
+            try {
+                if ($Script:TiposResto -cnotcontains $tipo) { throw "tipo de item inválido: $tipo" }
+                if ([string]::IsNullOrWhiteSpace($caminho)) { throw 'caminho não informado' }
+                if ($tipo -eq 'chave') {
+                    if (-not (Test-ChaveRegistro $caminho)) { throw "chave de registro inválida: $caminho" }
+                    if (-not (Test-ChaveRestoPermitida $caminho)) { throw "chave não permitida como resto (só HKCU\Software e HKLM\SOFTWARE, fora das áreas do Windows): $caminho" }
+                    if ($Teste -and -not (Test-ChaveTeste $caminho)) { throw "em modo teste só chaves sob HKCU\Software\NexTuneTeste são aceitas: $caminho" }
+                    Add-ItemQuarentena -Entrada $entrada -Caminho $caminho -Tipo 'chave' | Out-Null
+                } else {
+                    if ($caminho -notmatch '^[A-Za-z]:\\.') { throw "caminho inválido: $caminho" }
+                    if (Test-ProtectedPath $caminho) { throw "caminho protegido, não vai para a quarentena: $caminho" }
+                    if ($tipo -eq 'atalho' -and [IO.Path]::GetExtension($caminho) -ne '.lnk') { throw "atalho inválido (não é .lnk): $caminho" }
+                    Add-ItemQuarentena -Entrada $entrada -Caminho $caminho -Tipo $tipo | Out-Null
+                }
+                $movidos++
+            } catch {
+                $falhas.Add([ordered]@{ caminho = $caminho; erro = $_.Exception.Message })
+                Send-Log $Id 'aviso' ('Item não movido: ' + $_.Exception.Message) $caminho
+            }
         }
+    } finally {
+        # Cancelado no meio, o que ja saiu do lugar ganha manifesto (sem ele a entrada nao restaura e vence no prazo).
+        $fechada = Complete-EntradaQuarentena -Entrada $entrada
     }
-    $fechada = Complete-EntradaQuarentena -Entrada $entrada
     $quarentenaId = $null
     if ($null -ne $fechada) { $quarentenaId = $fechada.id }
     Write-AppLog ("programas: restos para a quarentena: {0} movidos, {1} falhas, entrada {2}" -f $movidos, $falhas.Count, $quarentenaId) $Teste
