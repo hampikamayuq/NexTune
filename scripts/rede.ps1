@@ -119,9 +119,21 @@ function Get-ProvedorDetectado {
     return 'outro'
 }
 
+function ConvertTo-MatrizRede {
+    # Copia de uma lista como object[]. No Windows PowerShell 5.1 de builds recentes do Windows, @($x) sobre uma
+    # List[object] lanca "Os tipos de argumento nao correspondem"; ToArray evita o problema e ainda tira uma copia
+    # (os lacos que a usam removem itens da propria lista).
+    param($Lista)
+    if ($null -eq $Lista) { return , ([object[]]@()) }
+    if ($Lista -is [System.Collections.Generic.List[object]]) { return , ($Lista.ToArray()) }
+    return , ([object[]]@($Lista))
+}
+
 function Find-AdaptadorPorGuid {
+    # Sem @($Lista) (ver ConvertTo-MatrizRede): o foreach direto cobre lista, array e item unico.
     param($Lista, [string]$Guid)
-    foreach ($a in @($Lista)) { if ([string]$a.guid -eq $Guid) { return $a } }
+    if ($null -eq $Lista) { return $null }
+    foreach ($a in $Lista) { if ($null -ne $a -and [string]$a.guid -eq $Guid) { return $a } }
     return $null
 }
 
@@ -356,12 +368,14 @@ function Set-ServidorFamilia {
         $a = Find-AdaptadorPorGuid $todos ([string]$Adaptador.guid)
         if ($null -eq $a) { throw 'o adaptador não foi encontrado' }
         $f = $Familia.ToLowerInvariant()
+        $campoDhcp = $f + 'Dhcp'
+        $campoAuto = $f + 'Automatico'
         if ($ips.Count -eq 0) {
-            $a.$f = @($a.($f + 'Dhcp'))
-            $a.($f + 'Automatico') = $true
+            $a.$f = @($a.$campoDhcp)
+            $a.$campoAuto = $true
         } else {
             $a.$f = $ips
-            $a.($f + 'Automatico') = $false
+            $a.$campoAuto = $false
         }
         Write-EstadoFalso $todos
         return
@@ -444,7 +458,7 @@ function Remove-DohAdaptador {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     [CmdletBinding()]
     param($Backup, [string]$Guid, [bool]$Teste, [string[]]$Manter = @())
-    foreach ($d in @($Backup.dohAdicionados)) {
+    foreach ($d in (ConvertTo-MatrizRede $Backup.dohAdicionados)) {
         if ([string]$d.guid -ne $Guid -or @($Manter) -contains [string]$d.ip) { continue }
         $sub = Get-SubchaveDoh ([string]$d.guid) ([string]$d.familia) ([string]$d.ip) $Teste
         if ($null -ne $sub) {
@@ -530,8 +544,8 @@ function Write-BackupRede {
     $o = [ordered]@{
         versao         = 1
         data           = [string]$Backup.data
-        adaptadores    = @($Backup.adaptadores)
-        dohAdicionados = @($Backup.dohAdicionados)
+        adaptadores    = (ConvertTo-MatrizRede $Backup.adaptadores)
+        dohAdicionados = (ConvertTo-MatrizRede $Backup.dohAdicionados)
     }
     Write-JsonAtomico (Get-ArquivoBackupRede $Teste) $o
 }
@@ -698,7 +712,7 @@ function Invoke-VoltarAutomatico {
         return $saida.ToArray()
     }
     $atuais = @(Get-AdaptadorRede $Teste $Sim $false)
-    foreach ($e in @($backup.adaptadores)) {
+    foreach ($e in (ConvertTo-MatrizRede $backup.adaptadores)) {
         Send-Progress $Id 50 ('Restaurando o DNS de ' + $e.nome)
         $item = New-ItemResultado $e
         $saida.Add($item)
