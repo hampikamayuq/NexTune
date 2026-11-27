@@ -13,6 +13,8 @@
 //!   `<Windows>\explorer.exe "<url>"` (pasta via `GetSystemDirectoryW`; o explorer entrega o link
 //!   ao shell do usuário, então o navegador abre sem elevação), sem shell intermediário e sem
 //!   janela de console.
+//! - `abrir_pasta(caminho)`: pasta da tela Espaço; `X:\...` válido, existente, sem link nela nem
+//!   acima dela; abre por `<Windows>\explorer.exe` como `abrir_url`.
 
 use crate::comandos::Estado;
 use regex::Regex;
@@ -172,6 +174,61 @@ pub fn abrir_url(url: String, estado: State<'_, Estado>) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("não foi possível abrir o link: {e}"))?;
     // O explorer sai logo depois de entregar o link; espera fora da thread do comando.
+    std::thread::spawn(move || {
+        let _ = filho.wait();
+    });
+    Ok(())
+}
+
+/// Confere a pasta que a tela Espaço pede para abrir: `X:\...` válido (`acoes::pasta_local_valida`),
+/// existente, pasta (não arquivo) e sem link (junção ou simbólico) nela nem acima dela.
+fn pasta_abrivel(caminho: &str) -> Result<PathBuf, String> {
+    if !crate::acoes::pasta_local_valida(caminho) {
+        return Err("pasta não permitida".into());
+    }
+    let p = PathBuf::from(caminho);
+    if !p.is_dir() {
+        return Err("a pasta não existe".into());
+    }
+    if p.ancestors().any(e_link) {
+        return Err("a pasta é um atalho (junction ou link) para outro lugar".into());
+    }
+    Ok(p)
+}
+
+/// Argumento do explorer para a pasta: entre aspas e sem `\` final (`"C:\x\"` viraria aspas escapadas);
+/// a raiz de unidade vai sem aspas (`C:\` não tem espaço). `pasta_local_valida` já barra aspas.
+fn argumento_explorer(caminho: &str) -> String {
+    let sem_barra = caminho.trim_end_matches('\\');
+    if sem_barra.len() <= 2 {
+        return format!("{sem_barra}\\");
+    }
+    format!("\"{sem_barra}\"")
+}
+
+/// Abre uma pasta no Explorer (tela Espaço). Só leitura: não seleciona nem mexe em nada.
+#[tauri::command]
+pub fn abrir_pasta(caminho: String, estado: State<'_, Estado>) -> Result<(), String> {
+    if !crate::acoes::pasta_local_valida(&caminho) {
+        return Err("pasta não permitida".into());
+    }
+    if estado.demo {
+        return Ok(());
+    }
+    pasta_abrivel(&caminho)?;
+    // `<Windows>\explorer.exe` pelo mesmo motivo de `abrir_url`: a janela abre no shell do usuário,
+    // sem o token elevado do NexTune.
+    let mut cmd = comando_oculto_em(pasta_windows().join("explorer.exe"));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.raw_arg(argumento_explorer(&caminho));
+    }
+    #[cfg(not(windows))]
+    cmd.arg(argumento_explorer(&caminho));
+    let mut filho = cmd
+        .spawn()
+        .map_err(|e| format!("não foi possível abrir a pasta: {e}"))?;
     std::thread::spawn(move || {
         let _ = filho.wait();
     });
@@ -370,6 +427,47 @@ mod testes {
         assert!(x.contains("<RunLevel>HighestAvailable</RunLevel>"));
         assert!(x.contains(r#"<Command>"C:\Program Files\R&amp;D\NexTune.exe"</Command>"#));
         assert!(x.contains("<Arguments>--bandeja</Arguments>"));
+    }
+
+    #[test]
+    fn argumento_explorer_sem_barra_final_e_com_aspas() {
+        assert_eq!(argumento_explorer(r"C:\"), r"C:\");
+        assert_eq!(argumento_explorer("D:"), r"D:\");
+        assert_eq!(argumento_explorer(r"C:\Program Files\"), r#""C:\Program Files""#);
+        assert_eq!(argumento_explorer(r"C:\Users\x"), r#""C:\Users\x""#);
+    }
+
+    #[test]
+    fn pasta_abrivel_recusa_invalida_inexistente_e_arquivo() {
+        assert!(pasta_abrivel(r"C:\a\..\Windows").is_err());
+        assert!(pasta_abrivel(r"\\servidor\c$").is_err());
+        assert!(pasta_abrivel("relativa").is_err());
+        if cfg!(windows) {
+            let base = std::env::temp_dir().join(format!("nextune-abrir-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&base);
+            std::fs::create_dir_all(base.join("pasta")).unwrap();
+            std::fs::write(base.join("arq.txt"), b"x").unwrap();
+            let s = |p: PathBuf| p.to_string_lossy().into_owned();
+            assert!(pasta_abrivel(&s(base.join("pasta"))).is_ok());
+            assert!(pasta_abrivel(&s(base.join("nao-existe"))).is_err());
+            assert!(pasta_abrivel(&s(base.join("arq.txt"))).is_err());
+            // Junção criada pelo cmd: recusada ela e o que estiver abaixo dela.
+            let link = base.join("link");
+            let ok = Command::new(system32("cmd.exe"))
+                .args(["/c", "mklink", "/J"])
+                .arg(&link)
+                .arg(base.join("pasta"))
+                .stdout(Stdio::null())
+                .status()
+                .is_ok_and(|st| st.success());
+            if ok {
+                assert!(pasta_abrivel(&s(link.clone())).is_err());
+                std::fs::create_dir_all(base.join("pasta").join("sub")).unwrap();
+                assert!(pasta_abrivel(&s(link.join("sub"))).is_err());
+                let _ = std::fs::remove_dir(&link);
+            }
+            let _ = std::fs::remove_dir_all(&base);
+        }
     }
 
     #[test]

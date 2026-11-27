@@ -58,6 +58,7 @@ pub fn run() {
             comandos::info,
             comandos::ponto_sessao,
             bandeja::abrir_url,
+            bandeja::abrir_pasta,
             bandeja::autostart,
             bandeja::autostart_estado,
             atualizador::atualizacao_verificar,

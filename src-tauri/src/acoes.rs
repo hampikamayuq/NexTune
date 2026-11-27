@@ -43,6 +43,7 @@ const MODULOS: &[&str] = &[
     "modojogo",
     "reparo",
     "saude",
+    "espaco",
 ];
 
 /// Ações que escrevem no sistema: exigem sessão verificada (`comandos::verificar_sessao`). A UI roda
@@ -391,6 +392,16 @@ fn letra_unidade(m: &Map<String, Value>) -> Result<String, ErroValidacao> {
 fn caminho_absoluto(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\'
+}
+
+/// Pasta que `espaco/analisar` mede (e que `abrir_pasta` abre): `X:\...` de unidade local, sem curingas,
+/// aspas, `/`, `:` depois da letra nem segmentos `.`/`..` (o PowerShell confere de novo e recusa links).
+pub(crate) fn pasta_local_valida(s: &str) -> bool {
+    caminho_absoluto(s)
+        && s.chars().count() <= MAX_CAMINHO
+        && !tem_controle(s)
+        && !s[2..].contains(['*', '?', '"', '<', '>', '|', ':', '/'])
+        && !s[3..].split('\\').any(|seg| seg == "." || seg == "..")
 }
 
 /// Chave de registro aceita em `limparRestos`: `HKCU\...` ou `HKLM\...` (sem diferenciar caixa), ao
@@ -830,6 +841,18 @@ pub fn validar(
             copiar_simular(&m, &mut saida, teste)?;
             Ok(Value::Object(saida))
         }
+        ("espaco", "analisar") => {
+            let m = como_objeto(params)?;
+            so_chaves(&m, &["raiz", "simular"])?;
+            let raiz = texto_obrigatorio(&m, "raiz", MAX_CAMINHO)?;
+            if !pasta_local_valida(&raiz) {
+                return Err(erro(format!("raiz inválida: {raiz}")));
+            }
+            let mut saida = Map::new();
+            saida.insert("raiz".into(), Value::String(raiz));
+            copiar_simular(&m, &mut saida, teste)?;
+            Ok(Value::Object(saida))
+        }
         ("modojogo", "estado" | "processos") => {
             let m = como_objeto(params)?;
             so_chaves(&m, &["simular"])?;
@@ -1082,7 +1105,7 @@ mod testes {
 
     #[test]
     fn modulos() {
-        assert_eq!(modulos_permitidos().len(), 13);
+        assert_eq!(modulos_permitidos().len(), 14);
         for m in [
             "host",
             "diagnostico",
@@ -1097,6 +1120,7 @@ mod testes {
             "modojogo",
             "reparo",
             "saude",
+            "espaco",
         ] {
             assert!(modulos_permitidos().contains(&m), "{m}");
         }
@@ -1146,6 +1170,7 @@ mod testes {
             ("modojogo", "estado"),
             ("modojogo", "processos"),
             ("saude", "verificar"),
+            ("espaco", "analisar"),
             ("limpeza", "Limpar"),
             ("inexistente", "limpar"),
         ] {
@@ -2085,6 +2110,49 @@ mod testes {
         parametro(validar("saude", "verificar", &sim, false));
         parametro(validar("saude", "verificar", &json!({"x": 1}), false));
         parametro(validar("saude", "verificar", &json!({"simular": 1}), true));
+    }
+
+    #[test]
+    fn espaco_analisar_raiz_valida() {
+        for boa in [r"C:\", r"C:\Users\Fulano\Downloads", r"d:\Jogos\", r"C:\Program Files (x86)"] {
+            let p = json!({"raiz": boa});
+            assert_eq!(validar("espaco", "analisar", &p, false).unwrap(), p, "{boa}");
+        }
+        let sim = json!({"raiz": r"C:\", "simular": {"tetoTotalMs": 0}});
+        assert_eq!(validar("espaco", "analisar", &sim, true).unwrap(), sim);
+        parametro(validar("espaco", "analisar", &sim, false));
+    }
+
+    #[test]
+    fn espaco_analisar_recusa() {
+        for ruim in [
+            "",
+            "C:",
+            "C:pasta",
+            r"pasta\x",
+            r"\\servidor\c$",
+            r"\\?\C:\x",
+            r"C:\a\..\Windows",
+            r"C:\a\.\b",
+            r"C:\*",
+            r"C:\a?b",
+            "C:\\a\"b",
+            r"C:\a|b",
+            r"C:\a:b",
+            "C:/x",
+            "C:\\a\nb",
+        ] {
+            parametro(validar("espaco", "analisar", &json!({"raiz": ruim}), false));
+        }
+        let longa = format!(r"C:\{}", "a".repeat(MAX_CAMINHO));
+        parametro(validar("espaco", "analisar", &json!({"raiz": longa}), false));
+        parametro(validar("espaco", "analisar", &json!({}), false));
+        parametro(validar("espaco", "analisar", &json!({"raiz": 1}), false));
+        parametro(validar("espaco", "analisar", &json!({"raiz": r"C:\", "x": 1}), false));
+        assert!(matches!(
+            validar("espaco", "apagar", &json!({"raiz": r"C:\"}), false),
+            Err(ErroValidacao::NaoPermitida(_))
+        ));
     }
 
     #[test]

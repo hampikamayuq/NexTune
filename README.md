@@ -15,6 +15,7 @@ O NexTune olha o seu PC primeiro (processador, memória, tipo de disco) e só en
 - **Inicialização**: o que abre com o Windows, com impacto medido, e liga/desliga reversível.
 - **Ajustes do Windows** com backup antes da escrita e restauração exata do valor anterior.
 - **Disco**: verificação só de leitura, correção agendada para o próximo reinício, desfragmentar HDD ou TRIM em SSD, nunca o contrário.
+- **Espaço**: as maiores pastas e os maiores arquivos de cada unidade, descendo pasta a pasta. Só mede; não segue atalhos (junctions) e mostra "sem acesso" em vez de zero.
 - **Atualizações** do Windows e dos programas (winget), só o que você marcar. Quando uma falha, o NexTune explica o motivo em português em vez de mostrar só o código.
 - **Reparo do instalador**: acha programas cujo arquivo de instalação sumiu do Windows (erros 1603 e 1612 ao atualizar ou desinstalar) e, se você marcar, remove só o registro quebrado, com backup na quarentena.
 - **Modo Jogo**: pede para fechar programas, pausa serviços, troca o plano de energia e desfaz tudo ao sair.

@@ -20,6 +20,8 @@ const S = {
   ajustesWin: { lista: null, carregando: false, erro: null, avancadoListado: null },
   // saude: resultado de saude/verificar; saudeReparo: de saude/reparar (detalhe e precisaReiniciar).
   disco: { estado: null, carregando: false, erro: null, saude: null, saudeReparo: null },
+  // Espaço: último resultado de espaco/analisar e a pasta pedida (para "tentar de novo" e a mensagem de espera).
+  espaco: { resultado: null, alvo: null, carregando: false, erro: null },
   // Reparo: produtos do Windows Installer com registro quebrado e os marcados para reparar.
   reparo: { lista: null, sel: new Set(), carregando: false, erro: null },
   // Atualizações: resultado de atualizacoes/listar e as seleções (Windows por UpdateID, programas por id do winget).
