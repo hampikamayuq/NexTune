@@ -1,6 +1,9 @@
 ﻿# programas.ps1 - programas instalados (classicos e Store): listar, desinstalar em silencio, restos para a quarentena.
 # Acoes: listar {}, desinstalar {id, confirmado, avancado?, desprovisionar?}, restos {id, nome, editor?, local?},
-# limparRestos {itens:[{tipo, caminho}], confirmado, nome?}.
+# limparRestos {itens:[{tipo, caminho}], confirmado, nome?}, restosAntigos {simular?} (so leitura: pastas de primeiro
+# nivel e atalhos do menu Iniciar sem programa instalado -> {itens:[{tipo, caminho, nome, bytes, seguro, motivo, parecido}]},
+# seguros primeiro e por bytes decrescente, no maximo 500; nomes de data\restos.json 'ignorar' nunca aparecem).
+# Baseado em RetroLimpia v4.0.11 (MIT, Retropunk94): regra de nome limpo (Get-NomeLimpo/Get-EditorLimpo).
 # Dados: data\bloatware.json e data\protegidos.json na pasta 'data' ao lado de 'scripts' (repositorio e bundle).
 # Classificacao, nesta ordem: protegidos.json (nome/editor/packageFamilyName) -> InstallLocation sob
 # Test-ProtectedPath (so classicos; a Store mora em WindowsApps) -> Store com SignatureKind 'System' ou
@@ -16,7 +19,8 @@
 # Modo teste: Uninstall falso em HKCU\Software\NexTuneTeste\Uninstall\<hive>\<chave>; Get-AppxPackage NUNCA e chamado
 # (Store vem de simular.store); so executa desinstaladores sob %TEMP%\NexTuneTeste; simular.tipoInstalador forca
 # o tipo detectado; raizes de restos em %TEMP%\NexTuneTeste\restos\{LocalAppData,AppData,ProgramData,Desktop,Menu}
-# e chaves sob HKCU\Software\NexTuneTeste\Restos\{HKCU,HKLM}.
+# e chaves sob HKCU\Software\NexTuneTeste\Restos\{HKCU,HKLM}; raizes de restosAntigos em %TEMP%\NexTuneTeste\restosAntigos\
+# {ProgramFiles,ProgramFilesX86,ProgramData,AppData,LocalAppData,LocalAppDataPrograms,Menu,MenuTodos}.
 . "$PSScriptRoot\common.ps1"
 . "$PSScriptRoot\quarentena.ps1"
 
@@ -31,6 +35,14 @@ $Script:DiasResto = 30
 $Script:TetoTamanhoMs = 10000
 $Script:TetoDesinstalarMs = 600000
 $Script:MaxItensRestos = 500
+$Script:IgnorarResto = $null
+# Palavras comuns demais para ligar uma pasta a um programa (restosAntigos: 'parecido' por palavra em comum).
+$Script:PalavrasGenericas = @('microsoft', 'windows', 'corporation', 'software', 'program', 'programa', 'programs', 'update', 'updater',
+    'tools', 'tool', 'data', 'files', 'file', 'service', 'services', 'setup', 'installer', 'install', 'launcher', 'helper',
+    'driver', 'drivers', 'game', 'games', 'studio', 'edition', 'version', 'cache', 'config', 'settings', 'common', 'shared',
+    'client', 'desktop', 'free', 'online', 'player', 'runtime', 'support', 'center', 'manager', 'technologies', 'systems')
+$Script:TetoRestosAntigosMs = 120000   # varredura de pastas de restosAntigos
+$Script:TetoMedirRestosMs = 60000      # medicao do tamanho das pastas de restosAntigos (depois disso, -1)
 $Script:PadraoGuid = '\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}'
 $Script:PadraoAtualizacao = '^(Security Update|Update|Hotfix) for|KB\d{6,}'
 # Segmentos de chave de registro (abaixo de HKCU\Software ou HKLM\SOFTWARE) que nunca viram candidato a resto.
@@ -706,6 +718,360 @@ function Get-CandidatoResto {
     return $lista.ToArray()
 }
 
+# ---------- restos antigos (pastas e atalhos de programas ja desinstalados) ----------
+
+function Get-RaizRestoAntigo {
+    # Raizes da varredura de restos antigos. Em teste, tudo sob %TEMP%\NexTuneTeste\restosAntigos.
+    param([bool]$Teste)
+    if ($Teste) {
+        $b = Join-Path (Join-Path $env:TEMP 'NexTuneTeste') 'restosAntigos'
+        return @{
+            pastas  = @((Join-Path $b 'ProgramFiles'), (Join-Path $b 'ProgramFilesX86'), (Join-Path $b 'ProgramData'),
+                (Join-Path $b 'AppData'), (Join-Path $b 'LocalAppData'), (Join-Path $b 'LocalAppDataPrograms'))
+            atalhos = @((Join-Path $b 'Menu'), (Join-Path $b 'MenuTodos'))
+        }
+    }
+    $pastas = New-Object System.Collections.Generic.List[string]
+    $locais = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData, $env:APPDATA, $env:LOCALAPPDATA)
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { $locais += (Join-Path $env:LOCALAPPDATA 'Programs') }
+    foreach ($r in $locais) {
+        if ([string]::IsNullOrWhiteSpace($r)) { continue }
+        $existe = $false
+        foreach ($x in $pastas) { if ([string]::Equals($x.TrimEnd('\'), $r.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { $existe = $true } }
+        if (-not $existe) { $pastas.Add($r) }   # ProgramFiles(x86) = ProgramFiles em Windows 32 bits
+    }
+    $atalhos = New-Object System.Collections.Generic.List[string]
+    foreach ($par in @(@($env:APPDATA, 'Microsoft\Windows\Start Menu\Programs'), @($env:ProgramData, 'Microsoft\Windows\Start Menu\Programs'))) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$par[0])) { $atalhos.Add((Join-Path $par[0] $par[1])) }
+    }
+    return @{ pastas = @($pastas.ToArray()); atalhos = @($atalhos.ToArray()) }
+}
+
+function Get-ListaIgnorarResto {
+    # Regex (sem diferenciar caixa) de cada nome de data\restos.json 'ignorar' ('*' = qualquer sequencia). Uma vez por runspace.
+    if ($null -ne $Script:IgnorarResto) { return $Script:IgnorarResto }
+    $j = Read-ArquivoJson (Join-Path (Get-PastaDeDados) 'restos.json')
+    $lista = New-Object System.Collections.Generic.List[object]
+    foreach ($n in @($j.ignorar)) {
+        if ([string]::IsNullOrWhiteSpace([string]$n)) { continue }
+        $rx = New-RegexLista ('^' + [regex]::Escape(([string]$n).Trim()).Replace('\*', '.*') + '$')
+        if ($null -ne $rx) { $lista.Add($rx) }
+    }
+    $Script:IgnorarResto = $lista.ToArray()
+    return $Script:IgnorarResto
+}
+
+function Test-NomeIgnorado {
+    param([string]$Nome)
+    foreach ($rx in @(Get-ListaIgnorarResto)) { if ($rx.IsMatch($Nome)) { return $true } }
+    return $false
+}
+
+function Get-NomeLimpo {
+    # Baseado em RetroLimpia v4.0.11 (MIT, Retropunk94): Get-CleanName de residuos.ps1. Tira parenteses,
+    # versao, arquitetura e ' - sufixo'.
+    param([string]$Nome)
+    $n = [string]$Nome
+    $n = $n -replace '\(.*?\)', ''
+    $n = $n -replace '\b(x64|x86|64-bit|32-bit|64 bits|32 bits|version|versão|versión|v?\d+(\.\d+)+)\b', ''
+    $n = $n -replace '\s+-\s+.*$', ''
+    $n = $n -replace '\s{2,}', ' '
+    return $n.Trim(' -_.,'.ToCharArray()).Trim()
+}
+
+function Get-EditorLimpo {
+    # Baseado em RetroLimpia v4.0.11 (MIT, Retropunk94): editor sem sufixo de empresa (Inc, LLC, Ltd, GmbH, S.A., Corp...).
+    param([string]$Editor)
+    $e = ([string]$Editor).Trim()
+    for ($i = 0; $i -lt 3; $i++) {
+        $e = ($e -replace ',?\s*\b(Inc|LLC|Ltd|Limited|GmbH|AG|AB|S\.?A\.?S?|S\.?R\.?L\.?|B\.?V\.?|Corp|Corporation|Co|Ltda)\.?$', '').Trim(' ,.'.ToCharArray())
+    }
+    return $e
+}
+
+function Get-ChaveNome {
+    # Puro: nome limpo em minusculas, so letras e digitos (ignora espacos, hifens, pontos e simbolos).
+    param([string]$Texto)
+    return ((Get-NomeLimpo $Texto).ToLowerInvariant() -replace '[^\p{L}\p{Nd}]', '')
+}
+
+function Get-PalavraNome {
+    # Puro: palavras (letras/digitos) do texto, em minusculas.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
+    param([string]$Texto)
+    return @(([string]$Texto).ToLowerInvariant() -split '[^\p{L}\p{Nd}]+' | Where-Object { $_ -ne '' })
+}
+
+function Get-DiretorioDesinstalador {
+    # Pasta do executavel da UninstallString (so caminho absoluto com letra de unidade); '' se nao houver.
+    param([string]$UninstallString)
+    if ([string]::IsNullOrWhiteSpace($UninstallString)) { return '' }
+    $exe = (Split-UninstallString $UninstallString).exe
+    if ($exe -notmatch '^[A-Za-z]:\\.') { return '' }
+    try { return (Get-LocalNormalizado ([IO.Path]::GetDirectoryName($exe))) } catch { return '' }
+}
+
+function New-ReferenciaPrograma {
+    # Puro: o que se compara de cada programa instalado: chaves (nome, editor, pasta final do local, partes
+    # do nome da Store), palavras (para nomes curtos) e locais (InstallLocation e pasta do desinstalador).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param($Programa)
+    $chaves = New-Object System.Collections.Generic.List[string]
+    $nome = [string]$Programa.nome
+    $editor = Get-EditorLimpo ([string]$Programa.editor)
+    $local = [string]$Programa.local
+    $textos = @($nome, $editor)
+    if (-not [string]::IsNullOrWhiteSpace($local)) { $textos += (Get-Folha $local) }
+    if ($Programa.tipo -eq 'store') { $textos += @($nome -split '\.') }
+    foreach ($t in $textos) {
+        $k = Get-ChaveNome $t
+        if ($k -ne '' -and -not $chaves.Contains($k)) { $chaves.Add($k) }
+    }
+    $locais = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($local)) { $locais.Add($local.TrimEnd('\')) }
+    foreach ($u in @([string]$Programa.uninstallString, [string]$Programa.quietUninstallString)) {
+        $d = Get-DiretorioDesinstalador $u
+        if ($d -ne '' -and -not $locais.Contains($d)) { $locais.Add($d) }
+    }
+    return @{ nome = $nome; chaves = $chaves.ToArray(); palavras = @(Get-PalavraNome ($nome + ' ' + $editor)); locais = $locais.ToArray() }
+}
+
+function Test-LocalRelacionado {
+    # Puro: o local de um programa e a pasta, fica dentro dela ou acima dela?
+    param([string]$Pasta, [string]$Local)
+    if ([string]::IsNullOrWhiteSpace($Pasta) -or [string]::IsNullOrWhiteSpace($Local)) { return $false }
+    $p = $Pasta.TrimEnd('\')
+    $l = $Local.TrimEnd('\')
+    if ([string]::Equals($p, $l, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($l.StartsWith($p + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    return $p.StartsWith($l + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-RelacaoPrograma {
+    # Puro: relacao de um nome (pasta ou atalho) com os programas instalados.
+    # @{ relacao = 'igual'|'parecido'|'curto'|'nenhuma'; programa = <nome do programa parecido ou $null> }.
+    # igual: chave identica a nome/editor/pasta do local; parecido: uma chave contem a outra (a menor com 4+
+    # caracteres), uma palavra de 4+ letras em comum ('claude-cli' x 'Claude Code') ou, para nome curto, uma
+    # palavra igual; curto: menos de 4 caracteres sem relacao.
+    param([string]$Nome, $Referencias)
+    $k = Get-ChaveNome $Nome
+    $r = @{ relacao = 'nenhuma'; programa = $null }
+    if ($k -eq '') { $r.relacao = 'igual'; return $r }   # nome sem letras/digitos: nada a afirmar, nunca aparece
+    foreach ($ref in $Referencias) {
+        if ($ref.chaves -contains $k) { $r.relacao = 'igual'; $r.programa = $ref.nome; return $r }
+    }
+    $palavras = @(Get-PalavraNome (Get-NomeLimpo $Nome) | Where-Object { $_.Length -ge 4 -and $Script:PalavrasGenericas -notcontains $_ })
+    foreach ($ref in $Referencias) {
+        $achou = $false
+        if ($k.Length -lt 4) {
+            $achou = ($ref.palavras -contains $k)
+        } else {
+            foreach ($c in $ref.chaves) {
+                if ($c.Length -lt 4) { continue }
+                if ($c.Contains($k) -or $k.Contains($c)) { $achou = $true; break }
+            }
+            if (-not $achou) {
+                foreach ($w in $palavras) { if ($ref.palavras -contains $w) { $achou = $true; break } }
+            }
+        }
+        if ($achou) { $r.relacao = 'parecido'; $r.programa = $ref.nome; return $r }
+    }
+    if ($k.Length -lt 4) { $r.relacao = 'curto' }
+    return $r
+}
+
+function Get-ProgramaInstaladoResto {
+    # Programas classicos + Store (a mesma lista de 'listar', sem medir). Fora do teste, se -AllUsers falhar
+    # (sem administrador), tenta os apps do usuario atual.
+    param([string]$Id, [bool]$Teste, $Simulacao)
+    $lista = New-Object System.Collections.Generic.List[object]
+    foreach ($h in $Script:Hives) { foreach ($p in @(Get-ProgramaClassico $h $Teste)) { $lista.Add($p) } }
+    Send-Progress $Id 8 'Lendo apps da Store'
+    $Script:ErroStore = $null
+    $store = @(Get-ProgramaStore $Teste $Simulacao)
+    if (-not $Teste -and $null -ne $Script:ErroStore) {
+        $erro = $Script:ErroStore
+        $pacotes = @()
+        try { $pacotes = @(Get-AppxPackage -ErrorAction Stop) } catch { $pacotes = @() }
+        # Get-ProgramaStore com $Teste so le a lista entregue (aqui, os pacotes do usuario atual).
+        $store = @(Get-ProgramaStore $true @{ store = $pacotes })
+        if ($store.Count -eq 0) { Send-Log $Id 'aviso' ("Não foi possível ler os apps da Store: " + $erro) }
+    }
+    foreach ($p in $store) { $lista.Add($p) }
+    return $lista.ToArray()
+}
+
+function Test-NomeProibido {
+    # Puro: o nome da pasta e area que nunca vira candidato (segmentos proibidos ou protegidos.json)?
+    param([string]$Nome)
+    if ($Script:SegmentosProibidos -contains $Nome.Trim().ToLowerInvariant()) { return $true }
+    if ($null -ne (Get-MotivoProtegido $Nome '' '')) { return $true }
+    $limpo = Get-NomeLimpo $Nome
+    if ($limpo -ne '' -and $null -ne (Get-MotivoProtegido $limpo '' '')) { return $true }
+    return $false
+}
+
+function New-ItemRestoAntigo {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    param([string]$Tipo, [string]$Caminho, [string]$Nome, [int64]$Bytes, [bool]$Seguro, [string]$Motivo, $Parecido)
+    $p = $null
+    if (-not [string]::IsNullOrWhiteSpace([string]$Parecido)) { $p = [string]$Parecido }
+    return [ordered]@{ tipo = $Tipo; caminho = $Caminho; nome = $Nome; bytes = $Bytes; seguro = $Seguro; motivo = $Motivo; parecido = $p }
+}
+
+function Get-PastaRestoAntigo {
+    # Subpastas de primeiro nivel sem programa instalado. Filtros baratos primeiro (nome, protegido, programas
+    # instalados); so o que sobra e percorrido por Test-PastaCandidata (link, executavel, 30 dias).
+    param([string]$Id, $Raizes, $Referencias, $Relogio)
+    $lista = New-Object System.Collections.Generic.List[object]
+    $vistos = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
+    $nr = [math]::Max(1, @($Raizes).Count)
+    $ir = 0
+    foreach ($raiz in $Raizes) {
+        Send-Progress $Id (15 + [int](55 * $ir / $nr)) "Procurando pastas sem programa ($raiz)"
+        $ir++
+        if ([string]::IsNullOrWhiteSpace($raiz) -or -not (Test-Path -LiteralPath $raiz -PathType Container)) { continue }
+        $itemRaiz = Get-Item -LiteralPath $raiz -Force -ErrorAction SilentlyContinue
+        if ($null -eq $itemRaiz -or (Test-Reparse $itemRaiz)) { continue }
+        foreach ($d in @(Get-ChildItem -LiteralPath $itemRaiz.FullName -Directory -Force -ErrorAction SilentlyContinue)) {
+            if ($Relogio.ElapsedMilliseconds -gt $Script:TetoRestosAntigosMs) {
+                Send-Log $Id 'aviso' 'A busca por pastas passou do tempo limite: a lista pode estar incompleta.'
+                return $lista.ToArray()
+            }
+            if (Test-Reparse $d) { continue }
+            $caminho = $d.FullName
+            if (-not $vistos.Add($caminho)) { continue }
+            if ($caminho -notmatch '^[A-Za-z]:\\.') { continue }
+            $nome = $d.Name
+            if (Test-NomeIgnorado $nome) { continue }
+            if (Test-NomeProibido $nome) { continue }
+            if (Test-ProtectedPath $caminho) { continue }
+            $deInstalado = $false
+            foreach ($ref in $Referencias) {
+                foreach ($l in $ref.locais) { if (Test-LocalRelacionado $caminho $l) { $deInstalado = $true; break } }
+                if ($deInstalado) { break }
+            }
+            if ($deInstalado) { continue }
+            $rel = Get-RelacaoPrograma $nome $Referencias
+            if ($rel.relacao -eq 'igual') { continue }
+            if (-not (Test-PastaCandidata $caminho $true)) { continue }
+            switch ($rel.relacao) {
+                'parecido' {
+                    $motivo = "O nome parece com o de um programa instalado ($($rel.programa)): a pasta pode ser dele. Confira antes de remover."
+                    $lista.Add((New-ItemRestoAntigo 'pasta' $caminho $nome -1 $false $motivo $rel.programa))
+                }
+                'curto' {
+                    $motivo = 'Nome curto demais para ter certeza de que é de um programa desinstalado. Confira antes de remover.'
+                    $lista.Add((New-ItemRestoAntigo 'pasta' $caminho $nome -1 $false $motivo $null))
+                }
+                default {
+                    $motivo = 'Pasta de um programa que não está mais instalado (sem alteração há mais de 30 dias).'
+                    $lista.Add((New-ItemRestoAntigo 'pasta' $caminho $nome -1 $true $motivo $null))
+                }
+            }
+        }
+    }
+    return $lista.ToArray()
+}
+
+function Test-AlvoVerificavel {
+    # O destino do atalho e um caminho local com letra de unidade que existe? UNC, variavel, relativo ou
+    # unidade ausente (pode estar so desconectada) ficam de fora.
+    param([string]$Alvo)
+    if ([string]::IsNullOrWhiteSpace($Alvo) -or $Alvo.Contains('%')) { return $false }
+    if ($Alvo -notmatch '^([A-Za-z]):\\.') { return $false }
+    return (Test-Path -LiteralPath ($Matches[1] + ':\'))
+}
+
+function Get-AtalhoRestoAntigo {
+    # Atalhos .lnk do menu Iniciar (sem seguir links) cujo destino local nao existe mais.
+    param([string]$Id, $Raizes, $Referencias)
+    $lista = New-Object System.Collections.Generic.List[object]
+    foreach ($raiz in $Raizes) {
+        Send-Progress $Id 72 "Procurando atalhos quebrados ($raiz)"
+        if ([string]::IsNullOrWhiteSpace($raiz) -or -not (Test-Path -LiteralPath $raiz -PathType Container)) { continue }
+        if (-not (Test-CadeiaSemLink $raiz)) { continue }
+        foreach ($lnk in @(Get-ArquivoSemLink $raiz '.lnk')) {
+            $caminho = $lnk.FullName
+            if ($caminho -notmatch '^[A-Za-z]:\\.' -or [IO.Path]::GetExtension($caminho) -ne '.lnk') { continue }
+            if (Test-ProtectedPath $caminho) { continue }
+            $alvo = Get-AlvoAtalho $caminho
+            if (-not (Test-AlvoVerificavel $alvo)) { continue }
+            if (Test-Path -LiteralPath $alvo) { continue }
+            if (Test-ProtectedPath $alvo) { continue }   # destino do Windows: recurso opcional, nao resto
+            $nome = [IO.Path]::GetFileNameWithoutExtension($caminho)
+            if (Test-NomeProibido $nome) { continue }
+            $parecido = $null
+            $motivo = "Atalho do menu Iniciar cujo destino não existe mais: $alvo"
+            foreach ($ref in $Referencias) {
+                foreach ($l in $ref.locais) {
+                    if (Test-LocalRelacionado $alvo $l) { $parecido = $ref.nome; break }
+                }
+                if ($null -ne $parecido) { break }
+            }
+            if ($null -ne $parecido) {
+                $motivo = "Atalho quebrado ($alvo), mas o destino fica na pasta de um programa instalado ($parecido). Confira antes de remover."
+            } else {
+                $rel = Get-RelacaoPrograma $nome $Referencias
+                if ($rel.relacao -eq 'igual' -or $rel.relacao -eq 'parecido') {
+                    $parecido = $rel.programa
+                    $motivo = "Atalho quebrado ($alvo), mas o nome parece com o de um programa instalado ($parecido). Confira antes de remover."
+                }
+            }
+            $seguro = ($null -eq $parecido)
+            if ($seguro) {
+                $pai = ''
+                try { $pai = [IO.Path]::GetDirectoryName($alvo) } catch { $pai = '' }
+                if (-not [string]::IsNullOrWhiteSpace($pai) -and $pai.Length -gt 3 -and (Test-Path -LiteralPath $pai -PathType Container)) {
+                    $seguro = $false
+                    $motivo = "Atalho quebrado ($alvo), mas a pasta do destino ainda existe: o programa pode ter só mudado de arquivo. Confira antes de remover."
+                }
+            }
+            $lista.Add((New-ItemRestoAntigo 'atalho' $caminho $nome ([int64]$lnk.Length) $seguro $motivo $parecido))
+        }
+    }
+    return $lista.ToArray()
+}
+
+function Invoke-RestoAntigo {
+    # Leitura: pastas e atalhos que sobraram de programas ja desinstalados (nada e alterado).
+    param([string]$Id, $Params, [bool]$Teste)
+    $sim = Get-Simulacao $Params $Teste
+    $relogio = [Diagnostics.Stopwatch]::StartNew()
+    Send-Progress $Id 0 'Lendo programas instalados'
+    $programas = @(Get-ProgramaInstaladoResto $Id $Teste $sim)
+    $classicos = @($programas | Where-Object { $_.tipo -eq 'classico' })
+    if (-not $Teste -and $classicos.Count -eq 0) { throw 'não foi possível ler a lista de programas instalados; sem ela não dá para saber o que é resto' }
+    $refs = @($programas | ForEach-Object { New-ReferenciaPrograma $_ })
+    $raizes = Get-RaizRestoAntigo $Teste
+    $itens = New-Object System.Collections.Generic.List[object]
+    Send-Progress $Id 15 'Procurando pastas sem programa'
+    foreach ($it in @(Get-PastaRestoAntigo $Id $raizes.pastas $refs $relogio)) { $itens.Add($it) }
+    Send-Progress $Id 70 'Procurando atalhos quebrados'
+    foreach ($it in @(Get-AtalhoRestoAntigo $Id $raizes.atalhos $refs)) { $itens.Add($it) }
+    Send-Progress $Id 85 'Medindo o tamanho das pastas'
+    $medir = [Diagnostics.Stopwatch]::StartNew()
+    $avisouTeto = $false
+    foreach ($it in $itens) {
+        if ($it.tipo -ne 'pasta') { continue }
+        if ($medir.ElapsedMilliseconds -gt $Script:TetoMedirRestosMs) {
+            if (-not $avisouTeto) { Send-Log $Id 'aviso' 'Medir as pastas passou do tempo limite: algumas ficam com tamanho desconhecido.'; $avisouTeto = $true }
+            continue
+        }
+        $it.bytes = [int64](Get-TamanhoComTeto $it.caminho $Script:TetoTamanhoMs)
+    }
+    $ordenados = @($itens.ToArray() | Sort-Object -Property @{ Expression = { [bool]$_.seguro }; Descending = $true }, @{ Expression = { [int64]$_.bytes }; Descending = $true }, @{ Expression = { [string]$_.caminho } })
+    if ($ordenados.Count -gt $Script:MaxItensRestos) {
+        Send-Log $Id 'aviso' ("Foram achados $($ordenados.Count) itens; mostrando os primeiros $($Script:MaxItensRestos).")
+        $ordenados = @($ordenados[0..($Script:MaxItensRestos - 1)])
+    }
+    Send-Progress $Id 100 'Concluído'
+    Send-Result $Id ([ordered]@{ itens = $ordenados })
+}
+
 # ---------- desinstalacao ----------
 
 function Get-PlanoDesinstalacao {
@@ -942,7 +1308,7 @@ function Invoke-LimparResto {
 
 function Invoke-Acao {
     param([string]$Id, [string]$Acao, $Params, [bool]$Teste)
-    if (@('listar', 'desinstalar', 'restos', 'limparRestos') -cnotcontains $Acao) {
+    if (@('listar', 'desinstalar', 'restos', 'limparRestos', 'restosAntigos') -cnotcontains $Acao) {
         Send-Result $Id $null $false 'ação desconhecida'
         return
     }
@@ -952,6 +1318,7 @@ function Invoke-Acao {
             'desinstalar' { Invoke-Desinstalar $Id $Params $Teste }
             'restos' { Invoke-Resto $Id $Params $Teste }
             'limparRestos' { Invoke-LimparResto $Id $Params $Teste }
+            'restosAntigos' { Invoke-RestoAntigo $Id $Params $Teste }
         }
     } catch {
         $msg = 'programas falhou: ' + $_.Exception.Message

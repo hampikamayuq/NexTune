@@ -11,7 +11,7 @@ Status: em desenvolvimento; a primeira versão (0.1.0) está em teste.
 O NexTune olha o seu PC primeiro (processador, memória, tipo de disco) e só então sugere o que vale a pena. Nada é feito sem você clicar, e tudo que ele muda pode ser desfeito.
 
 - **Limpeza** por categorias, ciente do perfil da máquina; o que não se recria pede confirmação dupla.
-- **Programas**: lista pré-instalados de fábrica e apps da Store, desinstala em silêncio quando dá, leva os restos para a quarentena.
+- **Programas**: lista pré-instalados de fábrica e apps da Store, desinstala em silêncio quando dá, leva os restos para a quarentena. Também acha restos de programas desinstalados há tempo (pastas sem programa e atalhos quebrados do menu Iniciar); nome parecido com um programa instalado nunca vem marcado.
 - **Inicialização**: o que abre com o Windows, com impacto medido, e liga/desliga reversível.
 - **Ajustes do Windows** com backup antes da escrita e restauração exata do valor anterior.
 - **Disco**: verificação só de leitura, correção agendada para o próximo reinício, desfragmentar HDD ou TRIM em SSD, nunca o contrário.
@@ -102,4 +102,4 @@ O atualizador só instala pacotes assinados com a chave minisign do projeto. O p
 
 ## Créditos
 
-As listas iniciais de bloatware e de programas protegidos e a lógica de detecção do tipo de desinstalador partiram do [RetroLimpia](https://github.com/Retropunk94/RetroLimpia) (Retropunk94, licença MIT), reescritas em português com fabricantes brasileiros e com testes próprios. A detecção de produtos órfãos do Windows Installer parte do Unregister-MissingMSIs.ps1 (MIT, heaths e BrentHumphreys). Os valores de registro dos ajustes de privacidade de feedback, idioma para sites, novidades do Windows e sugestões da web vêm do [Sophia Script for Windows](https://github.com/farag2/Sophia-Script-for-Windows) (farag2, licença MIT); o NexTune acrescenta o backup e a restauração exata.
+As listas iniciais de bloatware e de programas protegidos e a lógica de detecção do tipo de desinstalador partiram do [RetroLimpia](https://github.com/Retropunk94/RetroLimpia) (Retropunk94, licença MIT até a versão 4.0.11), reescritas em português com fabricantes brasileiros e com testes próprios; a regra de "nome limpo" dos restos antigos vem da 4.0.11. Desde a 4.0.12 o RetroLimpia é GPL-3.0, e nada dessas versões é usado aqui. A detecção de produtos órfãos do Windows Installer parte do Unregister-MissingMSIs.ps1 (MIT, heaths e BrentHumphreys). Os valores de registro dos ajustes de privacidade de feedback, idioma para sites, novidades do Windows e sugestões da web vêm do [Sophia Script for Windows](https://github.com/farag2/Sophia-Script-for-Windows) (farag2, licença MIT); o NexTune acrescenta o backup e a restauração exata.

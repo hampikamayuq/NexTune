@@ -10,6 +10,7 @@ const demo = {
   _perfil: { classe: 'basico', disco: 'hdd', manual: false },
   _cats: null,
   _programas: null,
+  _restosAntigos: null,
   _quarentena: null,
   _inicio: null,
   _ajustesWin: null,
@@ -132,6 +133,20 @@ const demo = {
     return [
       { tipo: 'pasta', caminho: usuario + '\\AppData\\Local\\' + base, tamanhoBytes: 36 * MB, motivo: 'Pasta de dados do programa em AppData, sem executáveis e sem mudanças há 30 dias.', confianca: 'media' },
       { tipo: 'atalho', caminho: usuario + '\\Desktop\\' + prog.nome + '.lnk', tamanhoBytes: 2048, motivo: 'Atalho da Área de Trabalho apontando para um programa que não existe mais.', confianca: 'media' },
+    ];
+  },
+
+  // Restos de programas já desinstalados: seguros primeiro, depois por tamanho (como o script real).
+  _restosAntigosIniciais() {
+    const usuario = 'C:\\Users\\Maria';
+    const r = (tipo, caminho, nome, bytes, seguro, motivo, parecido) => ({ tipo, caminho, nome, bytes, seguro, motivo, parecido: parecido || null });
+    return [
+      r('pasta', 'C:\\Program Files\\McAfee', 'McAfee', 214 * MB, true, 'Pasta em Arquivos de Programas sem nenhum programa instalado com esse nome.'),
+      r('pasta', usuario + '\\AppData\\Roaming\\Lenovo Now', 'Lenovo Now', 38 * MB, true, 'Pasta de dados em AppData de um programa que não está mais instalado.'),
+      r('pasta', 'C:\\ProgramData\\WildTangent', 'WildTangent', 12 * MB, true, 'Pasta em ProgramData sem nenhum programa instalado com esse nome.'),
+      r('atalho', 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\McAfee\\McAfee LiveSafe.lnk', 'McAfee LiveSafe', 2048, true, 'Atalho do menu Iniciar apontando para um programa que não existe mais.'),
+      r('atalho', usuario + '\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Skype.lnk', 'Skype', 1536, true, 'Atalho do menu Iniciar apontando para um programa que não existe mais.'),
+      r('pasta', usuario + '\\AppData\\Local\\Avast Software', 'Avast Software', -1, false, 'Pasta em AppData sem programa instalado com esse nome exato.', 'Avast Free Antivirus'),
     ];
   },
 
@@ -562,12 +577,21 @@ const demo = {
       const prog = this._programas.find((p) => p.id === params.id) || { nome: params.nome, editor: params.editor || '' };
       return { candidatos: this._restos(prog) };
     }
+    if (acao === 'restosAntigos') {
+      if (!this._restosAntigos) this._restosAntigos = this._restosAntigosIniciais();
+      await this._simular(onProgresso, 'programas', ['Procurando pastas sem programa instalado…', 'Procurando atalhos quebrados no menu Iniciar…', 'Medindo tamanhos…']);
+      return { itens: this._restosAntigos.map((i) => Object.assign({}, i)) };
+    }
     if (acao === 'limparRestos') {
       if (params.confirmado !== true) throw new Error('É preciso confirmar.');
       const itens = params.itens || [];
       if (!itens.length) throw new Error('Nenhum item para mover.');
       if (!this._quarentena) this._quarentena = this._quarentenaInicial();
       await this._simular(onProgresso, 'programas', itens.map((i) => 'Movendo ' + i.caminho + '…'));
+      if (this._restosAntigos) {
+        const movidos = new Set(itens.map((i) => i.caminho));
+        this._restosAntigos = this._restosAntigos.filter((i) => !movidos.has(i.caminho));
+      }
       this._seq++;
       const id = '20251120-1530' + String(this._seq).padStart(2, '0') + '-' + (0x1a00 + this._seq).toString(16);
       const agora = new Date();

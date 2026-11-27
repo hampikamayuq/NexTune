@@ -225,11 +225,142 @@ function linhaPrograma(p) {
       p.protegido ? null : h('button', { type: 'button', class: 'btn sec acao escrita', text: t('programas.desinstalar'), onclick: () => desinstalarPrograma(p) })));
 }
 
+// ---- restos de programas já desinstalados (programas/restosAntigos) ----
+// Pastas sem programa instalado correspondente e atalhos quebrados do menu Iniciar. Os itens `seguro`
+// vêm marcados; os parecidos com um programa ainda instalado só vão se o usuário marcar de propósito.
+
+async function carregarRestosAntigos() {
+  const R = S.restosAntigos;
+  if (S.ocupado) return;
+  R.carregando = true; R.erro = null;
+  if (S.vista === 'programas') renderAtual();
+  try {
+    const r = await api.executar('programas', 'restosAntigos', {}, null);
+    const lista = Array.isArray(r.itens) ? r.itens : [];
+    // Quem já estava na lista mantém a marcação do usuário; os novos seguem o `seguro`.
+    const antes = new Map((R.lista || []).map((i) => [i.caminho, R.sel.has(i.caminho)]));
+    R.sel = new Set(lista.filter((i) => (antes.has(i.caminho) ? antes.get(i.caminho) : i.seguro === true)).map((i) => i.caminho));
+    R.lista = lista;
+  } catch (e) {
+    R.erro = e.message || String(e);
+  }
+  R.carregando = false;
+  if (S.vista === 'programas') renderAtual();
+}
+
+async function moverRestosAntigos() {
+  const R = S.restosAntigos;
+  if (S.ocupado || !R.lista) return;
+  const sel = R.lista.filter((i) => R.sel.has(i.caminho));
+  if (!sel.length) return;
+  const dias = S.ajustes.diasQuarentena;
+  const tamanho = fmtBytes(sel.reduce((s, i) => s + Math.max(i.bytes || 0, 0), 0));
+  const corpo = [h('p', { text: sel.length === 1 ? t('programas.moverTextoUm', { tamanho, dias }) : t('programas.moverTexto', { n: sel.length, tamanho, dias }) })];
+  const parecidos = sel.filter((i) => i.seguro !== true);
+  if (parecidos.length) {
+    corpo.push(h('div', { class: 'aviso pequeno' },
+      h('p', { text: parecidos.length === 1 ? t('programas.antigos.moverParecidoUm') : t('programas.antigos.moverParecidos', { n: parecidos.length }) }),
+      h('ul', {}, ...parecidos.map((i) => h('li', { text: i.parecido ? t('programas.antigos.itemParecido', { nome: i.nome || i.caminho, parecido: i.parecido }) : (i.nome || i.caminho) })))));
+  }
+  const ok = await perguntar({
+    titulo: sel.length === 1 ? t('programas.moverTituloUm') : t('programas.moverTitulo', { n: sel.length }),
+    corpo,
+    ok: t('programas.moverQuarentena'),
+  });
+  if (!ok) return;
+  if (!(await garantirPonto())) return;
+  try {
+    // O script descreve a entrada como 'Restos de ' + nome: fica "Restos de programas já desinstalados".
+    const r = await api.executar('programas', 'limparRestos', {
+      itens: sel.map((i) => ({ tipo: i.tipo, caminho: i.caminho })), confirmado: true, nome: t('programas.antigos.nomeQuarentena'),
+    }, null);
+    const falhas = r.falhas || [];
+    if (r.movidos > 0 || !falhas.length) {
+      toast(falhas.length ? t('programas.movidosFalhas', { n: r.movidos, f: falhas.length }) : (r.movidos === 1 ? t('programas.movidoUm') : t('programas.movidos', { n: r.movidos })), 'ok');
+    }
+    falhas.forEach((f) => toast(t('programas.falhaResto', { caminho: f.caminho, erro: f.erro }), 'erro'));
+  } catch (e) {
+    mostrarErroEscrita(e);
+  }
+  await carregarRestosAntigos();
+  // Depois da lista: cada chamada deixa a interface ocupada e a seguinte seria ignorada. O contador da
+  // Quarentena no menu passa a incluir a entrada recém-criada.
+  if (typeof carregarQuarentena === 'function') await carregarQuarentena();
+}
+
+function linhaRestoAntigo(i, idx, aoMudar) {
+  const R = S.restosAntigos;
+  const id = 'ra-' + idx;
+  const aviso = i.seguro === true ? null
+    : h('div', { class: 'aviso pequeno', text: i.parecido ? t('programas.antigos.parecido', { parecido: i.parecido }) : t('programas.antigos.parecidoSemNome') });
+  return h('label', { class: 'atu resto-antigo', for: id },
+    h('input', {
+      type: 'checkbox', class: 'acao', id, checked: R.sel.has(i.caminho),
+      onchange: (e) => { if (e.target.checked) R.sel.add(i.caminho); else R.sel.delete(i.caminho); aoMudar(); },
+    }),
+    h('div', { class: 'atu-info' },
+      h('div', { class: 'atu-nome' }, h('span', { text: i.nome || i.caminho }), h('span', { class: 'selo', text: t('programas.resto.' + i.tipo) })),
+      h('div', { class: 'suave pequeno caminho', text: i.caminho }),
+      i.motivo ? h('div', { class: 'suave pequeno', text: i.motivo }) : null,
+      aviso),
+    h('span', { class: 'tam' + (i.bytes < 0 ? ' desc-tam' : ''), text: fmtBytes(i.bytes) }));
+}
+
+function renderRestosAntigos(v) {
+  const R = S.restosAntigos;
+  v.append(h('p', { class: 'suave', text: t('programas.antigos.intro', { dias: S.ajustes.diasQuarentena }) }));
+  v.append(h('div', { class: 'barra-prog' },
+    h('button', { type: 'button', class: 'btn sec acao', text: t(R.lista ? 'programas.antigos.procurarDeNovo' : 'programas.antigos.procurar'), onclick: () => carregarRestosAntigos() })));
+
+  if (R.erro) {
+    v.append(h('div', { class: 'cartao' },
+      h('p', { text: t('programas.antigos.erro', { erro: R.erro }) }),
+      h('button', { type: 'button', class: 'btn acao', text: t('comum.tentarDeNovo'), onclick: () => carregarRestosAntigos() })));
+  }
+  if (R.carregando) {
+    v.append(h('div', { class: 'carregando' }, h('span', { class: 'giro' }), h('span', { text: t('programas.antigos.procurando') })));
+    return;
+  }
+  if (!R.lista) return;
+  if (!R.lista.length) {
+    v.append(h('p', { class: 'suave', text: t('programas.antigos.nada') }));
+    return;
+  }
+
+  const conhecidos = R.lista.filter((i) => i.bytes >= 0);
+  const total = fmtBytes(conhecidos.length ? conhecidos.reduce((s, i) => s + i.bytes, 0) : -1);
+  v.append(h('h2', { text: R.lista.length === 1 ? t('programas.antigos.achadosUm', { tamanho: total }) : t('programas.antigos.achados', { n: R.lista.length, tamanho: total }) }));
+
+  const btnMover = h('button', { type: 'button', class: 'btn acao escrita', onclick: () => moverRestosAntigos() });
+  const atualizarBotao = () => {
+    const n = R.lista.filter((i) => R.sel.has(i.caminho)).length;
+    btnMover.textContent = t('programas.antigos.mover', { n });
+    if (n === 0) btnMover.setAttribute('data-bloq', ''); else btnMover.removeAttribute('data-bloq');
+    aplicarOcupado();
+  };
+  const listaEl = h('div', { class: 'lista-antigos' });
+  R.lista.forEach((i, idx) => listaEl.append(linhaRestoAntigo(i, idx, atualizarBotao)));
+  v.append(listaEl, h('div', { class: 'barra-prog acoes-antigos' }, btnMover));
+  atualizarBotao();
+}
+
 VISTAS.programas = {
   render(main) {
     const P = S.programas;
     const v = h('section', { class: 'vista' }, h('h1', { text: t('programas.titulo') }));
     main.append(v);
+
+    const secoes = h('div', { class: 'chips secoes-prog', role: 'group', 'aria-label': t('programas.secoes') },
+      ['instalados', 'antigos'].map((s) => h('button', {
+        type: 'button', class: 'chip' + (P.secao === s ? ' ativo' : ''), 'aria-pressed': P.secao === s ? 'true' : 'false',
+        text: t('programas.secao.' + s), onclick: () => { if (P.secao !== s) { P.secao = s; renderAtual(); } },
+      })));
+    v.append(secoes);
+
+    if (P.secao === 'antigos') {
+      renderRestosAntigos(v);
+      return;
+    }
 
     if (!P.lista && !P.carregando && !P.erro && !S.ocupado) setTimeout(() => carregarProgramas(), 0);
 

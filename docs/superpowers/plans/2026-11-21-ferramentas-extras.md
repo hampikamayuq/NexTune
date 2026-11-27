@@ -102,8 +102,10 @@ Feito com um percurso próprio em `espaco.ps1` em vez do `Get-TamanhoComTeto`: e
 
 **Produces:** `programas/restosAntigos -> { itens: [{tipo, caminho, nome, bytes, seguro}] }` em `%ProgramFiles%`, `%ProgramFiles(x86)%`, `%ProgramData%`, `%APPDATA%`, `%LOCALAPPDATA%` e atalhos do menu Iniciar. Regra do RetroLimpia: "seguro" só quando o nome limpo (sem versão, arquitetura e parênteses) não casa com nenhum programa instalado nem com `protegidos.json`. A limpeza reaproveita `limparRestos` (vai para a quarentena).
 
-- [ ] **Passo 1:** testes: pasta de programa removido é achada; pasta de programa ainda instalado com nome parecido não é "segura" (Review Focus 4); pasta protegida nunca aparece.
-- [ ] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
+- [x] **Passo 1:** testes: pasta de programa removido é achada; pasta de programa ainda instalado com nome parecido não é "segura" (Review Focus 4); pasta protegida nunca aparece.
+- [x] **Passo 2:** ver falhar; **Passo 3:** portar; **Passo 4:** ver passar; **Passo 5:** commit.
+
+Licença (conferida em 2026-11-27): o RetroLimpia passou a GPL-3.0 na 4.0.12; até a 4.0.11 era MIT. Só a 4.0.11 serve de base. O `residuos.ps1` dela procura restos de UM programa pelo nome, então a varredura geral é código novo; da 4.0.11 veio só a regra de nome limpo. Itens são `pasta` e `atalho` (sem chaves de registro); nomes que não são programas ficam em `data/restos.json`. A tarefa 7 (`drivers.ps1`) precisa da mesma conferência: usar só a 4.0.11. A tarefa 3 foi portada em 2026-11-21, antes da 4.0.12 (2026-11-22 ou depois).
 
 ### Tarefa 7: dispositivos com problema e backup de drivers (porta de `drivers.ps1`)
 
