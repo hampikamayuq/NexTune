@@ -346,10 +346,6 @@ p { margin: 0 0 0.75rem; }
 .atu-nome { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 0.5rem; font-weight: 600; }
 .atu .motivo { color: var(--amarelo); font-size: 0.875rem; }
 .atu .tam { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--suave); font-size: 0.875rem; }
-.atu .caminho { font-family: "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; }
-.resto-antigo .aviso { margin: 0.4rem 0 0; padding: 0.4rem 0.7rem; }
-.secoes-prog { margin: 0 0 1rem; }
-.acoes-antigos { justify-content: flex-end; margin-top: 0.75rem; }
 .cartao .acoes { display: flex; justify-content: flex-end; margin-top: 0.75rem; }
 
 /* Modo Jogo, Opções e link de reinstalação */

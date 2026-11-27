@@ -603,7 +603,7 @@ pub fn validar(
             copiar_simular(&m, &mut saida, teste)?;
             Ok(Value::Object(saida))
         }
-        ("programas", "listar") | ("programas", "restosAntigos") => {
+        ("programas", "listar") => {
             let m = como_objeto(params)?;
             so_chaves(&m, &["simular"])?;
             let mut saida = Map::new();
@@ -1159,7 +1159,6 @@ mod testes {
             ("limpeza", "analisar"),
             ("programas", "listar"),
             ("programas", "restos"),
-            ("programas", "restosAntigos"),
             ("quarentena", "listar"),
             ("sistema", "protecaoEstado"),
             ("sistema", "sessao"),
@@ -1682,25 +1681,6 @@ mod testes {
             &json!({"itens": itens, "confirmado": true}),
             false,
         )
-    }
-
-    #[test]
-    fn programas_restos_antigos() {
-        assert!(!e_escrita("programas", "restosAntigos"));
-        assert_eq!(
-            validar("programas", "restosAntigos", &json!({}), false).unwrap(),
-            json!({})
-        );
-        assert_eq!(
-            validar("programas", "restosAntigos", &json!(null), false).unwrap(),
-            json!({})
-        );
-        let sim = json!({"simular": {"itens": []}});
-        assert_eq!(validar("programas", "restosAntigos", &sim, true).unwrap(), sim);
-        parametro(validar("programas", "restosAntigos", &sim, false));
-        parametro(validar("programas", "restosAntigos", &json!({"x": 1}), false));
-        parametro(validar("programas", "restosAntigos", &json!({"id": ID_CL}), false));
-        parametro(validar("programas", "restosAntigos", &json!([]), false));
     }
 
     #[test]

@@ -14,10 +14,7 @@ const S = {
   limpeza: { sel: new Set(), log: [], pct: 0, msg: '', rodando: false, resultado: null, avancadoAnalisado: null, falhou: null },
   // Programas: lista de programas/listar, filtros da barra, progresso da ação em curso e o resultado
   // da última desinstalação (cartão com restos) até o usuário fechar.
-  // `secao`: 'instalados' (a lista) ou 'antigos' (restos de programas já desinstalados).
-  programas: { lista: null, filtro: '', aba: 'todos', ordem: 'nome', carregando: false, erro: null, ultimo: null, prog: null, secao: 'instalados' },
-  // Restos de programas já desinstalados (programas/restosAntigos) e os caminhos marcados para a quarentena.
-  restosAntigos: { lista: null, sel: new Set(), carregando: false, erro: null },
+  programas: { lista: null, filtro: '', aba: 'todos', ordem: 'nome', carregando: false, erro: null, ultimo: null, prog: null },
   quarentena: { entradas: null, sel: new Set(), erro: null, carregando: false, ultimo: null },
   inicio: { itens: null, carregando: false, erro: null, filtro: 'todos', avancadoListado: null },
   ajustesWin: { lista: null, carregando: false, erro: null, avancadoListado: null },
