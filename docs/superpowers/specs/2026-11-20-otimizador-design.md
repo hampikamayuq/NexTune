@@ -201,6 +201,7 @@ Grupos: anúncios e sugestões, privacidade (ID de publicidade, experiências pe
 ### 8.8 Modo Jogo
 Portado do RetroLimpia (`modojuego.ps1`) com as mesmas garantias: estado salvo em disco **antes** de qualquer mudança; nunca ativa por cima de um estado existente; lista de protegidos (OBS, Discord, launchers, drivers, áudio, overlays); programas com janela recebem pedido de fechar (respeita "salvar alterações?"), não `kill`; restaura tudo ao sair (plano de energia, notificações, serviços pausados, prioridade) e reabre o que fechou.
 - Presets: `suave` (fechar escolhidos + plano de energia), `equilibrado` (+ silenciar notificações + pausar Windows Update/BITS/Otimização de Entrega, exceto se o Windows estiver instalando), `a fundo` (+ pausar WSearch e SysMain + prioridade alta no jogo). No perfil `fraco`, `a fundo` fica no modo avançado.
+- Som tocando: programa com sessão de áudio ativa no Windows (Core Audio, `IAudioSessionManager2`, só leitura) fica protegido enquanto toca, na lista e de novo na hora de ativar (vale se começou a tocar depois de marcado). Se a leitura do áudio falhar, registra no log e segue só com a lista de protegidos (fechar continua sendo só pedido).
 - Automático: lista "meus jogos" (`.exe` escolhidos pelo usuário); vigia em Rust; liga ao detectar o jogo e restaura 30 s depois de ele fechar.
 
 ## 9. Segurança e reversibilidade (regras transversais)

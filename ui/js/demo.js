@@ -477,7 +477,7 @@ const demo = {
       estado: { ativo: false },
       processos: [
         p('chrome.exe', 'Google Chrome', 540),
-        p('Spotify.exe', 'Spotify', 210),
+        Object.assign(p('Spotify.exe', 'Spotify', 210, 'Está tocando som agora; pause o som se quiser fechar.'), { tocandoSom: true }),
         p('Discord.exe', 'Discord', 320, 'Chat de voz com os amigos.'),
         p('obs64.exe', 'OBS Studio', 260, 'Gravação/transmissão: fechar perde a live.'),
         p('soffice.exe', 'LibreOffice', 180),

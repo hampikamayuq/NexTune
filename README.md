@@ -21,7 +21,7 @@ O NexTune olha o seu PC primeiro (processador, memória, tipo de disco) e só en
 - **Dispositivos**: lista o que está com problema no Gerenciador de Dispositivos, explica o código e tenta reparar por etapas; faz backup dos drivers.
 - **Rede**: limpa o cache de DNS, redefine a rede e liga o DNS seguro (Cloudflare, Google ou Quad9, com DoH no Windows 11), guardando os servidores anteriores para voltar exatamente como estava.
 - **Reparo do instalador**: acha programas cujo arquivo de instalação sumiu do Windows (erros 1603 e 1612 ao atualizar ou desinstalar) e, se você marcar, remove só o registro quebrado, com backup na quarentena.
-- **Modo Jogo**: pede para fechar programas, pausa serviços, troca o plano de energia e desfaz tudo ao sair.
+- **Modo Jogo**: pede para fechar programas, pausa serviços, troca o plano de energia e desfaz tudo ao sair. Não fecha o que está tocando som (música, vídeo, chamada) naquele momento.
 - **Bandeja, lembretes e atualizador** próprio (assinatura minisign, GitHub Releases).
 
 ## O que ele nunca faz

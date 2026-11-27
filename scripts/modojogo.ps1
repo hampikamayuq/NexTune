@@ -6,7 +6,8 @@
 # Regras: nunca Stop-Process/kill (so CloseMainWindow e espera de 10 s); nunca Set-Service -StartupType;
 # o estado fica em Estado\modojogo.json, regravado a cada passo (atomico), e desativar so religa o que
 # esta la; programas protegidos (protegidos.json + modojogo.json) nunca sao fechados.
-# Em modo teste: simular {processos [{exe, nome, caminho, ramBytes, janela, naoFecha?}], planoAtivo,
+# Programa tocando som (sessao de audio ativa no Windows) e tratado como protegido enquanto toca.
+# Em modo teste: simular {processos [{exe, nome, caminho, ramBytes, janela, naoFecha?, som?}], planoAtivo,
 # servicos {nome: 'Running'|'Stopped'}, windowsInstalando?, perfil?} substitui toda leitura real;
 # marcadores em %TEMP%\NexTuneTeste\modojogo\; notificacoes em HKCU\Software\NexTuneTeste\ModoJogo.
 . "$PSScriptRoot\common.ps1"
@@ -19,6 +20,119 @@ $Script:ChaveNotificacoesTeste = 'HKCU\Software\NexTuneTeste\ModoJogo\Notificati
 $Script:ValorNotificacoes = 'NOC_GLOBAL_SETTING_TOASTS_ENABLED'
 $Script:EsperaFecharMs = 10000
 $Script:MotivoSistema = 'Faz parte do Windows: fechar pode travar o PC.'
+$Script:MotivoSom = 'Está tocando som agora; pause o som se quiser fechar.'
+
+# Sessoes de audio do Windows (Core Audio): PIDs com sessao ativa (tocando) em qualquer saida de som ligada.
+# So leitura; C# 5 porque o Add-Type do PowerShell 5.1 usa o compilador do .NET Framework.
+$Script:CodigoSom = @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+namespace NexTune.Audio {
+    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+    class MMDeviceEnumeratorCom { }
+
+    [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IMMDeviceEnumerator {
+        [PreserveSig] int EnumAudioEndpoints(int fluxo, int estados, out IMMDeviceCollection lista);
+    }
+
+    [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IMMDeviceCollection {
+        [PreserveSig] int GetCount(out uint total);
+        [PreserveSig] int Item(uint indice, out IMMDevice dispositivo);
+    }
+
+    [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IMMDevice {
+        [PreserveSig] int Activate(ref Guid iid, int contexto, IntPtr parametros, [MarshalAs(UnmanagedType.IUnknown)] out object objeto);
+    }
+
+    [ComImport, Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionManager2 {
+        [PreserveSig] int GetAudioSessionControl(IntPtr sessao, int fluxo, out IntPtr controle);
+        [PreserveSig] int GetSimpleAudioVolume(IntPtr sessao, int fluxo, out IntPtr volume);
+        [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator sessoes);
+    }
+
+    [ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionEnumerator {
+        [PreserveSig] int GetCount(out int total);
+        [PreserveSig] int GetSession(int indice, [MarshalAs(UnmanagedType.IUnknown)] out object sessao);
+    }
+
+    // IAudioSessionControl (9 metodos) seguido de IAudioSessionControl2; so GetState e GetProcessId sao usados,
+    // os demais ocupam o lugar na vtable.
+    [ComImport, Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionControl2 {
+        [PreserveSig] int GetState(out int estado);
+        [PreserveSig] int GetDisplayName(out IntPtr nome);
+        [PreserveSig] int SetDisplayName();
+        [PreserveSig] int GetIconPath(out IntPtr caminho);
+        [PreserveSig] int SetIconPath();
+        [PreserveSig] int GetGroupingParam(out Guid grupo);
+        [PreserveSig] int SetGroupingParam();
+        [PreserveSig] int RegisterAudioSessionNotification();
+        [PreserveSig] int UnregisterAudioSessionNotification();
+        [PreserveSig] int GetSessionIdentifier(out IntPtr id);
+        [PreserveSig] int GetSessionInstanceIdentifier(out IntPtr id);
+        [PreserveSig] int GetProcessId(out uint pid);
+    }
+
+    public static class Sessoes {
+        const int SaidaDeSom = 0;          // eRender
+        const int DispositivoAtivo = 1;    // DEVICE_STATE_ACTIVE
+        const int TodosContextos = 0x17;   // CLSCTX_ALL
+        const int SessaoAtiva = 1;         // AudioSessionStateActive
+
+        static void Soltar(object o) {
+            if (o != null && Marshal.IsComObject(o)) { Marshal.ReleaseComObject(o); }
+        }
+
+        public static uint[] PidsTocando() {
+            HashSet<uint> pids = new HashSet<uint>();
+            Guid iidGerente = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+            IMMDeviceEnumerator en = null;
+            IMMDeviceCollection lista = null;
+            try {
+                en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom());
+                Marshal.ThrowExceptionForHR(en.EnumAudioEndpoints(SaidaDeSom, DispositivoAtivo, out lista));
+                uint total;
+                Marshal.ThrowExceptionForHR(lista.GetCount(out total));
+                for (uint i = 0; i < total; i++) {
+                    IMMDevice dispositivo = null;
+                    object objeto = null;
+                    IAudioSessionEnumerator sessoes = null;
+                    try {
+                        if (lista.Item(i, out dispositivo) != 0) { continue; }
+                        if (dispositivo.Activate(ref iidGerente, TodosContextos, IntPtr.Zero, out objeto) != 0) { continue; }
+                        IAudioSessionManager2 gerente = (IAudioSessionManager2)objeto;
+                        if (gerente.GetSessionEnumerator(out sessoes) != 0) { continue; }
+                        int n;
+                        if (sessoes.GetCount(out n) != 0) { continue; }
+                        for (int j = 0; j < n; j++) {
+                            object s = null;
+                            try {
+                                if (sessoes.GetSession(j, out s) != 0) { continue; }
+                                IAudioSessionControl2 c = (IAudioSessionControl2)s;
+                                int estado;
+                                uint pid;
+                                if (c.GetState(out estado) != 0 || estado != SessaoAtiva) { continue; }
+                                if (c.GetProcessId(out pid) != 0 || pid == 0) { continue; }
+                                pids.Add(pid);
+                            } finally { Soltar(s); }
+                        }
+                    } finally { Soltar(sessoes); Soltar(objeto); Soltar(dispositivo); }
+                }
+            } finally { Soltar(lista); Soltar(en); }
+            uint[] saida = new uint[pids.Count];
+            pids.CopyTo(saida);
+            return saida;
+        }
+    }
+}
+'@
 
 # ---------- funcoes puras ----------
 
@@ -67,6 +181,15 @@ function Get-ServicosDoPreset {
         'a_fundo' { return @(@($Dados.servicos.equilibrado) + @($Dados.servicos.a_fundo)) }
         default { return @() }
     }
+}
+
+function Test-TocandoSom {
+    # Puro: o exe esta na lista de exes com som ativo (nomes comparados sem diferenciar caixa).
+    param([string]$Exe, $ComSom)
+    foreach ($s in @($ComSom)) {
+        if ([string]::Equals([string]$s, $Exe, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
 }
 
 function Test-NomeExe {
@@ -184,6 +307,38 @@ function Get-ProcessoSimulado {
     if ($null -eq $Sim -or $null -eq $Sim.processos) { return $null }
     foreach ($p in @($Sim.processos)) { if ([string]$p.exe -eq $Exe) { return $p } }
     return $null
+}
+
+function Get-PidsComSomReais {
+    # PIDs com sessao de audio ativa. Compila o leitor de Core Audio na primeira chamada do host.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
+    param()
+    if (-not ('NexTune.Audio.Sessoes' -as [type])) { Add-Type -TypeDefinition $Script:CodigoSom -Language CSharp -ErrorAction Stop }
+    return @([NexTune.Audio.Sessoes]::PidsTocando())
+}
+
+function Get-ExesComSom {
+    # Exes (como 'Spotify.exe') dos processos tocando som agora. Em teste: simular.processos com som:true.
+    # Se a leitura do audio falhar, registra no log e devolve lista vazia: fechar continua so pedindo (nunca mata).
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '')]
+    [CmdletBinding()]
+    param([bool]$Teste, $Sim)
+    if ($Teste) {
+        if ($null -eq $Sim -or $null -eq $Sim.processos) { return @() }
+        return @(@($Sim.processos) | Where-Object { $_.som -eq $true } | ForEach-Object { [string]$_.exe })
+    }
+    try { $pids = @(Get-PidsComSomReais) }
+    catch {
+        Write-AppLog ('modojogo: não foi possível ler o som tocando: ' + $_.Exception.Message) $Teste
+        return @()
+    }
+    $exes = @{}
+    foreach ($id in $pids) {
+        $p = Get-Process -Id ([int]$id) -ErrorAction SilentlyContinue
+        if ($null -ne $p) { $exes[$p.ProcessName.ToLowerInvariant()] = $p.ProcessName + '.exe' }
+    }
+    return @($exes.Values)
 }
 
 function Request-FecharJanela {
@@ -334,7 +489,8 @@ function Restore-Notificacao {
 function Resolve-PedidoFechar {
     # Separa o pedido em programas a fechar (com caminho) e naoFechados (protegido ou nao esta aberto).
     # Protegido vale mesmo se nao estiver aberto: o motivo e mais util que "nao esta aberto".
-    param($Pedidos, $Processos, $Tabelas, $Jogo = $null)
+    # Aberto e tocando som ($ComSom) tambem nao fecha: a musica ou a chamada do usuario nao e cortada.
+    param($Pedidos, $Processos, $Tabelas, $Jogo = $null, $ComSom = @())
     $fechar = @()
     $nao = @()
     $vistos = @{}
@@ -350,7 +506,8 @@ function Resolve-PedidoFechar {
         if (-not [string]::IsNullOrEmpty($motivo)) { $nao += [pscustomobject]@{ exe = $exe; motivo = $motivo }; continue }
         $p = @($Processos | Where-Object { [string]::Equals($_.exe, $exe, [StringComparison]::OrdinalIgnoreCase) })
         if ($p.Count -eq 0) { $nao += [pscustomobject]@{ exe = $exe; motivo = 'não está aberto' }; continue }
-        $fechar += [pscustomobject]@{ exe = $p[0].exe; caminho = $p[0].caminho }
+        if (Test-TocandoSom $exe $ComSom) { $nao += [pscustomobject]@{ exe = $exe; motivo = $Script:MotivoSom }; continue }
+        $fechar +=[pscustomobject]@{ exe = $p[0].exe; caminho = $p[0].caminho }
     }
     return @{ fechar = @($fechar); naoFechados = @($nao) }
 }
@@ -454,7 +611,10 @@ function Invoke-Ativar {
     }
 
     Send-Progress $Id 10 'Lendo o que está aberto'
-    $pedido = Resolve-PedidoFechar $Params.fechar (Get-ProcessosJanela $Teste $sim) (Get-TabelasProtegidos) $jogo
+    # O som e lido so quando ha algo a fechar (o automatico nunca pede para fechar nada).
+    $comSom = @()
+    if (@($Params.fechar | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0) { $comSom = @(Get-ExesComSom $Teste $sim) }
+    $pedido = Resolve-PedidoFechar $Params.fechar (Get-ProcessosJanela $Teste $sim) (Get-TabelasProtegidos) $jogo $comSom
     $dados = Read-ArquivoJson (Join-Path (Get-PastaDeDados) 'modojogo.json')
     $servicos = @(Get-ServicosDoPreset $preset $dados)
     $pids = @(); if ($null -ne $jogo) { $pids = @(Get-PidsJogo $jogo $Teste $sim) }
@@ -623,9 +783,13 @@ function Invoke-ProcessoJanela {
     param([string]$Id, $Params, [bool]$Teste)
     $sim = Get-Simulacao $Params $Teste
     $tabelas = Get-TabelasProtegidos
+    $comSom = @(Get-ExesComSom $Teste $sim)
     $itens = @()
     foreach ($p in @(Get-ProcessosJanela $Teste $sim | Sort-Object -Property ramBytes -Descending)) {
+        # O motivo da lista de protegidos vem antes: e permanente e explica melhor que "tocando som".
         $motivo = Get-ProcessoProtegido ([string]$p.exe) $tabelas
+        $som = Test-TocandoSom ([string]$p.exe) $comSom
+        if ([string]::IsNullOrEmpty($motivo) -and $som) { $motivo = $Script:MotivoSom }
         $itens += [ordered]@{
             exe             = $p.exe
             nome            = $p.nome
@@ -633,6 +797,7 @@ function Invoke-ProcessoJanela {
             ramBytes        = $p.ramBytes
             protegido       = (-not [string]::IsNullOrEmpty($motivo))
             motivoProtegido = $motivo
+            tocandoSom      = $som
         }
     }
     Send-Result $Id ([ordered]@{ processos = @($itens) })

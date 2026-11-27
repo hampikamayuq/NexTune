@@ -124,7 +124,7 @@ function linhaProcesso(p) {
   const M = S.modoJogo;
   const info = h('div', { class: 'prog-info' },
     h('div', { class: 'prog-nome' }, h('span', { text: p.nome || p.exe }), h('span', { class: 'suave pequeno', text: p.exe }),
-      p.protegido ? h('span', { class: 'selo', title: p.motivoProtegido || '', text: t('modojogo.selo.protegido') }) : null),
+      p.protegido ? h('span', { class: 'selo', title: p.motivoProtegido || '', text: t(p.tocandoSom ? 'modojogo.selo.som' : 'modojogo.selo.protegido') }) : null),
     p.protegido && p.motivoProtegido ? h('div', { class: 'suave pequeno', text: p.motivoProtegido }) : null);
   const ram = h('span', { class: 'tam', text: t('modojogo.ram', { ram: fmtBytes(p.ramBytes) }) });
   if (p.protegido) return h('div', { class: 'proc-jogo protegido' }, h('span', { class: 'sem-caixa' }), info, ram);
@@ -210,8 +210,11 @@ VISTAS.modojogo = {
 
     v.append(cartaoPresets());
     const procs = M.processos || [];
+    // Quem toca som fica protegido só enquanto toca: "Atualizar" relê a lista depois de pausar o som.
     v.append(h('div', { class: 'cartao' }, h('h3', { text: t('modojogo.fechar') }),
-      procs.length ? h('div', { class: 'lista-atu' }, procs.map(linhaProcesso)) : h('p', { class: 'suave', text: t('modojogo.semProcessos') })));
+      h('p', { class: 'suave pequeno', text: t('modojogo.somAjuda') }),
+      procs.length ? h('div', { class: 'lista-atu' }, procs.map(linhaProcesso)) : h('p', { class: 'suave', text: t('modojogo.semProcessos') }),
+      h('div', { class: 'acoes' }, h('button', { type: 'button', class: 'btn sec acao', text: t('modojogo.atualizar'), onclick: () => carregarModoJogo() }))));
     v.append(cartaoJogos());
     v.append(h('div', { class: 'cartao' }, h('div', { class: 'acoes' },
       h('button', { type: 'button', class: 'btn acao escrita', text: t('modojogo.ativar'), onclick: ativarModoJogo }))));
